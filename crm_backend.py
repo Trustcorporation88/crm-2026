@@ -1,4 +1,4 @@
-"""SQLite backend for the MR TRUST CRM app."""
+"""SQLite backend for the Mr.Holmes CRM app."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""MR TRUST CRM - persisted CRM with auth, roles and channel intake."""
+"""Mr.Holmes CRM - persisted CRM with auth, roles and channel intake."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ BENCHMARKS = pd.DataFrame(
 
 
 st.set_page_config(
-    page_title="MR TRUST CRM",
+    page_title="Mr.Holmes CRM",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -143,28 +143,6 @@ st.markdown(
         margin: 2px 0 14px;
     }
 
-    .nav-toolbar {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        margin: 0 0 12px 0;
-    }
-
-    .nav-toolbar-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        border-radius: 999px;
-        padding: 7px 12px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.06);
-        color: #f2f4ff;
-        font-size: 11px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-    }
-
     .top-nav-pill {
         display: inline-flex;
         align-items: center;
@@ -178,12 +156,6 @@ st.markdown(
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-    }
-
-    .top-nav-pill .nav-icon {
-        font-size: 13px;
-        line-height: 1;
-        opacity: 1;
     }
 
     .hero {
@@ -344,58 +316,6 @@ st.markdown(
         color: #f8fafc !important;
         border: 1px solid rgba(255, 255, 255, 0.24) !important;
         border-radius: 12px !important;
-    }
-
-    [data-testid="stTextInput"] input,
-    [data-testid="stTextArea"] textarea,
-    [data-testid="stNumberInput"] input,
-    [data-testid="stDateInput"] input,
-    [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
-    input[type="text"],
-    input[type="password"],
-    textarea {
-        background: rgba(255, 255, 255, 0.06) !important;
-        color: #f8fafc !important;
-        -webkit-text-fill-color: #f8fafc !important;
-        opacity: 1 !important;
-    }
-
-    input[type="password"]::-ms-reveal,
-    input[type="password"]::-ms-clear {
-        display: none;
-    }
-
-    input:-webkit-autofill,
-    input:-webkit-autofill:hover,
-    input:-webkit-autofill:focus,
-    textarea:-webkit-autofill,
-    select:-webkit-autofill {
-        -webkit-text-fill-color: #f8fafc !important;
-        -webkit-box-shadow: 0 0 0 1000px rgba(18, 18, 27, 0.98) inset !important;
-        box-shadow: 0 0 0 1000px rgba(18, 18, 27, 0.98) inset !important;
-        transition: background-color 9999s ease-in-out 0s;
-    }
-
-    [data-testid="stTextInput"] input::placeholder,
-    [data-testid="stTextArea"] textarea::placeholder,
-    input[type="text"]::placeholder,
-    input[type="password"]::placeholder,
-    textarea::placeholder {
-        color: #d6daeb !important;
-        opacity: 0.82 !important;
-    }
-
-    .stTextInput label,
-    .stTextArea label,
-    .stNumberInput label,
-    .stDateInput label,
-    .stSelectbox label,
-    .stMultiSelect label,
-    .stRadio label,
-    .stCheckbox label,
-    .stForm label {
-        color: #e8ebff !important;
-        opacity: 1 !important;
     }
 
     .stTextInput input:focus,
@@ -606,103 +526,11 @@ def ingest_message(uploaded_file) -> str:
 
 
 def render_navigation_strip(allowed_sections: list[str], active_section: str) -> None:
-    option_map = {
-        f"{_section_icon(section)} {section}": section
+    chips = "".join(
+        f'<span class="top-nav-pill">{"●" if section == active_section else "○"} {section}</span>'
         for section in allowed_sections
-    }
-    current_label = next(
-        (label for label, value in option_map.items() if value == active_section),
-        next(iter(option_map.keys())),
     )
-
-    if st.session_state.get("crm_top_nav") not in option_map:
-        st.session_state["crm_top_nav"] = current_label
-
-    selected_label = st.radio(
-        "Navegacao rapida",
-        list(option_map.keys()),
-        key="crm_top_nav",
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-    selected_section = option_map[selected_label]
-    if selected_section != st.session_state.get("crm_section"):
-        _push_section_history(st.session_state.get("crm_section", selected_section))
-        st.session_state["crm_section"] = selected_section
-        st.session_state["crm_nav_radio"] = selected_section
-        st.rerun()
-
-
-def _section_icon(section: str) -> str:
-    section_icons = {
-        "Visao Executiva": "📊",
-        "Atendimento": "🎧",
-        "Canais": "📨",
-        "Clientes 360": "🧩",
-        "Pipeline": "📈",
-        "Marketing": "📣",
-        "Benchmark": "🧠",
-        "Admin": "🛡️",
-    }
-    return section_icons.get(section, "📌")
-
-
-def _push_section_history(current_section: str) -> None:
-    history = st.session_state.setdefault("crm_section_history", [])
-    if not history or history[-1] != current_section:
-        history.append(current_section)
-    if len(history) > 25:
-        st.session_state["crm_section_history"] = history[-25:]
-
-
-def _goto_home(allowed_sections: list[str]) -> None:
-    """
-    Navega para a seção inicial de forma mais segura
-    """
-    current = st.session_state.get("crm_section", allowed_sections[0])
-    target = "Visao Executiva" if "Visao Executiva" in allowed_sections else allowed_sections[0]
-    
-    if current != target:
-        _push_section_history(current)
-        st.session_state["crm_section"] = target
-        st.session_state["crm_top_nav"] = f"{_section_icon(target)} {target}"
-
-
-def _go_back(allowed_sections: list[str]) -> bool:
-    """
-    Navega para a seção anterior de forma mais segura
-    """
-    history = st.session_state.get("crm_section_history", [])
-    current = st.session_state.get("crm_section", allowed_sections[0])
-    while history:
-        target = history.pop()
-        if target in allowed_sections and target != current:
-            st.session_state["crm_section_history"] = history
-            st.session_state["crm_section"] = target
-            st.session_state["crm_top_nav"] = f"{_section_icon(target)} {target}"
-            return True
-    st.session_state["crm_section_history"] = history
-    return False
-
-
-def render_nav_toolbar(allowed_sections: list[str]) -> None:
-    current = st.session_state.get("crm_section", allowed_sections[0])
-
-    col1, col2, col3 = st.columns([0.12, 0.12, 0.76])
-    with col1:
-        if st.button("🏠 Home", key="top_home_btn", use_container_width=True):
-            _goto_home(allowed_sections)
-            st.rerun()
-    with col2:
-        if st.button("⬅ Voltar", key="top_back_btn", use_container_width=True):
-            if _go_back(allowed_sections):
-                st.rerun()
-            st.info("Sem navegacao anterior para voltar.")
-    with col3:
-        st.markdown(
-            f'<div class="nav-toolbar"><span class="nav-toolbar-pill">Seção atual: {current}</span></div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(f'<div class="top-nav-strip">{chips}</div>', unsafe_allow_html=True)
 
 
 def render_empty_state(message: str) -> None:
@@ -741,50 +569,15 @@ owner_options = sorted(
 )
 
 with st.sidebar:
-    st.markdown("## MR TRUST CRM")
+    st.markdown("## Mr.Holmes CRM")
     st.caption("Atendimento, vendas e marketing em operacao persistida.")
     st.success(f"{user['full_name']} | perfil: {user['role']}")
     if st.button("Sair", use_container_width=True):
         st.session_state.pop("crm_user", None)
-        st.session_state.pop("crm_section", None)
-        st.session_state.pop("crm_section_history", None)
         st.rerun()
 
     allowed_sections = get_role_sections(user["role"])
-    if "crm_section" not in st.session_state or st.session_state["crm_section"] not in allowed_sections:
-        st.session_state["crm_section"] = "Visao Executiva" if "Visao Executiva" in allowed_sections else allowed_sections[0]
-    if "crm_section_history" not in st.session_state:
-        st.session_state["crm_section_history"] = []
-    if "crm_top_nav" not in st.session_state:
-        current = st.session_state["crm_section"]
-        st.session_state["crm_top_nav"] = f"{_section_icon(current)} {current}"
-
-    nav_a, nav_b = st.columns(2)
-    with nav_a:
-        if st.button("🏠 Home", use_container_width=True, key="side_home_btn"):
-            _goto_home(allowed_sections)
-            st.rerun()
-    with nav_b:
-        if st.button("⬅ Voltar", use_container_width=True, key="side_back_btn"):
-            if _go_back(allowed_sections):
-                st.rerun()
-            st.info("Sem navegacao anterior para voltar.")
-
-    # Remove a chave fixa para permitir mudanças dinâmicas
-    selected_section = st.radio(
-        "Navegacao",
-        allowed_sections,
-        index=allowed_sections.index(st.session_state["crm_section"])
-    )
-    
-    # Lógica de navegação sem modificar o estado do widget
-    if selected_section != st.session_state["crm_section"]:
-        _push_section_history(st.session_state["crm_section"])
-        st.session_state["crm_section"] = selected_section
-        st.session_state["crm_top_nav"] = f"{_section_icon(selected_section)} {selected_section}"
-        st.experimental_rerun()
-    
-    section = st.session_state["crm_section"]
+    section = st.radio("Navegacao", allowed_sections)
     selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"])
     selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options)
     st.markdown("---")
@@ -834,7 +627,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-render_nav_toolbar(allowed_sections)
 render_navigation_strip(allowed_sections, section)
 
 render_metric_cards(
