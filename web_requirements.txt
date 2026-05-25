@@ -1,0 +1,9 @@
+streamlit
+pandas
+phonenumbers
+dnspython
+fastapi
+uvicorn
+PyJWT
+pytest
+httpx
