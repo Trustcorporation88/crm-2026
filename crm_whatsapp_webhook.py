@@ -33,6 +33,11 @@ from crm_backend import (
     update_entity,
     verify_access_token,
     verify_webhook_hmac,
+    start_aci_connection,
+    complete_aci_connection,
+    list_aci_tools,
+    execute_aci_tool_call,
+    get_aci_tool_calls,
 )
 
 
@@ -56,6 +61,27 @@ class AuthThrottleClearPayload(BaseModel):
 class AuthThrottleUnlockPayload(BaseModel):
     subject_prefix: str
     endpoint: str | None = None
+
+
+class AciConnectStartPayload(BaseModel):
+    provider: str
+    tenant_id: str = "default"
+    redirect_uri: str
+
+
+class AciConnectCallbackPayload(BaseModel):
+    connection_id: str
+    code: str
+    state: str
+
+
+class AciToolCallPayload(BaseModel):
+    tenant_id: str = "default"
+    provider: str
+    tool_name: str
+    action_name: str
+    input: dict
+    idempotency_key: str | None = None
 
 
 def _require_client_fingerprint(value: str | None) -> str:
@@ -441,4 +467,109 @@ def api_auth_throttle_unlock(
         "status": "ok",
         "requested_by": actor["username"],
         "unlocked": unlocked,
+    }
+
+
+@app.post("/api/aci/connect/start")
+def api_aci_connect_start(
+    payload: AciConnectStartPayload,
+    x_actor_username: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    actor = _authorize_actor(x_actor_username, authorization, required_action="aci.connect")
+    try:
+        result = start_aci_connection(
+            provider=payload.provider,
+            tenant_id=payload.tenant_id,
+            redirect_uri=payload.redirect_uri,
+            actor=actor,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", **result}
+
+
+@app.post("/api/aci/connect/callback")
+def api_aci_connect_callback(
+    payload: AciConnectCallbackPayload,
+    x_actor_username: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    actor = _authorize_actor(x_actor_username, authorization, required_action="aci.connect")
+    try:
+        result = complete_aci_connection(
+            connection_id=payload.connection_id,
+            code=payload.code,
+            state=payload.state,
+            actor=actor,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", **result}
+
+
+@app.get("/api/aci/tools")
+def api_aci_tools(
+    provider: str | None = Query(default=None),
+    x_actor_username: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    actor = _authorize_actor(x_actor_username, authorization, required_action="aci.tools.read")
+    rows = list_aci_tools(provider=provider, actor=actor)
+    return {
+        "status": "ok",
+        "requested_by": actor["username"],
+        "tools": rows,
+    }
+
+
+@app.post("/api/aci/tool-call")
+def api_aci_tool_call(
+    payload: AciToolCallPayload,
+    x_actor_username: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    actor = _authorize_actor(x_actor_username, authorization, required_action="aci.tools.execute")
+    try:
+        result = execute_aci_tool_call(
+            tenant_id=payload.tenant_id,
+            provider=payload.provider,
+            tool_name=payload.tool_name,
+            action_name=payload.action_name,
+            input_payload=payload.input,
+            actor=actor,
+            idempotency_key=payload.idempotency_key,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/api/aci/tool-calls")
+def api_aci_tool_calls(
+    limit: int = Query(default=50),
+    cursor: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    tool_name: str | None = Query(default=None),
+    x_actor_username: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    actor = _authorize_actor(x_actor_username, authorization, required_action="aci.calls.read")
+    result = get_aci_tool_calls(
+        actor=actor,
+        limit=limit,
+        cursor=cursor,
+        status_filter=status,
+        tool_name=tool_name,
+    )
+    return {
+        "status": "ok",
+        "requested_by": actor["username"],
+        **result,
     }

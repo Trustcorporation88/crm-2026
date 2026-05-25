@@ -8,6 +8,8 @@ import json
 import os
 import secrets
 import sqlite3
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -37,13 +39,39 @@ ACTIONS = [
     "audit.view",
     "webhook.ingest",
     "rbac.manage",
+    "aci.connect",
+    "aci.tools.read",
+    "aci.tools.execute",
+    "aci.calls.read",
+    "aci.policies.manage",
 ]
 
 DEFAULT_ROLE_PERMISSIONS = {
     "admin": ACTIONS,
-    "atendimento": ["customer.create", "customer.update", "ticket.create", "ticket.update", "channel.intake"],
-    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update"],
-    "marketing": ["campaign.create", "campaign.update"],
+    "atendimento": [
+        "customer.create",
+        "customer.update",
+        "ticket.create",
+        "ticket.update",
+        "channel.intake",
+        "aci.tools.read",
+        "aci.tools.execute",
+    ],
+    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update", "aci.tools.read", "aci.tools.execute"],
+    "marketing": ["campaign.create", "campaign.update", "aci.tools.read", "aci.tools.execute"],
+}
+
+ACI_TOOL_CATALOG: dict[str, dict[str, list[str]]] = {
+    "google": {
+        "google_calendar": ["create_event", "list_events"],
+        "google_sheets": ["append_row", "read_sheet"],
+    },
+    "notion": {
+        "notion_pages": ["create_page", "query_database"],
+    },
+    "slack": {
+        "slack_messages": ["post_message", "list_channels"],
+    },
 }
 
 ENTITY_CONFIG = {
@@ -626,6 +654,40 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             locked_until TEXT,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (subject, endpoint)
+        );
+
+        CREATE TABLE IF NOT EXISTS aci_connections (
+            connection_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            external_account_id TEXT,
+            status TEXT NOT NULL,
+            scopes_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(username)
+        );
+
+        CREATE TABLE IF NOT EXISTS aci_tool_calls (
+            call_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            actor_username TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            action_name TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            latency_ms INTEGER NOT NULL,
+            error_code TEXT,
+            error_message TEXT,
+            correlation_id TEXT NOT NULL,
+            idempotency_key TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(username)
         );
         """
     )
@@ -2212,3 +2274,346 @@ def process_whatsapp_webhook(payload: dict[str, Any], source: str = "whatsapp-we
             str(exc),
         )
         raise
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def start_aci_connection(
+    provider: str,
+    tenant_id: str,
+    redirect_uri: str,
+    actor: dict[str, str] | None,
+    source: str = "api-aci-connect-start",
+) -> dict[str, Any]:
+    resolved_actor = _ensure_permission(actor, "aci.connect")
+    provider_key = provider.strip().lower()
+    if provider_key not in ACI_TOOL_CATALOG:
+        raise ValueError("Unsupported provider")
+    connection_id = f"conn_{uuid.uuid4().hex[:16]}"
+    now = _now_iso()
+    state = secrets.token_urlsafe(24)
+    scopes = ["tools.read", "tools.execute"]
+    auth_base = os.getenv("CRM_ACI_AUTH_BASE_URL", "https://aci.dev/oauth/authorize")
+    authorization_url = (
+        f"{auth_base}?provider={provider_key}&state={state}&connection_id={connection_id}"
+        f"&redirect_uri={redirect_uri}"
+    )
+
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO aci_connections (
+                connection_id, tenant_id, user_id, provider, external_account_id, status,
+                scopes_json, metadata_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                connection_id,
+                tenant_id,
+                resolved_actor["username"],
+                provider_key,
+                "",
+                "pending",
+                json.dumps(scopes, ensure_ascii=True),
+                json.dumps({"redirect_uri": redirect_uri, "state": state}, ensure_ascii=True),
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+
+    log_audit_event(
+        resolved_actor,
+        "aci.connect",
+        "aci_connection",
+        connection_id,
+        {
+            "provider": provider_key,
+            "tenant_id": tenant_id,
+            "status": "pending",
+        },
+        source,
+    )
+    return {
+        "connection_id": connection_id,
+        "authorization_url": authorization_url,
+        "status": "pending",
+    }
+
+
+def complete_aci_connection(
+    connection_id: str,
+    code: str,
+    state: str,
+    actor: dict[str, str] | None,
+    source: str = "api-aci-connect-callback",
+) -> dict[str, Any]:
+    resolved_actor = _ensure_permission(actor, "aci.connect")
+    if not code.strip() or not state.strip():
+        raise ValueError("code and state are required")
+
+    now = _now_iso()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM aci_connections WHERE connection_id = ?",
+            (connection_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("connection not found")
+        if row["user_id"] != resolved_actor["username"] and resolved_actor["role"] != "admin":
+            raise PermissionError("connection does not belong to actor")
+
+        metadata = json.loads(row["metadata_json"] or "{}")
+        expected_state = str(metadata.get("state", ""))
+        if expected_state and expected_state != state:
+            raise ValueError("state mismatch")
+
+        external_account_id = f"{row['provider']}_{resolved_actor['username']}"
+        updated_metadata = dict(metadata)
+        updated_metadata["oauth_code_preview"] = code[:6] + "..."
+        updated_metadata["verified_at"] = now
+
+        connection.execute(
+            """
+            UPDATE aci_connections
+            SET status = ?, external_account_id = ?, metadata_json = ?, updated_at = ?
+            WHERE connection_id = ?
+            """,
+            (
+                "active",
+                external_account_id,
+                json.dumps(updated_metadata, ensure_ascii=True),
+                now,
+                connection_id,
+            ),
+        )
+        connection.commit()
+
+    log_audit_event(
+        resolved_actor,
+        "aci.connect",
+        "aci_connection",
+        connection_id,
+        {
+            "status": "active",
+            "external_account_id": external_account_id,
+        },
+        source,
+    )
+    return {
+        "connection_id": connection_id,
+        "status": "active",
+        "external_account_id": external_account_id,
+    }
+
+
+def list_aci_tools(provider: str | None, actor: dict[str, str] | None) -> list[dict[str, Any]]:
+    _ensure_permission(actor, "aci.tools.read")
+    providers = [provider.strip().lower()] if provider else sorted(ACI_TOOL_CATALOG.keys())
+    rows: list[dict[str, Any]] = []
+    for provider_key in providers:
+        tools = ACI_TOOL_CATALOG.get(provider_key)
+        if not tools:
+            continue
+        for tool_name, actions in tools.items():
+            rows.append(
+                {
+                    "provider": provider_key,
+                    "tool_name": tool_name,
+                    "actions": actions,
+                    "requires_approval": False,
+                }
+            )
+    return rows
+
+
+def _find_active_connection(connection: sqlite3.Connection, tenant_id: str, user_id: str, provider: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM aci_connections
+        WHERE tenant_id = ? AND user_id = ? AND provider = ? AND status = 'active'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (tenant_id, user_id, provider),
+    ).fetchone()
+
+
+def execute_aci_tool_call(
+    tenant_id: str,
+    provider: str,
+    tool_name: str,
+    action_name: str,
+    input_payload: dict[str, Any],
+    actor: dict[str, str] | None,
+    idempotency_key: str | None = None,
+    source: str = "api-aci-tool-call",
+) -> dict[str, Any]:
+    resolved_actor = _ensure_permission(actor, "aci.tools.execute")
+    provider_key = provider.strip().lower()
+    correlation_id = f"corr_{uuid.uuid4().hex[:16]}"
+    request_payload = {
+        "tenant_id": tenant_id,
+        "provider": provider_key,
+        "tool_name": tool_name,
+        "action_name": action_name,
+        "input": input_payload,
+    }
+
+    started = time.perf_counter()
+    now = _now_iso()
+    with _connect() as connection:
+        if idempotency_key:
+            previous = connection.execute(
+                """
+                SELECT * FROM aci_tool_calls
+                WHERE user_id = ? AND idempotency_key = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (resolved_actor["username"], idempotency_key),
+            ).fetchone()
+            if previous:
+                return {
+                    "call_id": previous["call_id"],
+                    "status": previous["status"],
+                    "output": json.loads(previous["response_json"] or "{}"),
+                    "latency_ms": int(previous["latency_ms"]),
+                    "correlation_id": previous["correlation_id"],
+                    "idempotent_replay": True,
+                }
+
+        active_connection = _find_active_connection(connection, tenant_id, resolved_actor["username"], provider_key)
+        status = "success"
+        error_code = ""
+        error_message = ""
+        response_payload: dict[str, Any]
+
+        provider_tools = ACI_TOOL_CATALOG.get(provider_key, {})
+        allowed_actions = provider_tools.get(tool_name, [])
+        if active_connection is None:
+            status = "failed"
+            error_code = "connection_not_active"
+            error_message = "No active connection for provider"
+            response_payload = {}
+        elif action_name not in allowed_actions:
+            status = "failed"
+            error_code = "unsupported_action"
+            error_message = "Tool action is not available for provider"
+            response_payload = {}
+        else:
+            response_payload = {
+                "provider": provider_key,
+                "tool_name": tool_name,
+                "action_name": action_name,
+                "executed": True,
+                "result": "ok",
+                "echo": input_payload,
+            }
+
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        call_id = f"call_{uuid.uuid4().hex[:16]}"
+        connection.execute(
+            """
+            INSERT INTO aci_tool_calls (
+                call_id, tenant_id, user_id, actor_username, provider, tool_name, action_name,
+                request_json, response_json, status, latency_ms, error_code, error_message,
+                correlation_id, idempotency_key, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                call_id,
+                tenant_id,
+                resolved_actor["username"],
+                resolved_actor["username"],
+                provider_key,
+                tool_name,
+                action_name,
+                json.dumps(request_payload, ensure_ascii=True),
+                json.dumps(response_payload, ensure_ascii=True),
+                status,
+                latency_ms,
+                error_code or None,
+                error_message or None,
+                correlation_id,
+                idempotency_key,
+                now,
+            ),
+        )
+        connection.commit()
+
+    log_audit_event(
+        resolved_actor,
+        "aci.tools.execute",
+        "aci_tool_call",
+        call_id,
+        {
+            "provider": provider_key,
+            "tool_name": tool_name,
+            "action_name": action_name,
+            "status": status,
+            "error_code": error_code,
+            "correlation_id": correlation_id,
+        },
+        source,
+    )
+    return {
+        "call_id": call_id,
+        "status": status,
+        "output": response_payload,
+        "latency_ms": latency_ms,
+        "error_code": error_code or None,
+        "error_message": error_message or None,
+        "correlation_id": correlation_id,
+        "idempotent_replay": False,
+    }
+
+
+def get_aci_tool_calls(
+    actor: dict[str, str] | None,
+    limit: int = 50,
+    cursor: str | None = None,
+    status_filter: str | None = None,
+    tool_name: str | None = None,
+) -> dict[str, Any]:
+    _ensure_permission(actor, "aci.calls.read")
+    resolved_limit = max(1, min(limit, 200))
+    last_id = int(cursor) if cursor and cursor.isdigit() else None
+    where = []
+    params: list[Any] = []
+
+    if last_id is not None:
+        where.append("rowid < ?")
+        params.append(last_id)
+    if status_filter:
+        where.append("status = ?")
+        params.append(status_filter.strip().lower())
+    if tool_name:
+        where.append("tool_name = ?")
+        params.append(tool_name.strip())
+
+    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+    query = f"""
+        SELECT rowid AS _rowid, call_id, tenant_id, user_id, provider, tool_name, action_name,
+               status, latency_ms, error_code, error_message, correlation_id, created_at
+        FROM aci_tool_calls
+        {where_clause}
+        ORDER BY rowid DESC
+        LIMIT ?
+    """
+    params.append(resolved_limit)
+
+    with _connect() as connection:
+        rows = connection.execute(query, tuple(params)).fetchall()
+
+    items = [dict(row) for row in rows]
+    next_cursor = str(items[-1]["_rowid"]) if items else None
+    for item in items:
+        item.pop("_rowid", None)
+    return {
+        "rows": items,
+        "next_cursor": next_cursor,
+    }
