@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background-color: #667eea;
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 30px 20px;
+        }
+        .ticket-info {
+            background-color: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .ticket-info strong {
+            display: inline-block;
+            width: 120px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #667eea;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎫 Novo Ticket Criado</h1>
+        </div>
+        <div class="content">
+            <p>Olá <strong>{{ customer_name }}</strong>,</p>
+            
+            <p>Um novo ticket foi criado em sua conta:</p>
+            
+            <div class="ticket-info">
+                <div><strong>ID:</strong> #{{ ticket_id }}</div>
+                <div><strong>Assunto:</strong> {{ subject }}</div>
+                <div><strong>Prioridade:</strong> <span style="color: {% if priority == 'high' %}#ff6b6b{% elif priority == 'medium' %}#ffa500{% else %}#28a745{% endif %}">{{ priority }}</span></div>
+                <div><strong>Criado em:</strong> {{ created_at }}</div>
+            </div>
+            
+            <p>Você pode acompanhar o status do seu ticket:</p>
+            
+            <p style="text-align: center;">
+                <a href="{{ ticket_url }}" class="button">Ver Ticket</a>
+            </p>
+            
+            <p>Responderemos em breve!</p>
+        </div>
+    </div>
+</body>
+</html>

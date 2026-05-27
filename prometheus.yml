@@ -1,0 +1,54 @@
+# prometheus.yml - Prometheus configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'crm-monitor'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alert_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # FastAPI application metrics
+  - job_name: 'crm-api'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # PostgreSQL metrics (if using postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['localhost:9187']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Redis metrics (if using redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['localhost:9121']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Node exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance

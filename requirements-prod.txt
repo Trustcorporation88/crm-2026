@@ -1,0 +1,40 @@
+# Production Requirements
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# API & Web
+fastapi==0.136.3
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+
+# Caching & Sessions
+redis==5.0.1
+hiredis==2.2.3
+
+# Security & Auth
+cryptography==41.0.7
+pyjwt==2.8.1
+passlib[bcrypt]==1.7.4
+email-validator==2.1.0
+
+# Monitoring & Logging
+python-json-logger==2.0.7
+prometheus-client==0.19.0
+
+# Development/Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+black==23.12.0
+ruff==0.1.8
+
+# AWS (optional, for cloud deployment)
+boto3==1.33.12
+
+# Data & Utilities
+python-dotenv==1.0.0
+pydantic==2.5.2
+pydantic-settings==2.1.0

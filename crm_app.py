@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pandas as pd
 import streamlit as st
 
+from services_catalog import SERVICE_CATALOG
 from crm_backend import (
     DB_PATH,
     add_campaign,
@@ -136,11 +138,97 @@ st.markdown(
         color: #f5f7ff !important;
     }
 
+    label[data-testid="stWidgetLabel"],
+    .stTextInput label,
+    .stTextArea label,
+    .stNumberInput label,
+    .stDateInput label,
+    .stSelectbox label,
+    .stMultiSelect label,
+    .stRadio label {
+        color: #1f2937 !important;
+        font-weight: 700 !important;
+    }
+
     .top-nav-strip {
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
         margin: 2px 0 14px;
+    }
+
+    .catalog-strip {
+        display: flex;
+        gap: 14px;
+        overflow-x: auto;
+        padding: 6px 2px 14px;
+        scroll-behavior: smooth;
+    }
+
+    .catalog-strip::-webkit-scrollbar {
+        height: 10px;
+    }
+
+    .catalog-strip::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+    }
+
+    .catalog-strip::-webkit-scrollbar-thumb {
+        background: linear-gradient(90deg, rgba(229, 9, 20, 0.9), rgba(255, 204, 102, 0.75));
+        border-radius: 999px;
+    }
+
+    .catalog-card {
+        min-width: 280px;
+        max-width: 280px;
+        min-height: 240px;
+        padding: 18px;
+        border-radius: 22px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
+            linear-gradient(120deg, rgba(229, 9, 20, 0.1), rgba(255, 204, 102, 0.04));
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
+        flex: 0 0 auto;
+    }
+
+    .catalog-kicker {
+        display: inline-flex;
+        margin-bottom: 10px;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #ffe2a8;
+        background: rgba(255, 204, 102, 0.14);
+        border: 1px solid rgba(255, 204, 102, 0.24);
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-weight: 800;
+    }
+
+    .catalog-card h3 {
+        margin: 0 0 8px;
+        color: #ffffff;
+        font-size: 1.1rem;
+    }
+
+    .catalog-card p {
+        margin: 0 0 10px;
+        color: rgba(245, 247, 255, 0.82);
+        font-size: 0.92rem;
+        line-height: 1.5;
+    }
+
+    .catalog-outcome {
+        color: #f8fafc;
+        font-weight: 700;
+    }
+
+    .service-anchor {
+        font-size: 0.76rem;
+        color: #ccd0df;
+        margin-bottom: 8px;
     }
 
     .top-nav-pill {
@@ -177,9 +265,10 @@ st.markdown(
     }
 
     .hero h1 {
-        font-size: 2.2rem;
+        font-size: 1.6rem;
         margin-bottom: 0.35rem;
         letter-spacing: -0.02em;
+        line-height: 1.3;
     }
 
     .hero p {
@@ -308,14 +397,27 @@ st.markdown(
     }
 
     .stTextInput input,
+    .stTextInput input[data-testid="stTextInputRootElement"],
     .stTextArea textarea,
     .stNumberInput input,
     .stDateInput input,
     .stSelectbox div[data-baseweb="select"] > div {
-        background: rgba(255, 255, 255, 0.05) !important;
-        color: #f8fafc !important;
-        border: 1px solid rgba(255, 255, 255, 0.24) !important;
+        background: rgba(255, 255, 255, 0.18) !important;
+        color: #1f2937 !important;
+        -webkit-text-fill-color: #1f2937 !important;
+        caret-color: #1f2937 !important;
+        text-shadow: none !important;
+        border: 1px solid rgba(255, 255, 255, 0.32) !important;
         border-radius: 12px !important;
+    }
+
+    .stTextInput input::placeholder,
+    .stTextInput input::-webkit-input-placeholder,
+    .stTextInput input::-moz-placeholder,
+    .stTextArea textarea::placeholder {
+        color: rgba(31, 41, 55, 0.72) !important;
+        -webkit-text-fill-color: rgba(31, 41, 55, 0.72) !important;
+        opacity: 1 !important;
     }
 
     .stTextInput input:focus,
@@ -413,6 +515,16 @@ def status_class(label: str) -> str:
     return mapping.get(label, "status-active")
 
 
+def sync_nav_section() -> None:
+    st.session_state["nav_section"] = st.session_state["nav_radio"]
+
+
+def navigate_to_section(target_section: str) -> None:
+    st.session_state["nav_section"] = target_section
+    st.session_state["nav_radio"] = target_section
+    st.rerun()
+
+
 def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
     cols = st.columns(len(metrics))
     for col, (label, value, caption) in zip(cols, metrics):
@@ -427,6 +539,18 @@ def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
 """,
                 unsafe_allow_html=True,
             )
+
+
+def resolve_service_section(service_id: str) -> str:
+    service_section_map = {
+        "customer-360": "Clientes 360",
+        "ticketing-sla": "Atendimento",
+        "channel-intake": "Canais",
+        "pipeline": "Pipeline",
+        "marketing-campaigns": "Marketing",
+        "rbac-admin": "Admin",
+    }
+    return service_section_map.get(service_id, "Serviços")
 
 
 def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id: str) -> None:
@@ -473,9 +597,9 @@ def show_login() -> None:
     with left:
         with st.form("crm-login"):
             st.subheader("Entrar")
-            username = st.text_input("Usuario")
-            password = st.text_input("Senha", type="password")
-            submitted = st.form_submit_button("Acessar", use_container_width=True, type="primary")
+            username = st.text_input("Usuario", placeholder="Digite seu usuário")
+            password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+            submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
         if submitted:
             user = verify_login(username.strip(), password)
             if user:
@@ -512,8 +636,8 @@ def can_manage(user_role: str, area: str) -> bool:
     return has_permission(user_role, action) if action else False
 
 
-def build_customer_lookup(customers_df: pd.DataFrame) -> dict[str, dict[str, str]]:
-    return {row["customer_id"]: row for row in customers_df.to_dict("records")}
+def build_customer_lookup(customers_df: pd.DataFrame) -> dict[str, dict[Any, Any]]:
+    return {str(row["customer_id"]): dict(row) for row in customers_df.to_dict("records")}
 
 
 def ingest_message(uploaded_file) -> str:
@@ -526,15 +650,70 @@ def ingest_message(uploaded_file) -> str:
 
 
 def render_navigation_strip(allowed_sections: list[str], active_section: str) -> None:
-    chips = "".join(
-        f'<span class="top-nav-pill">{"●" if section == active_section else "○"} {section}</span>'
-        for section in allowed_sections
-    )
-    st.markdown(f'<div class="top-nav-strip">{chips}</div>', unsafe_allow_html=True)
+    nav_cols = st.columns(len(allowed_sections))
+    for col, nav_item in zip(nav_cols, allowed_sections):
+        with col:
+            label = f'{"●" if nav_item == active_section else "○"} {nav_item}'
+            if st.button(label, key=f"top-nav-{nav_item}", width="stretch"):
+                navigate_to_section(nav_item)
 
 
 def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
+
+
+@st.dialog("Guia do serviço", width="large")
+def open_service_guide(service: dict[str, Any]) -> None:
+    st.subheader(str(service["title"]))
+    st.caption(f"{service['category']} • {service['tagline']}")
+    st.markdown(str(service["description"]))
+    st.success(str(service["outcome"]))
+
+    left, right = st.columns([0.9, 1.1])
+    with left:
+        st.markdown("**Dados que precisam ser inseridos**")
+        for item in service["inputs"]:
+            st.markdown(f"- {item}")
+    with right:
+        st.markdown("**O que fazer**")
+        for index, step in enumerate(service["steps"], start=1):
+            st.markdown(f"{index}. {step}")
+
+    st.info(str(service["cta"]))
+
+
+def render_services_catalog() -> None:
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Catálogo de serviços e ações guiadas</div>', unsafe_allow_html=True)
+    st.caption("Role horizontalmente como uma vitrine estilo streaming e use os botões para abrir o guia ou entrar diretamente no módulo real do serviço.")
+
+    cards_html = []
+    for service in SERVICE_CATALOG:
+        cards_html.append(
+            f"""
+<div class="catalog-card">
+    <div class="catalog-kicker">{service["category"]}</div>
+    <h3>{service["title"]}</h3>
+    <p>{service["tagline"]}</p>
+    <p>{service["description"]}</p>
+    <p class="catalog-outcome">Resultado esperado: {service["outcome"]}</p>
+</div>
+"""
+        )
+    st.markdown(f'<div class="catalog-strip">{"".join(cards_html)}</div>', unsafe_allow_html=True)
+
+    columns = st.columns(3)
+    for index, service in enumerate(SERVICE_CATALOG):
+        with columns[index % 3]:
+            st.markdown(f"<div class='service-anchor'>{service['category']} • {service['title']}</div>", unsafe_allow_html=True)
+            action_col1, action_col2 = st.columns(2)
+            with action_col1:
+                if st.button(f"Ir para módulo", key=f"service-open-{service['id']}", width="stretch"):
+                    navigate_to_section(resolve_service_section(str(service["id"])))
+            with action_col2:
+                if st.button(f"Abrir guia", key=f"service-guide-{service['id']}", width="stretch"):
+                    open_service_guide(service)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 init_database()
@@ -568,16 +747,40 @@ owner_options = sorted(
     }
 )
 
+# Top navigation bar with HOME
+top_col1, top_col2 = st.columns([1, 20])
+with top_col1:
+    if st.button("🏠", help="Voltar para Home", width="stretch"):
+        st.session_state["nav_section"] = "Serviços"
+        st.session_state["nav_radio"] = "Serviços"
+        st.rerun()
+with top_col2:
+    st.caption("")
+
+selected_country = "Todos"
+selected_owner = "Todos"
+
+allowed_sections = get_role_sections(user["role"])
+if "Serviços" not in allowed_sections:
+    allowed_sections = ["Serviços", *allowed_sections]
+if "nav_section" not in st.session_state:
+    st.session_state["nav_section"] = allowed_sections[0] if allowed_sections else None
+if "nav_radio" not in st.session_state or st.session_state.get("nav_radio") not in allowed_sections:
+    default_section = st.session_state.get("nav_section")
+    if default_section not in allowed_sections:
+        default_section = allowed_sections[0] if allowed_sections else None
+    st.session_state["nav_radio"] = default_section
+
 with st.sidebar:
     st.markdown("## Mr.Holmes CRM")
     st.caption("Atendimento, vendas e marketing em operacao persistida.")
     st.success(f"{user['full_name']} | perfil: {user['role']}")
-    if st.button("Sair", use_container_width=True):
+    if st.button("Sair", width="stretch"):
         st.session_state.pop("crm_user", None)
         st.rerun()
 
-    allowed_sections = get_role_sections(user["role"])
-    section = st.radio("Navegacao", allowed_sections)
+    section = st.radio("Navegacao", allowed_sections, key="nav_radio", on_change=sync_nav_section)
+    st.session_state["nav_section"] = section
     selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"])
     selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options)
     st.markdown("---")
@@ -627,6 +830,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+hero_action_cols = st.columns(3)
+hero_actions = [
+    ("📞 Atendimento first", "Atendimento"),
+    ("🧭 Customer 360", "Clientes 360"),
+    ("🗄️ Persistencia ativa", "Admin"),
+]
+for col, (label, target_section) in zip(hero_action_cols, hero_actions):
+    with col:
+        if target_section in allowed_sections and st.button(label, key=f"hero-nav-{target_section}", width="stretch"):
+            navigate_to_section(target_section)
+
 render_navigation_strip(allowed_sections, section)
 
 render_metric_cards(
@@ -638,8 +852,23 @@ render_metric_cards(
     ]
 )
 
+home_action_cols = st.columns(4)
+home_actions = [
+    ("👥 Abrir Clientes 360", "Clientes 360"),
+    ("🎫 Abrir Atendimento", "Atendimento"),
+    ("🧩 Abrir Canais", "Canais"),
+    ("💼 Abrir Pipeline", "Pipeline"),
+]
+for col, (label, target_section) in zip(home_action_cols, home_actions):
+    with col:
+        if st.button(label, key=f"home-nav-{target_section}", width="stretch"):
+            navigate_to_section(target_section)
 
-if section == "Visao Executiva":
+
+if section == "Serviços":
+    render_services_catalog()
+
+elif section == "Visao Executiva":
     left, right = st.columns([1.2, 0.8])
     with left:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -652,7 +881,7 @@ if section == "Visao Executiva":
                 {"KPI": "Interacoes", "Valor": len(filtered_interactions), "Leitura": "Historico 360 registrado"},
             ]
         )
-        st.dataframe(summary, use_container_width=True, hide_index=True)
+        st.dataframe(summary, width="stretch", hide_index=True)
         owner_load = filtered_tickets.groupby("owner").size().reset_index(name="tickets") if not filtered_tickets.empty else pd.DataFrame(columns=["owner", "tickets"])
         if not owner_load.empty:
             st.bar_chart(owner_load.set_index("owner"))
@@ -702,7 +931,7 @@ elif section == "Atendimento":
     if not ticket_table.empty:
         ticket_table["cliente"] = ticket_table["customer_id"].map(lambda value: customer_lookup[value]["name"])
         ticket_table["sla_status"] = ticket_table.apply(lambda row: "Em risco" if row["age_hours"] > row["sla_hours"] else "No prazo", axis=1)
-        st.dataframe(ticket_table[["ticket_id", "cliente", "subject", "channel", "status", "priority", "owner", "sla_status"]], use_container_width=True, hide_index=True)
+        st.dataframe(ticket_table[["ticket_id", "cliente", "subject", "channel", "status", "priority", "owner", "sla_status"]], width="stretch", hide_index=True)
     else:
         render_empty_state("Nenhum ticket para os filtros atuais.")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -783,7 +1012,7 @@ elif section == "Canais":
     st.markdown('<div class="section-title">Ultimas entradas de canal</div>', unsafe_allow_html=True)
     latest = tickets_df.sort_values("opened_at", ascending=False).head(8).copy()
     latest["cliente"] = latest["customer_id"].map(lambda value: customer_lookup.get(value, {}).get("name", value))
-    st.dataframe(latest[["ticket_id", "cliente", "channel", "subject", "owner", "opened_at"]], use_container_width=True, hide_index=True)
+    st.dataframe(latest[["ticket_id", "cliente", "channel", "subject", "owner", "opened_at"]], width="stretch", hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Clientes 360":
@@ -914,7 +1143,7 @@ elif section == "Pipeline":
     deals_table = filtered_deals.copy()
     if not deals_table.empty:
         deals_table["cliente"] = deals_table["customer_id"].map(lambda value: customer_lookup[value]["name"])
-        st.dataframe(deals_table[["deal_id", "cliente", "name", "stage", "value", "probability", "close_date", "owner"]], use_container_width=True, hide_index=True)
+        st.dataframe(deals_table[["deal_id", "cliente", "name", "stage", "value", "probability", "close_date", "owner"]], width="stretch", hide_index=True)
     else:
         render_empty_state("Nenhuma oportunidade encontrada.")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -950,7 +1179,7 @@ elif section == "Marketing":
     with left:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Campanhas e contribuicao de receita</div>', unsafe_allow_html=True)
-        st.dataframe(campaigns_df, use_container_width=True, hide_index=True)
+        st.dataframe(campaigns_df.astype(str), width="stretch", hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown(" ")
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -981,7 +1210,7 @@ elif section == "Marketing":
 elif section == "Benchmark":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Benchmarks BR e EUA que orientam esta construcao</div>', unsafe_allow_html=True)
-    st.dataframe(BENCHMARKS, use_container_width=True, hide_index=True)
+    st.dataframe(BENCHMARKS, width="stretch", hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown(" ")
     tabs = st.tabs(["Pilares absorvidos", "Ja entregue", "Proxima camada"])
@@ -1007,11 +1236,11 @@ elif section == "Admin":
             {"Item": "Interacoes", "Valor": int(interactions_df.shape[0])},
         ]
     )
-    st.dataframe(admin_summary, use_container_width=True, hide_index=True)
+    st.dataframe(admin_summary, width="stretch", hide_index=True)
     st.markdown("**Usuarios e perfis**")
-    st.dataframe(users_df, use_container_width=True, hide_index=True)
+    st.dataframe(users_df, width="stretch", hide_index=True)
     st.markdown("**Permissoes por role (RBAC por acao)**")
-    st.dataframe(role_permissions_df, use_container_width=True, hide_index=True)
+    st.dataframe(role_permissions_df, width="stretch", hide_index=True)
     st.markdown("**Token de verificacao do webhook WhatsApp**")
     st.code(get_webhook_verify_token())
     st.caption("Use este token no GET de verificacao do provedor de webhook.")
@@ -1049,13 +1278,13 @@ elif section == "Admin":
         st.markdown(" ")
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Trilha de auditoria por usuario</div>', unsafe_allow_html=True)
-        st.dataframe(audit_df, use_container_width=True, hide_index=True)
+        st.dataframe(audit_df, width="stretch", hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Eventos de webhook</div>', unsafe_allow_html=True)
-    st.dataframe(webhook_df, use_container_width=True, hide_index=True)
+    st.dataframe(webhook_df, width="stretch", hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 

@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mr.Holmes CRM | Book de Apresentação</title>
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --panel: #14141c;
+      --panel-soft: #1d1d28;
+      --text: #f5f7ff;
+      --muted: #b9bfd3;
+      --brand: #ff4d57;
+      --brand-dark: #d8101a;
+      --accent: #ffcc66;
+      --line: rgba(255,255,255,0.12);
+      --ink: #1f2937;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #e9edf5;
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 12mm auto;
+      background: #fff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+      padding: 18mm 16mm;
+      page-break-after: always;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .cover {
+      background:
+        radial-gradient(circle at top left, rgba(255, 77, 87, 0.22), transparent 35%),
+        radial-gradient(circle at top right, rgba(255, 204, 102, 0.15), transparent 25%),
+        linear-gradient(180deg, #08080b 0%, #12121a 100%);
+      color: var(--text);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover .brand {
+      display: inline-block;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.16);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 10px;
+      line-height: 1.2;
+    }
+
+    .cover h1 {
+      font-size: 34px;
+      margin-top: 24px;
+      max-width: 12ch;
+    }
+
+    .cover p.lead {
+      font-size: 17px;
+      color: rgba(245,247,255,0.88);
+      max-width: 72ch;
+      margin-top: 16px;
+    }
+
+    .badge-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 24px;
+    }
+
+    .badge {
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .section-title {
+      font-size: 26px;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+
+    .section-subtitle {
+      color: #4b5563;
+      margin-bottom: 18px;
+      font-size: 15px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .dark-card {
+      background: linear-gradient(180deg, #14141c 0%, #1a1a26 100%);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+
+    .dark-card p,
+    .dark-card li,
+    .dark-card small {
+      color: rgba(245,247,255,0.86);
+    }
+
+    .kicker {
+      display: inline-block;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      color: var(--brand-dark);
+      margin-bottom: 8px;
+    }
+
+    .service-card {
+      border-left: 6px solid var(--brand);
+      margin-bottom: 14px;
+    }
+
+    .service-card h3 {
+      font-size: 21px;
+      color: #111827;
+    }
+
+    .service-meta {
+      font-size: 13px;
+      color: #6b7280;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+    }
+
+    .service-card ul {
+      margin: 10px 0 0 18px;
+      padding: 0;
+    }
+
+    .credentials {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    .credentials th,
+    .credentials td {
+      border: 1px solid #e5e7eb;
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    .credentials th {
+      background: #111827;
+      color: #fff;
+    }
+
+    .credentials tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .flow .step {
+      border-radius: 16px;
+      padding: 14px;
+      background: #fff7f7;
+      border: 1px solid #ffd8db;
+    }
+
+    .flow .step strong {
+      display: block;
+      color: var(--brand-dark);
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #6b7280;
+      text-align: center;
+    }
+
+    .note {
+      border-left: 4px solid var(--accent);
+      background: #fffbef;
+      padding: 12px 14px;
+      border-radius: 10px;
+      color: #5b4a1c;
+      font-size: 14px;
+      margin-top: 14px;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        margin: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div class="brand">Mr.Holmes CRM</div>
+    <h1>Book de apresentação para cliente</h1>
+    <p class="lead">
+      Material executivo com visão rápida da solução, breve relato dos serviços disponíveis
+      e acessos de demonstração para navegação no ambiente local.
+    </p>
+
+    <div class="badge-row">
+      <div class="badge">Atendimento first</div>
+      <div class="badge">Cliente 360</div>
+      <div class="badge">Pipeline comercial</div>
+      <div class="badge">Marketing e governança</div>
+      <div class="badge">Login por perfis</div>
+    </div>
+
+    <div style="margin-top: 36px;" class="dark-card card">
+      <div class="kicker" style="color:#ffcc66;">Objetivo</div>
+      <p>
+        Demonstrar, de forma clara e comercial, como o CRM organiza relacionamento,
+        atendimento, vendas, marketing e administração em uma operação única,
+        persistida e pronta para evolução.
+      </p>
+    </div>
+
+    <div class="footer">Documento preparado para apresentação comercial e exportação em PDF</div>
+  </section>
+
+  <section class="page">
+    <h2 class="section-title">Visão geral da plataforma</h2>
+    <div class="section-subtitle">
+      O Mr.Holmes CRM foi estruturado para centralizar contexto do cliente, operação de atendimento,
+      execução comercial e governança de acesso em uma mesma camada de trabalho.
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="kicker">Proposta de valor</div>
+        <h3>Uma visão única para operação e decisão</h3>
+        <p>
+          A plataforma conecta dados de cliente, tickets, oportunidades, campanhas e controles
+          administrativos, permitindo que diferentes áreas trabalhem com a mesma leitura de contexto.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="kicker">Benefício direto</div>
+        <h3>Mais rastreabilidade e menos perda operacional</h3>
+        <p>
+          Cada interação pode ser registrada com dono, prioridade, histórico e próxima ação,
+          reduzindo retrabalho e ampliando previsibilidade para atendimento e vendas.
+        </p>
+      </div>
+    </div>
+
+    <div class="flow">
+      <div class="step">
+        <strong>1. Captura</strong>
+        Entradas por WhatsApp, e-mail, formulário e cadastro manual.
+      </div>
+      <div class="step">
+        <strong>2. Organização</strong>
+        Vínculo do contato ao cliente, ao ticket e ao responsável.
+      </div>
+      <div class="step">
+        <strong>3. Gestão</strong>
+        Monitoramento por fila, carteira, funil, campanha e regras de acesso.
+      </div>
+    </div>
+
+    <div class="note">
+      Este book foi preparado para ser aberto no navegador e exportado como PDF em formato A4,
+      preservando a apresentação visual para envio ao cliente.
+    </div>
+  </section>
+
+  <section class="page">
+    <h2 class="section-title">Serviços disponíveis</h2>
+    <div class="section-subtitle">
+      Resumo breve e comercial de cada frente operacional já representada no CRM.
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Relacionamento</div>
+      <h3>Cliente 360</h3>
+      <p>
+        Consolida histórico, saúde da conta, owner, tickets, oportunidades e próxima ação
+        em uma única leitura. Ideal para preparar atendimento, expansão e gestão de carteira.
+      </p>
+      <ul>
+        <li>Visão centralizada do cliente</li>
+        <li>Timeline de interações</li>
+        <li>Contexto para atendimento, vendas e CS</li>
+      </ul>
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Atendimento</div>
+      <h3>Tickets e SLA</h3>
+      <p>
+        Organiza chamados por assunto, categoria, prioridade, canal e responsável,
+        com leitura operacional da fila e atenção ao prazo de atendimento.
+      </p>
+      <ul>
+        <li>Criação e gestão de tickets</li>
+        <li>Priorização de atendimento</li>
+        <li>Leitura de risco operacional e SLA</li>
+      </ul>
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Operação</div>
+      <h3>Intake Multicanal</h3>
+      <p>
+        Unifica a entrada de demandas por WhatsApp, e-mail e formulário,
+        transformando cada contato em registro operacional com cliente e ticket vinculados.
+      </p>
+      <ul>
+        <li>Padronização de entrada</li>
+        <li>Redução de perda de contexto</li>
+        <li>Triagem mais rápida para o time</li>
+      </ul>
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Vendas</div>
+      <h3>Pipeline Comercial</h3>
+      <p>
+        Mantém o funil organizado por etapa, valor, probabilidade, origem e data prevista
+        de fechamento, gerando visibilidade para forecast e gestão comercial.
+      </p>
+      <ul>
+        <li>Funil visual por estágio</li>
+        <li>Controle de valor em aberto</li>
+        <li>Previsão de receita e avanço do deal</li>
+      </ul>
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Marketing</div>
+      <h3>Campanhas de Marketing</h3>
+      <p>
+        Registra campanhas, leads, qualificação, conversão e receita atribuída,
+        permitindo leitura prática do impacto comercial por canal.
+      </p>
+      <ul>
+        <li>Comparação entre canais</li>
+        <li>Leitura de conversão</li>
+        <li>Relação entre marketing e receita</li>
+      </ul>
+    </div>
+
+    <div class="card service-card">
+      <div class="service-meta">Governança</div>
+      <h3>Admin e RBAC</h3>
+      <p>
+        Controla perfis de acesso, permissões e auditoria de mudanças,
+        reforçando segurança operacional e governança administrativa.
+      </p>
+      <ul>
+        <li>Gestão de usuários e roles</li>
+        <li>Matriz de permissões</li>
+        <li>Trilha auditável de alterações</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="page">
+    <h2 class="section-title">Logins de demonstração</h2>
+    <div class="section-subtitle">
+      Acessos preparados para apresentação do ambiente com diferentes perfis de navegação.
+    </div>
+
+    <table class="credentials">
+      <thead>
+        <tr>
+          <th>Perfil</th>
+          <th>Usuário</th>
+          <th>Senha</th>
+          <th>Uso recomendado</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Administrador</td>
+          <td>admin</td>
+          <td>admin123</td>
+          <td>Visão completa, governança, RBAC e auditoria</td>
+        </tr>
+        <tr>
+          <td>Atendimento</td>
+          <td>atendimento</td>
+          <td>atend123</td>
+          <td>Fila de tickets, operação e SLA</td>
+        </tr>
+        <tr>
+          <td>Vendas</td>
+          <td>vendas</td>
+          <td>vendas123</td>
+          <td>Pipeline e acompanhamento de oportunidades</td>
+        </tr>
+        <tr>
+          <td>Marketing</td>
+          <td>marketing</td>
+          <td>mkt123</td>
+          <td>Campanhas, canais e leitura de conversão</td>
+        </tr>
+        <tr>
+          <td>Customer Success</td>
+          <td>cs</td>
+          <td>cs123</td>
+          <td>Relacionamento, carteira e contexto do cliente</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      Sugestão para a apresentação: iniciar com o usuário <strong>admin</strong> para mostrar a visão ampla
+      e, em seguida, demonstrar acessos específicos por área para reforçar o controle por perfil.
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="kicker">Roteiro sugerido</div>
+      <ol style="margin: 8px 0 0 18px;">
+        <li>Abrir a visão executiva para contextualizar a operação.</li>
+        <li>Mostrar o catálogo de serviços e a navegação por módulos.</li>
+        <li>Entrar em Atendimento e Canais para demonstrar operação prática.</li>
+        <li>Entrar em Clientes 360 e Pipeline para mostrar continuidade comercial.</li>
+        <li>Finalizar em Admin para evidenciar governança e segurança.</li>
+      </ol>
+    </div>
+
+    <div class="footer">Mr.Holmes CRM • Book de apresentação comercial</div>
+  </section>
+</body>
+</html>

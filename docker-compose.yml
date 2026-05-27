@@ -1,0 +1,101 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: crm-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-crm_db}
+      POSTGRES_USER: ${DB_USER:-crm_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=pt_BR.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crm_admin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crm-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: crm-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme123}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crm-network
+
+  # Streamlit CRM App
+  crm-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crm-app
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-crm_admin}:${DB_PASSWORD:-changeme123}@postgres:5432/${DB_NAME:-crm_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme123}@redis:6379/0
+      STREAMLIT_SERVER_PORT: 8512
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_CLIENT_TOOLBARPOSITION: "top"
+    ports:
+      - "8512:8512"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    networks:
+      - crm-network
+    restart: unless-stopped
+
+  # FastAPI Backend (for REST API)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: crm-api
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-crm_admin}:${DB_PASSWORD:-changeme123}@postgres:5432/${DB_NAME:-crm_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme123}@redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production-1234567890abcdef}
+      API_PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    networks:
+      - crm-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  crm-network:
+    driver: bridge

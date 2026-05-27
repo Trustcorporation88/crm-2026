@@ -1,0 +1,117 @@
+# alert_rules.yml - Prometheus alert rules
+groups:
+  - name: crm_alerts
+    interval: 30s
+    rules:
+      # Application Alerts
+      - alert: HighErrorRate
+        expr: (rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value | humanizeDuration }}"
+
+      - alert: RateLimitExceeded
+        expr: rate(http_requests_total{status="429"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiting being triggered"
+          description: "{{ $value }} requests/sec hitting rate limit"
+
+      # Database Alerts
+      - alert: HighDatabaseQueryTime
+        expr: histogram_quantile(0.95, rate(database_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database query time"
+          description: "95th percentile query time is {{ $value | humanizeDuration }}"
+
+      - alert: TooManyDatabaseConnections
+        expr: active_connections > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of active database connections"
+          description: "Currently {{ $value }} active connections"
+
+      # Webhook Alerts
+      - alert: WebhookDeliveryFailure
+        expr: rate(webhook_deliveries_total{status="failed"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhook delivery failures detected"
+          description: "{{ $value | humanize }} failed webhooks per second"
+
+      # Infrastructure Alerts
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is down"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+
+      # Cache Alerts
+      - alert: LowCacheHitRate
+        expr: (rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m]))) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+      # Authentication Alerts
+      - alert: HighFailedLoginAttempts
+        expr: rate(login_attempts_total{result="failed"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of failed login attempts"
+          description: "{{ $value | humanize }} failed login attempts per second"
+
+      # Business Metric Alerts
+      - alert: HighOpenTickets
+        expr: tickets_open > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of open tickets"
+          description: "Currently {{ $value }} open tickets"
+
+      - alert: LowDealsInPipeline
+        expr: deals_pipeline_value < 100000
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Low pipeline value"
+          description: "Current pipeline value is R$ {{ $value | humanize }}"

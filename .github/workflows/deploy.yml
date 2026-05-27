@@ -1,0 +1,324 @@
+name: Build, Test & Deploy CRM
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_STREAMLIT: ${{ github.repository }}/crm-app
+  IMAGE_NAME_API: ${{ github.repository }}/crm-api
+
+jobs:
+  # Job 1: Security Scan
+  security:
+    runs-on: ubuntu-latest
+    name: Security Scanning
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Job 2: Code Quality & Lint
+  quality:
+    runs-on: ubuntu-latest
+    name: Code Quality
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-prod.txt -r web_requirements.txt
+          pip install pylint black ruff
+      
+      - name: Lint with Ruff
+        run: ruff check . --exit-zero
+      
+      - name: Format check with Black
+        run: black --check . --diff || true
+      
+      - name: Security check with Bandit
+        run: |
+          pip install bandit
+          bandit -r . -ll -i || true
+
+  # Job 3: Unit Tests
+  test:
+    runs-on: ubuntu-latest
+    name: Unit Tests
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: crm_test
+          POSTGRES_USER: crm_admin
+          POSTGRES_PASSWORD: test123
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-prod.txt -r web_requirements.txt
+      
+      - name: Run tests with pytest
+        env:
+          DATABASE_URL: postgresql://crm_admin:test123@localhost:5432/crm_test
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pip install pytest pytest-asyncio pytest-cov
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=html
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # Job 4: Build Docker Images
+  build:
+    needs: [security, quality, test]
+    runs-on: ubuntu-latest
+    name: Build Docker Images
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        include:
+          - image: streamlit
+            dockerfile: Dockerfile
+          - image: api
+            dockerfile: Dockerfile.api
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image == 'streamlit' && env.IMAGE_NAME_STREAMLIT || env.IMAGE_NAME_API }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image (${{ matrix.image }})
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image == 'streamlit' && env.IMAGE_NAME_STREAMLIT || env.IMAGE_NAME_API }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image == 'streamlit' && env.IMAGE_NAME_STREAMLIT || env.IMAGE_NAME_API }}:buildcache,mode=max
+
+  # Job 5: Deploy to Production (only on push to main)
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Production Server
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+            cd /opt/crm-2026
+            git pull origin main
+            docker-compose pull
+            docker-compose up -d
+            docker-compose exec -T postgres pg_dump -U crm_admin crm_db > backups/pre-deploy-$(date +%s).sql
+            echo "✅ Deployment successful"
+          EOF
+
+  # Job 6: Smoke Tests (post-deploy)
+  smoke-tests:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: deploy
+    runs-on: ubuntu-latest
+    name: Smoke Tests
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Wait for services to be healthy
+        run: sleep 30
+      
+      - name: Test Streamlit endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -f http://${{ secrets.DEPLOY_HOST }}:8512 > /dev/null 2>&1; then
+              echo "✅ Streamlit is healthy"
+              exit 0
+            fi
+            echo "Attempt $i/30... waiting"
+            sleep 2
+          done
+          echo "❌ Streamlit health check failed"
+          exit 1
+      
+      - name: Test API endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -f http://${{ secrets.DEPLOY_HOST }}:8000/health > /dev/null 2>&1; then
+              echo "✅ API is healthy"
+              exit 0
+            fi
+            echo "Attempt $i/30... waiting"
+            sleep 2
+          done
+          echo "❌ API health check failed"
+          exit 1
+      
+      - name: Run integration tests
+        run: |
+          pip install httpx pytest
+          pytest tests/integration/ -v
+
+  # Job 7: Notify Slack
+  notify:
+    if: always()
+    needs: [security, quality, test, build, deploy, smoke-tests]
+    runs-on: ubuntu-latest
+    name: Notify Slack
+    
+    steps:
+      - name: Determine job status
+        id: status
+        run: |
+          if [ "${{ needs.deploy.result }}" = "failure" ] || [ "${{ needs.smoke-tests.result }}" = "failure" ]; then
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          else
+            echo "status=✅ SUCCESS" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Slack Notification
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          payload: |
+            {
+              "text": "🚀 Mr.Holmes CRM Deployment ${{ steps.status.outputs.status }}",
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Commit",
+                      "value": "${{ github.sha }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Author",
+                      "value": "${{ github.actor }}",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "button",
+                      "text": "View Workflow",
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
