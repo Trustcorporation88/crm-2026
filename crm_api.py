@@ -34,9 +34,15 @@ import uuid
 logger = get_logger("crm_api")
 
 # ====== CONFIGURATION ======
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://crm_admin:changeme123@localhost:5432/crm_db")
-REDIS_URL = os.getenv("REDIS_URL", "redis://:changeme123@localhost:6379/0")
-JWT_SECRET = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is required")
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError("REDIS_URL environment variable is required")
+JWT_SECRET = os.getenv("JWT_SECRET_KEY")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET_KEY environment variable is required")
 JWT_ALGORITHM = "HS256"
 API_TITLE = "Mr.Holmes CRM API v2.0"
 API_VERSION = "2.0.0"
@@ -827,3 +833,4 @@ async def view_logs(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

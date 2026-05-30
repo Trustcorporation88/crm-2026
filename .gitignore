@@ -1,90 +1,34 @@
-# Environment variables
+# Secrets e ambiente
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
-# IDE
+# Banco de dados
+Data/
+*.sqlite3
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Segredos gerados em runtime
+Data/.api_jwt_secret
+Data/.webhook_token
+Data/.webhook_hmac_secret
+
+# IDEs
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
-.DS_Store
-*.pyc
-__pycache__/
-
-# Python
-venv/
-env/
-ENV/
-*.egg-info/
-.pytest_cache/
-.coverage
-htmlcov/
-dist/
-build/
-
-# Docker
-.docker
-docker-compose.override.yml
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-crm.sqlite3
-Data/
 
 # Logs
 *.log
 logs/
-*.out
-
-# Backups
-*.backup
-*.bak
-backups/
-*.sql
-
-# OS
-Thumbs.db
-.thumbsdb
-
-# Temporary files
-*.tmp
-*.temp
-.temp/
-tmp/
-
-# Build artifacts
-*.js.map
-dist/
-build/
-
-# Test coverage
-.coverage
-.coverage.*
-coverage.xml
-*.cover
-
-# Credentials
-secrets.yml
-credentials.json
-*.pem
-*.key
-*.cert
-
-# Node modules (if any web frontend)
-node_modules/
-package-lock.json
-yarn.lock
-
-# AWS
-.aws/
-
-# Certificates
-*.crt
-*.csr
-
-# Production data (samples only)
-# Keep in .gitignore-prod instead
