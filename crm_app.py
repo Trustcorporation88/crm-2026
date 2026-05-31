@@ -594,18 +594,32 @@ def on_more_nav_change() -> None:
         st.session_state["nav_section"] = choice
 
 
+def sync_nav_widgets_from_section(
+    allowed: list[str],
+    primary: list[str],
+    secondary: list[str],
+) -> None:
+    """Atualiza widgets de navegação antes de instanciá-los (evita erro do Streamlit)."""
+    section = st.session_state.get("nav_section")
+    if section not in allowed:
+        section = primary[0] if primary else allowed[0]
+        st.session_state["nav_section"] = section
+
+    if section in primary:
+        st.session_state["nav_primary"] = section
+        if secondary:
+            st.session_state["nav_more_select"] = MORE_NAV_PLACEHOLDER
+    elif section in secondary:
+        st.session_state["nav_more_select"] = section
+        if primary and st.session_state.get("nav_primary") not in primary:
+            st.session_state["nav_primary"] = primary[0]
+
+
 def navigate_to_section(target_section: str) -> None:
     allowed = _allowed_sections_for_user()
     if target_section not in allowed:
         return
-    primary, secondary = split_nav_sections(allowed)
     st.session_state["nav_section"] = target_section
-    if target_section in primary:
-        st.session_state["nav_primary"] = target_section
-        if secondary:
-            st.session_state["nav_more_select"] = MORE_NAV_PLACEHOLDER
-    elif target_section in secondary:
-        st.session_state["nav_more_select"] = target_section
     st.rerun()
 
 
@@ -864,17 +878,7 @@ primary_sections, secondary_sections = split_nav_sections(allowed_sections)
 
 if "nav_section" not in st.session_state or st.session_state["nav_section"] not in allowed_sections:
     st.session_state["nav_section"] = primary_sections[0] if primary_sections else allowed_sections[0]
-if "nav_primary" not in st.session_state or st.session_state["nav_primary"] not in primary_sections:
-    current = st.session_state["nav_section"]
-    st.session_state["nav_primary"] = current if current in primary_sections else primary_sections[0]
-if secondary_sections and (
-    "nav_more_select" not in st.session_state
-    or st.session_state["nav_more_select"] not in ([MORE_NAV_PLACEHOLDER] + secondary_sections)
-):
-    current = st.session_state["nav_section"]
-    st.session_state["nav_more_select"] = (
-        current if current in secondary_sections else MORE_NAV_PLACEHOLDER
-    )
+sync_nav_widgets_from_section(allowed_sections, primary_sections, secondary_sections)
 
 with st.sidebar:
     st.markdown("## Mr.Holmes CRM")
