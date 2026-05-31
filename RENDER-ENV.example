@@ -1,0 +1,8 @@
+# Variáveis para colar no painel Render → Environment
+CRM_LOCAL_MODE=1
+JWT_SECRET_KEY=substitua-por-chave-aleatoria-com-32-caracteres-ou-mais
+JWT_ALGORITHM=HS256
+CRM_PUBLIC_URL=https://crm-2026.onrender.com
+
+# Plano pago + disco persistente montado em /data:
+# CRM_DATA_DIR=/data

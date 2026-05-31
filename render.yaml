@@ -1,23 +1,29 @@
-# Deploy completo do CRM (Streamlit) no Render.com
-# https://render.com/docs/blueprint-spec
+# Blueprint Render — https://render.com/docs/blueprint-spec
+# Ajuste "plan" para starter quando for produção sem cold start.
 services:
   - type: web
-    name: crm-2026-streamlit
+    name: crm-2026
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
+    region: ohio
     healthCheckPath: /_stcore/health
     envVars:
       - key: CRM_LOCAL_MODE
-        value: "0"
-      - key: STREAMLIT_SERVER_PORT
-        value: "8512"
-      - key: STREAMLIT_SERVER_ADDRESS
-        value: "0.0.0.0"
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
+        value: "1"
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: CRM_PUBLIC_URL
+        value: https://crm-2026.onrender.com
       - key: JWT_SECRET_KEY
         generateValue: true
+    # Descomente ao usar plano Starter + disco persistente:
+    # plan: starter
+    # disk:
+    #   name: crm-data
+    #   mountPath: /data
+    #   sizeGB: 1
+    # envVars adicional:
+    #   - key: CRM_DATA_DIR
+    #     value: /data

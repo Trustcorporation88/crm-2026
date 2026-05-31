@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from services_catalog import SERVICE_CATALOG
+from services_catalog import SERVICE_CATALOG, resolve_service_section
+from crm_ui_extensions import (
+    render_ai_insights,
+    render_cadences,
+    render_forecast,
+    render_health,
+    render_lead_scoring,
+    render_productivity,
+    render_segmentation,
+    render_templates,
+)
 from crm_backend import (
     DB_PATH,
     add_campaign,
@@ -521,6 +532,7 @@ def sync_nav_section() -> None:
 
 def navigate_to_section(target_section: str) -> None:
     st.session_state["nav_section"] = target_section
+    st.session_state["nav_radio"] = target_section
     st.rerun()
 
 
@@ -538,18 +550,6 @@ def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
 """,
                 unsafe_allow_html=True,
             )
-
-
-def resolve_service_section(service_id: str) -> str:
-    service_section_map = {
-        "customer-360": "Clientes 360",
-        "ticketing-sla": "Atendimento",
-        "channel-intake": "Canais",
-        "pipeline": "Pipeline",
-        "marketing-campaigns": "Marketing",
-        "rbac-admin": "Admin",
-    }
-    return service_section_map.get(service_id, "Serviços")
 
 
 def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id: str) -> None:
@@ -678,7 +678,7 @@ def open_service_guide(service: dict[str, Any]) -> None:
         for index, step in enumerate(service["steps"], start=1):
             st.markdown(f"{index}. {step}")
 
-    st.info(str(service["cta"]))
+    st.info(str(service.get("outcome", service.get("summary", ""))))
 
 
 def render_services_catalog() -> None:
@@ -786,6 +786,9 @@ with st.sidebar:
     st.markdown("### Estado do app")
     st.markdown("- persistencia: SQLite\n- auth: ativo\n- canais: WhatsApp, Email, Formularios")
     st.caption(DB_PATH)
+    public_url = os.getenv("CRM_PUBLIC_URL", "").strip()
+    if public_url:
+        st.markdown(f"[Produção]({public_url})")
 
 
 filtered_customers = customers_df.copy()
@@ -1145,6 +1148,46 @@ elif section == "Pipeline":
         st.dataframe(deals_table[["deal_id", "cliente", "name", "stage", "value", "probability", "close_date", "owner"]], width="stretch", hide_index=True)
     else:
         render_empty_state("Nenhuma oportunidade encontrada.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Cadencias":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_cadences(user, customers_df)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Health Score":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_health()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Templates":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_templates(user, customers_df, can_manage(user["role"], "admin"))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Forecast":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_forecast(selected_owner)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Produtividade":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_productivity()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Lead Scoring":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_lead_scoring(user, can_manage(user["role"], "admin"))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Segmentacao":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "AI Insights":
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Marketing":

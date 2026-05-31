@@ -361,11 +361,6 @@ def render_services_catalog_tabs(navigate_fn, resolve_fn):
 
 @st.dialog("Como funciona este servico", width="large")
 def _show_guide_dialog(service, navigate_fn, resolve_fn):
-    st.info("Detalhes do servico em desenvolvimento.")
-
-
-
-def _show_guide_dialog(service, navigate_fn, resolve_fn):
     from services_catalog import get_service_by_id
     st.markdown("### " + service["title"])
     st.caption(service["category"] + " - " + service["tagline"])
