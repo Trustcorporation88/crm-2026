@@ -41,6 +41,23 @@ from crm_backend import (
 )
 
 
+PRIMARY_NAV_ORDER = [
+    "Serviços",
+    "Visao Executiva",
+    "Atendimento",
+    "Clientes 360",
+    "Pipeline",
+    "Canais",
+]
+MORE_NAV_PLACEHOLDER = "— mais módulos —"
+
+
+def split_nav_sections(allowed: list[str]) -> tuple[list[str], list[str]]:
+    primary = [name for name in PRIMARY_NAV_ORDER if name in allowed]
+    secondary = [name for name in allowed if name not in primary]
+    return primary, secondary
+
+
 BENCHMARKS = pd.DataFrame(
     [
         {
@@ -157,8 +174,27 @@ st.markdown(
     .stSelectbox label,
     .stMultiSelect label,
     .stRadio label {
-        color: #1f2937 !important;
-        font-weight: 700 !important;
+        color: #e8ecf4 !important;
+        font-weight: 600 !important;
+    }
+
+    .login-panel label,
+    .login-panel p,
+    .login-panel span,
+    .login-panel small {
+        color: #f0f3ff !important;
+    }
+
+    .page-head h2 {
+        color: #ffffff;
+        margin: 0 0 4px;
+        font-size: 1.55rem;
+    }
+
+    .page-head p {
+        color: var(--muted);
+        margin: 0 0 16px;
+        font-size: 0.95rem;
     }
 
     .top-nav-strip {
@@ -413,12 +449,12 @@ st.markdown(
     .stNumberInput input,
     .stDateInput input,
     .stSelectbox div[data-baseweb="select"] > div {
-        background: rgba(255, 255, 255, 0.18) !important;
-        color: #1f2937 !important;
-        -webkit-text-fill-color: #1f2937 !important;
-        caret-color: #1f2937 !important;
+        background: rgba(12, 12, 20, 0.92) !important;
+        color: #f5f7ff !important;
+        -webkit-text-fill-color: #f5f7ff !important;
+        caret-color: #ffcc66 !important;
         text-shadow: none !important;
-        border: 1px solid rgba(255, 255, 255, 0.32) !important;
+        border: 1px solid rgba(255, 255, 255, 0.28) !important;
         border-radius: 12px !important;
     }
 
@@ -426,8 +462,8 @@ st.markdown(
     .stTextInput input::-webkit-input-placeholder,
     .stTextInput input::-moz-placeholder,
     .stTextArea textarea::placeholder {
-        color: rgba(31, 41, 55, 0.72) !important;
-        -webkit-text-fill-color: rgba(31, 41, 55, 0.72) !important;
+        color: rgba(232, 236, 244, 0.55) !important;
+        -webkit-text-fill-color: rgba(232, 236, 244, 0.55) !important;
         opacity: 1 !important;
     }
 
@@ -441,14 +477,26 @@ st.markdown(
     }
 
     .stButton > button {
-        border-radius: 999px !important;
+        border-radius: 12px !important;
         border: none !important;
         background: linear-gradient(90deg, var(--brand), #b20710) !important;
         color: #ffffff !important;
-        font-weight: 800 !important;
-        min-height: 44px !important;
-        box-shadow: 0 10px 24px rgba(229, 9, 20, 0.24);
+        font-weight: 700 !important;
+        min-height: 42px !important;
+        box-shadow: 0 8px 20px rgba(229, 9, 20, 0.22);
         transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        box-shadow: none !important;
+    }
+
+    .nav-secondary-hint {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 4px 0 8px;
     }
 
     .stButton > button:hover {
@@ -526,13 +574,38 @@ def status_class(label: str) -> str:
     return mapping.get(label, "status-active")
 
 
-def sync_nav_section() -> None:
-    st.session_state["nav_section"] = st.session_state["nav_radio"]
+def _allowed_sections_for_user() -> list[str]:
+    user = st.session_state.get("crm_user") or {}
+    sections = get_role_sections(str(user.get("role", "admin")))
+    if "Serviços" not in sections:
+        sections = ["Serviços", *sections]
+    return sections
+
+
+def on_primary_nav_change() -> None:
+    st.session_state["nav_section"] = st.session_state["nav_primary"]
+    if "nav_more_select" in st.session_state:
+        st.session_state["nav_more_select"] = MORE_NAV_PLACEHOLDER
+
+
+def on_more_nav_change() -> None:
+    choice = st.session_state.get("nav_more_select", MORE_NAV_PLACEHOLDER)
+    if choice != MORE_NAV_PLACEHOLDER:
+        st.session_state["nav_section"] = choice
 
 
 def navigate_to_section(target_section: str) -> None:
+    allowed = _allowed_sections_for_user()
+    if target_section not in allowed:
+        return
+    primary, secondary = split_nav_sections(allowed)
     st.session_state["nav_section"] = target_section
-    st.session_state["nav_radio"] = target_section
+    if target_section in primary:
+        st.session_state["nav_primary"] = target_section
+        if secondary:
+            st.session_state["nav_more_select"] = MORE_NAV_PLACEHOLDER
+    elif target_section in secondary:
+        st.session_state["nav_more_select"] = target_section
     st.rerun()
 
 
@@ -594,11 +667,13 @@ def show_login() -> None:
     )
     left, right = st.columns([0.9, 1.1])
     with left:
+        st.markdown('<div class="login-panel">', unsafe_allow_html=True)
         with st.form("crm-login"):
             st.subheader("Entrar")
             username = st.text_input("Usuario", placeholder="Digite seu usuário")
             password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
+        st.markdown("</div>", unsafe_allow_html=True)
         if submitted:
             user = verify_login(username.strip(), password)
             if user:
@@ -648,13 +723,19 @@ def ingest_message(uploaded_file) -> str:
         return ""
 
 
-def render_navigation_strip(allowed_sections: list[str], active_section: str) -> None:
-    nav_cols = st.columns(len(allowed_sections))
-    for col, nav_item in zip(nav_cols, allowed_sections):
-        with col:
-            label = f'{"●" if nav_item == active_section else "○"} {nav_item}'
-            if st.button(label, key=f"top-nav-{nav_item}", width="stretch"):
-                navigate_to_section(nav_item)
+def render_page_header(section: str) -> None:
+    hints = {
+        "Serviços": "Escolha um módulo abaixo ou use o menu à esquerda.",
+        "Visao Executiva": "KPIs e leitura rápida da operação.",
+        "Atendimento": "Fila de tickets e SLA.",
+        "Clientes 360": "Conta, timeline e contexto comercial.",
+        "Pipeline": "Funil e oportunidades.",
+        "Canais": "Entrada WhatsApp, e-mail e formulários.",
+    }
+    st.markdown(
+        f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Use os filtros da barra lateral.")}</p></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_empty_state(message: str) -> None:
@@ -682,36 +763,63 @@ def open_service_guide(service: dict[str, Any]) -> None:
 
 
 def render_services_catalog() -> None:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Catálogo de serviços e ações guiadas</div>', unsafe_allow_html=True)
-    st.caption("Role horizontalmente como uma vitrine estilo streaming e use os botões para abrir o guia ou entrar diretamente no módulo real do serviço.")
+    from services_catalog import CATEGORIES, get_services_by_category
 
-    cards_html = []
-    for service in SERVICE_CATALOG:
-        cards_html.append(
-            f"""
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Início — o que você quer fazer?</div>', unsafe_allow_html=True)
+    st.caption("Principais fluxos em destaque. Role a barra horizontal em cada grupo para ver todos os serviços.")
+
+    allowed = _allowed_sections_for_user()
+    featured = [
+        ("Atendimento", "Atendimento", "Tickets e SLA"),
+        ("Clientes 360", "Clientes 360", "Visão da conta"),
+        ("Pipeline", "Pipeline", "Funil comercial"),
+        ("Canais", "Canais", "WhatsApp e e-mail"),
+    ]
+    featured = [item for item in featured if item[1] in allowed]
+    if featured:
+        feat_cols = st.columns(len(featured))
+        for col, (label, target, hint) in zip(feat_cols, featured):
+            with col:
+                st.markdown(f"**{label}**")
+                st.caption(hint)
+                if st.button(f"Abrir {label}", key=f"feat-{target}", use_container_width=True):
+                    navigate_to_section(target)
+
+    st.divider()
+
+    for category in CATEGORIES:
+        services = get_services_by_category(str(category["id"]))
+        if not services:
+            continue
+        st.markdown(f"#### {category['icon']} {category['title']}")
+        st.caption(str(category["tagline"]))
+
+        cards_html = []
+        for service in services:
+            cards_html.append(
+                f"""
 <div class="catalog-card">
     <div class="catalog-kicker">{service["category"]}</div>
     <h3>{service["title"]}</h3>
     <p>{service["tagline"]}</p>
-    <p>{service["description"]}</p>
-    <p class="catalog-outcome">Resultado esperado: {service["outcome"]}</p>
+    <p class="catalog-outcome">{service["outcome"]}</p>
 </div>
 """
-        )
-    st.markdown(f'<div class="catalog-strip">{"".join(cards_html)}</div>', unsafe_allow_html=True)
+            )
+        st.markdown(f'<div class="catalog-strip">{"".join(cards_html)}</div>', unsafe_allow_html=True)
 
-    columns = st.columns(3)
-    for index, service in enumerate(SERVICE_CATALOG):
-        with columns[index % 3]:
-            st.markdown(f"<div class='service-anchor'>{service['category']} • {service['title']}</div>", unsafe_allow_html=True)
-            action_col1, action_col2 = st.columns(2)
-            with action_col1:
-                if st.button(f"Ir para módulo", key=f"service-open-{service['id']}", width="stretch"):
-                    navigate_to_section(resolve_service_section(str(service["id"])))
-            with action_col2:
-                if st.button(f"Abrir guia", key=f"service-guide-{service['id']}", width="stretch"):
-                    open_service_guide(service)
+        for chunk_start in range(0, len(services), 4):
+            chunk = services[chunk_start : chunk_start + 4]
+            cols = st.columns(len(chunk))
+            for col, service in zip(cols, chunk):
+                with col:
+                    if st.button(
+                        f"Abrir {service['title']}",
+                        key=f"service-open-{service['id']}",
+                        use_container_width=True,
+                    ):
+                        navigate_to_section(resolve_service_section(str(service["id"])))
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -746,49 +854,75 @@ owner_options = sorted(
     }
 )
 
-# Top navigation bar with HOME
-top_col1, top_col2 = st.columns([1, 20])
-with top_col1:
-    if st.button("🏠", help="Voltar para Home", width="stretch"):
-        st.session_state["nav_section"] = "Serviços"
-        st.session_state["nav_radio"] = "Serviços"
-        st.rerun()
-with top_col2:
-    st.caption("")
-
 selected_country = "Todos"
 selected_owner = "Todos"
 
 allowed_sections = get_role_sections(user["role"])
 if "Serviços" not in allowed_sections:
     allowed_sections = ["Serviços", *allowed_sections]
-if "nav_section" not in st.session_state:
-    st.session_state["nav_section"] = allowed_sections[0] if allowed_sections else None
-if "nav_radio" not in st.session_state or st.session_state.get("nav_radio") not in allowed_sections:
-    default_section = st.session_state.get("nav_section")
-    if default_section not in allowed_sections:
-        default_section = allowed_sections[0] if allowed_sections else None
-    st.session_state["nav_radio"] = default_section
+primary_sections, secondary_sections = split_nav_sections(allowed_sections)
+
+if "nav_section" not in st.session_state or st.session_state["nav_section"] not in allowed_sections:
+    st.session_state["nav_section"] = primary_sections[0] if primary_sections else allowed_sections[0]
+if "nav_primary" not in st.session_state or st.session_state["nav_primary"] not in primary_sections:
+    current = st.session_state["nav_section"]
+    st.session_state["nav_primary"] = current if current in primary_sections else primary_sections[0]
+if secondary_sections and (
+    "nav_more_select" not in st.session_state
+    or st.session_state["nav_more_select"] not in ([MORE_NAV_PLACEHOLDER] + secondary_sections)
+):
+    current = st.session_state["nav_section"]
+    st.session_state["nav_more_select"] = (
+        current if current in secondary_sections else MORE_NAV_PLACEHOLDER
+    )
 
 with st.sidebar:
     st.markdown("## Mr.Holmes CRM")
-    st.caption("Atendimento, vendas e marketing em operacao persistida.")
-    st.success(f"{user['full_name']} | perfil: {user['role']}")
-    if st.button("Sair", width="stretch"):
+    st.caption("Menu simples: principais abaixo, demais em «mais módulos».")
+    st.success(f"{user['full_name']} | {user['role']}")
+    if st.button("Início", use_container_width=True):
+        navigate_to_section("Serviços")
+    if st.button("Sair", use_container_width=True):
         st.session_state.pop("crm_user", None)
         st.rerun()
 
-    section = st.radio("Navegacao", allowed_sections, key="nav_radio", on_change=sync_nav_section)
+    st.markdown("**Menu principal**")
+    st.radio(
+        "Principal",
+        primary_sections,
+        key="nav_primary",
+        on_change=on_primary_nav_change,
+        label_visibility="collapsed",
+    )
+
+    if secondary_sections:
+        st.markdown("**Outras áreas**")
+        st.caption("Cadências, marketing, admin e ferramentas avançadas.")
+        st.selectbox(
+            "Mais módulos",
+            [MORE_NAV_PLACEHOLDER, *secondary_sections],
+            key="nav_more_select",
+            on_change=on_more_nav_change,
+            label_visibility="collapsed",
+        )
+
+    if (
+        secondary_sections
+        and st.session_state.get("nav_more_select", MORE_NAV_PLACEHOLDER) != MORE_NAV_PLACEHOLDER
+    ):
+        section = str(st.session_state["nav_more_select"])
+    else:
+        section = str(st.session_state["nav_primary"])
     st.session_state["nav_section"] = section
+
+    st.markdown("---")
     selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"])
     selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options)
-    st.markdown("---")
-    st.markdown("### Estado do app")
-    st.markdown("- persistencia: SQLite\n- auth: ativo\n- canais: WhatsApp, Email, Formularios")
-    st.caption(DB_PATH)
-    public_url = os.getenv("CRM_PUBLIC_URL", "").strip()
-    if public_url:
-        st.markdown(f"[Produção]({public_url})")
+    with st.expander("Sistema", expanded=False):
+        st.caption(f"Banco: {DB_PATH}")
+        public_url = os.getenv("CRM_PUBLIC_URL", "").strip()
+        if public_url:
+            st.markdown(f"[URL produção]({public_url})")
 
 
 filtered_customers = customers_df.copy()
@@ -810,62 +944,30 @@ pipeline_open = filtered_deals[filtered_deals["stage"] != "Fechado ganho"]["valu
 won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 
 
-st.markdown(
-    """
+if section == "Visao Executiva":
+    st.markdown(
+        """
 <div class="hero">
     <div class="hero-grid">
         <div>
-            <h1>CRM orientado a atendimento, com customer 360 e execucao comercial</h1>
-            <p>
-                A superficie agora opera com dados locais persistidos, login por perfil e intake de canais,
-                absorvendo o que Salesforce, HubSpot, RD Station e Agendor fazem melhor para a primeira fase.
-            </p>
-        </div>
-        <div class="hero-badges">
-            <div class="badge">📞 Atendimento first</div>
-            <div class="badge">🧭 Customer 360</div>
-            <div class="badge">🗄️ Persistencia ativa</div>
+            <h1>Visão executiva</h1>
+            <p>Indicadores da operação no recorte de mercado e responsável selecionados na barra lateral.</p>
         </div>
     </div>
 </div>
 """,
-    unsafe_allow_html=True,
-)
-
-hero_action_cols = st.columns(3)
-hero_actions = [
-    ("📞 Atendimento first", "Atendimento"),
-    ("🧭 Customer 360", "Clientes 360"),
-    ("🗄️ Persistencia ativa", "Admin"),
-]
-for col, (label, target_section) in zip(hero_action_cols, hero_actions):
-    with col:
-        if target_section in allowed_sections and st.button(label, key=f"hero-nav-{target_section}", width="stretch"):
-            navigate_to_section(target_section)
-
-render_navigation_strip(allowed_sections, section)
-
-render_metric_cards(
-    [
-        ("Clientes monitorados", str(len(filtered_customers)), "Base unica com owner, saude e proxima acao."),
-        ("Tickets abertos", str(len(open_tickets)), "Fila operacional de atendimento."),
-        ("Pipeline aberto", currency(pipeline_open), "Oportunidades em curso fora dos ganhos."),
-        ("Saude media", f"{avg_health}/100", "Indicador sintetico da carteira filtrada."),
-    ]
-)
-
-home_action_cols = st.columns(4)
-home_actions = [
-    ("👥 Abrir Clientes 360", "Clientes 360"),
-    ("🎫 Abrir Atendimento", "Atendimento"),
-    ("🧩 Abrir Canais", "Canais"),
-    ("💼 Abrir Pipeline", "Pipeline"),
-]
-for col, (label, target_section) in zip(home_action_cols, home_actions):
-    with col:
-        if st.button(label, key=f"home-nav-{target_section}", width="stretch"):
-            navigate_to_section(target_section)
-
+        unsafe_allow_html=True,
+    )
+    render_metric_cards(
+        [
+            ("Clientes monitorados", str(len(filtered_customers)), "Base com owner e saúde."),
+            ("Tickets abertos", str(len(open_tickets)), "Fila de atendimento."),
+            ("Pipeline aberto", currency(pipeline_open), "Oportunidades em curso."),
+            ("Saúde média", f"{avg_health}/100", "Carteira filtrada."),
+        ]
+    )
+elif section != "Serviços":
+    render_page_header(section)
 
 if section == "Serviços":
     render_services_catalog()
