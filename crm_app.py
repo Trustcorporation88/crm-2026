@@ -499,6 +499,24 @@ st.markdown(
         margin: 4px 0 8px;
     }
 
+    .top-nav-bar {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        padding: 8px 12px;
+        margin-bottom: 16px;
+    }
+
+    .top-nav-bar .section-crumb {
+        color: var(--muted);
+        font-size: 0.9rem;
+        padding-top: 8px;
+    }
+
+    .top-nav-bar .section-crumb strong {
+        color: #ffffff;
+    }
+
     .stButton > button:hover {
         transform: translateY(-1px);
         box-shadow: 0 14px 28px rgba(229, 9, 20, 0.34);
@@ -619,8 +637,44 @@ def navigate_to_section(target_section: str) -> None:
     allowed = _allowed_sections_for_user()
     if target_section not in allowed:
         return
+    current = st.session_state.get("nav_section")
+    if current and current != target_section:
+        st.session_state["nav_previous"] = current
     st.session_state["nav_section"] = target_section
     st.rerun()
+
+
+def go_back() -> None:
+    previous = st.session_state.get("nav_previous")
+    allowed = _allowed_sections_for_user()
+    if previous and previous in allowed and previous != st.session_state.get("nav_section"):
+        navigate_to_section(previous)
+    elif "Serviços" in allowed:
+        navigate_to_section("Serviços")
+
+
+def render_top_bar(active_section: str) -> None:
+    st.markdown('<div class="top-nav-bar">', unsafe_allow_html=True)
+    col_home, col_back, col_crumb = st.columns([1.1, 1.1, 4.8])
+    with col_home:
+        if st.button("Início", key="nav-top-home", use_container_width=True, help="Voltar ao catálogo de serviços"):
+            navigate_to_section("Serviços")
+    with col_back:
+        can_back = active_section != "Serviços"
+        if st.button(
+            "Voltar",
+            key="nav-top-back",
+            use_container_width=True,
+            disabled=not can_back,
+            help="Retorna à tela anterior",
+        ):
+            go_back()
+    with col_crumb:
+        st.markdown(
+            f'<div class="section-crumb">Você está em: <strong>{active_section}</strong></div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
@@ -947,6 +1001,7 @@ avg_csat = round(filtered_tickets[filtered_tickets["csat"] > 0]["csat"].mean(), 
 pipeline_open = filtered_deals[filtered_deals["stage"] != "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 
+render_top_bar(section)
 
 if section == "Visao Executiva":
     st.markdown(
