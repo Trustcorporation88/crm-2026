@@ -1,0 +1,2 @@
+# Streamlit CRM image (Render/Docker) — minimal deps, no API stack conflicts
+-r requirements.txt

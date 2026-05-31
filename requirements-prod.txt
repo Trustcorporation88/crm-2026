@@ -36,5 +36,5 @@ boto3==1.33.12
 
 # Data & Utilities
 python-dotenv==1.0.0
-pydantic==2.5.2
-pydantic-settings==2.1.0
+pydantic>=2.9.0,<3
+pydantic-settings>=2.6.0
