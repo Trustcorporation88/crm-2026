@@ -16,7 +16,7 @@ hiredis==2.2.3
 
 # Security & Auth
 cryptography==41.0.7
-pyjwt==2.8.1
+pyjwt==2.8.0
 passlib[bcrypt]==1.7.4
 email-validator==2.1.0
 
