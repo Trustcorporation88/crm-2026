@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from services_catalog import SERVICE_CATALOG, resolve_service_section
+from service_guide_ui import open_service_guide_dialog, render_global_assistant
 from crm_ui_extensions import (
     render_ai_insights,
     render_cadences,
@@ -258,6 +259,16 @@ st.markdown(
         margin: 0 0 8px;
         color: #ffffff;
         font-size: 1.1rem;
+    }
+
+    .catalog-card .guide-hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: 0.78rem;
+        color: #ffcc66;
+        font-weight: 700;
     }
 
     .catalog-card p {
@@ -810,32 +821,15 @@ def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
 
 
-@st.dialog("Guia do serviço", width="large")
-def open_service_guide(service: dict[str, Any]) -> None:
-    st.subheader(str(service["title"]))
-    st.caption(f"{service['category']} • {service['tagline']}")
-    st.markdown(str(service["description"]))
-    st.success(str(service["outcome"]))
-
-    left, right = st.columns([0.9, 1.1])
-    with left:
-        st.markdown("**Dados que precisam ser inseridos**")
-        for item in service["inputs"]:
-            st.markdown(f"- {item}")
-    with right:
-        st.markdown("**O que fazer**")
-        for index, step in enumerate(service["steps"], start=1):
-            st.markdown(f"{index}. {step}")
-
-    st.info(str(service.get("outcome", service.get("summary", ""))))
-
-
 def render_services_catalog() -> None:
     from services_catalog import CATEGORIES, get_services_by_category
 
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Início — o que você quer fazer?</div>', unsafe_allow_html=True)
-    st.caption("Principais fluxos em destaque. Role a barra horizontal em cada grupo para ver todos os serviços.")
+    st.caption(
+        "Principais fluxos em destaque. Em cada serviço, clique em **ℹ️ Guia** para ver "
+        "objetivo, resultado, dados de entrada, resumo e chat com IA (DeepSeek)."
+    )
 
     allowed = _allowed_sections_for_user()
     featured = [
@@ -871,7 +865,8 @@ def render_services_catalog() -> None:
     <div class="catalog-kicker">{service["category"]}</div>
     <h3>{service["title"]}</h3>
     <p>{service["tagline"]}</p>
-    <p class="catalog-outcome">{service["outcome"]}</p>
+    <p class="catalog-outcome">{service["resultado_esperado"]}</p>
+    <div class="guide-hint">ℹ️ Guia completo + Chat IA</div>
 </div>
 """
             )
@@ -882,12 +877,26 @@ def render_services_catalog() -> None:
             cols = st.columns(len(chunk))
             for col, service in zip(cols, chunk):
                 with col:
-                    if st.button(
-                        f"Abrir {service['title']}",
-                        key=f"service-open-{service['id']}",
-                        use_container_width=True,
-                    ):
-                        navigate_to_section(resolve_service_section(str(service["id"])))
+                    btn_guide, btn_open = st.columns([0.22, 0.78])
+                    with btn_guide:
+                        if st.button(
+                            "ℹ️",
+                            key=f"service-guide-{service['id']}",
+                            help="Objetivo, resultado, dados, resumo e chat IA",
+                            use_container_width=True,
+                        ):
+                            open_service_guide_dialog(
+                                service,
+                                navigate_to_section,
+                                resolve_service_section,
+                            )
+                    with btn_open:
+                        if st.button(
+                            "Abrir",
+                            key=f"service-open-{service['id']}",
+                            use_container_width=True,
+                        ):
+                            navigate_to_section(resolve_service_section(str(service["id"])))
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -976,11 +985,16 @@ with st.sidebar:
     st.markdown("---")
     selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"])
     selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options)
+    with st.expander("Assistente IA (DeepSeek)", expanded=False):
+        render_global_assistant()
+
     with st.expander("Sistema", expanded=False):
         st.caption(f"Banco: {DB_PATH}")
         public_url = os.getenv("CRM_PUBLIC_URL", "").strip()
         if public_url:
             st.markdown(f"[URL produção]({public_url})")
+        if not os.getenv("DEEPSEEK_API_KEY", "").strip():
+            st.caption("Defina DEEPSEEK_API_KEY para o chat.")
 
 
 filtered_customers = customers_df.copy()

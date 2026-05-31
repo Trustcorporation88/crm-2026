@@ -21,6 +21,8 @@ Modelo completo: `RENDER-ENV.example`
 | `JWT_SECRET_KEY` | string aleatória com 32+ caracteres |
 | `JWT_ALGORITHM` | `HS256` |
 | `CRM_PUBLIC_URL` | `https://crm-2026.onrender.com` |
+| `DEEPSEEK_API_KEY` | Chave da API DeepSeek (chat nos guias ℹ️) |
+| `DEEPSEEK_MODEL` | `deepseek-chat` (opcional) |
 
 Opcional (persistência ao migrar para plano pago):
 

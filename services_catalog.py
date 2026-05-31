@@ -16,9 +16,42 @@ CATEGORIES = [
 ]
 
 def _s(sid, cat_id, cat_label, title, tagline, summary, desc, inputs, steps, outcome, bench, integ):
-    return {"id":sid,"category_id":cat_id,"category":cat_label,"title":title,"tagline":tagline,
-        "summary":summary,"description":desc,"inputs":inputs,"steps":steps,
-        "outcome":outcome,"benchmark":bench,"integrations":integ,"ready_to_use":True}
+    """summary=objetivo | desc=resumo geral | inputs=dados | steps=como usar | outcome=resultado esperado."""
+    return {
+        "id": sid,
+        "category_id": cat_id,
+        "category": cat_label,
+        "title": title,
+        "tagline": tagline,
+        "summary": summary,
+        "description": desc,
+        "inputs": inputs,
+        "steps": steps,
+        "outcome": outcome,
+        "benchmark": bench,
+        "integrations": integ,
+        "ready_to_use": True,
+        "objetivo": summary,
+        "resumo_geral": desc,
+        "resultado_esperado": outcome,
+        "dados_input": inputs,
+        "como_usar": steps,
+    }
+
+
+def service_guide_payload(service: dict[str, Any]) -> dict[str, Any]:
+    """Campos padronizados do guia (4 blocos + metadados)."""
+    return {
+        "id": service["id"],
+        "title": service["title"],
+        "category": service["category"],
+        "tagline": service.get("tagline", ""),
+        "objetivo": service.get("objetivo") or service.get("tagline", ""),
+        "resumo_geral": service.get("resumo_geral") or service.get("description", ""),
+        "resultado_esperado": service.get("resultado_esperado") or service.get("outcome", ""),
+        "dados_input": service.get("dados_input") or service.get("inputs", []),
+        "como_usar": service.get("como_usar") or service.get("steps", []),
+    }
 
 SERVICE_CATALOG = [
     _s("ticketing-sla","operacao","Operacao Diaria","Central de Atendimento",
