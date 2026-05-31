@@ -85,7 +85,7 @@ ENTITY_CONFIG = {
 DEFAULT_USERS = [
     {
         "username": "admin",
-        "full_name": "Helena Duarte",
+        "full_name": "FLAVIO RINALDI",
         "role": "admin",
         "password_hash": "",
         "is_active": 1,
@@ -856,12 +856,21 @@ def _migrate_auth_throttle_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def _migrate_admin_display_name(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "UPDATE users SET full_name = ? WHERE username = 'admin'",
+        ("FLAVIO RINALDI",),
+    )
+    connection.commit()
+
+
 def init_database() -> str:
     os.makedirs(DATA_DIR, exist_ok=True)
     _seed_passwords()
     with _connect() as connection:
         _create_schema(connection)
         _seed_defaults(connection)
+        _migrate_admin_display_name(connection)
         _migrate_role_permissions(connection)
         _migrate_refresh_tokens_schema(connection)
         _migrate_auth_throttle_schema(connection)
