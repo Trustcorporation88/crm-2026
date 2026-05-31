@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cp apresentacao_cliente_crm_book.html public/book.html",
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/book", "destination": "/book.html" },
+    { "source": "/apresentacao", "destination": "/book.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [{ "key": "X-Frame-Options", "value": "SAMEORIGIN" }]
+    }
+  ]
+}

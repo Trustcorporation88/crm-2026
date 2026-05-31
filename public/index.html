@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mr.Holmes CRM | Trust Corporation</title>
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --panel: #14141c;
+      --text: #f5f7ff;
+      --muted: #b9bfd3;
+      --brand: #e50914;
+      --brand-hover: #f40612;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #1a1a24 0%, var(--bg) 55%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 64px; }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--warn);
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      padding: 6px 12px;
+      border-radius: 999px;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 2rem; margin: 0 0 8px; font-weight: 700; }
+    h1 span { color: var(--brand); }
+    .lead { color: var(--muted); font-size: 1.05rem; margin-bottom: 28px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 12px; color: var(--text); }
+    .card p { margin: 0 0 12px; color: var(--muted); font-size: 0.95rem; }
+    .card p:last-child { margin-bottom: 0; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+    a.btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: background 0.15s;
+    }
+    a.btn-primary { background: var(--brand); color: #fff; }
+    a.btn-primary:hover { background: var(--brand-hover); }
+    a.btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    a.btn-secondary:hover { border-color: rgba(255,255,255,0.4); }
+    code {
+      font-size: 0.85em;
+      background: rgba(0,0,0,0.35);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 0.9rem; }
+    li { margin-bottom: 6px; }
+    footer {
+      margin-top: 40px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="badge">Vercel · vitrine estática</div>
+    <h1>Mr.<span>Holmes</span> CRM</h1>
+    <p class="lead">
+      Este domínio na Vercel hospeda apenas páginas estáticas. O CRM completo é uma aplicação
+      <strong>Streamlit (Python)</strong> e precisa rodar em plataforma com servidor contínuo ou Docker.
+    </p>
+
+    <div class="card">
+      <h2>Por que apareceu 404?</h2>
+      <p>
+        A Vercel procura arquivos estáticos (<code>index.html</code>) ou funções serverless.
+        O repositório tinha só código Python (<code>crm_app.py</code>), sem pasta de saída — por isso o deploy
+        concluía em ~2 segundos e a URL retornava <code>NOT_FOUND</code>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Como colocar o CRM no ar</h2>
+      <ul>
+        <li><strong>Streamlit Community Cloud</strong> (recomendado, grátis): conecte o repo GitHub, app <code>crm_app.py</code>, use <code>requirements.txt</code> na raiz.</li>
+        <li><strong>Render / Railway / Fly.io</strong>: use o <code>Dockerfile</code> do projeto (porta 8512).</li>
+        <li><strong>VPS + Docker Compose</strong>: fluxo descrito em <code>DEPLOYMENT.md</code> e no GitHub Actions do repo.</li>
+      </ul>
+    </div>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="https://share.streamlit.io/" target="_blank" rel="noopener">
+        Deploy no Streamlit Cloud
+      </a>
+      <a class="btn btn-secondary" href="/book">Book de apresentação</a>
+      <a class="btn btn-secondary" href="https://github.com/Trustcorporation88/crm-2026" target="_blank" rel="noopener">
+        Repositório GitHub
+      </a>
+    </div>
+
+    <footer>Trust Corporation · crm-2026</footer>
+  </div>
+</body>
+</html>

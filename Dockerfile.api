@@ -17,7 +17,8 @@ COPY web_requirements.txt requirements-prod.txt ./
 RUN pip install --no-cache-dir -r requirements-prod.txt -r web_requirements.txt
 
 # Copy application files
-COPY crm_backend.py crm_api.py ./
+COPY *.py ./
+COPY templates/ ./templates/
 
 # Create non-root user
 RUN useradd -m -u 1000 fastapi && chown -R fastapi:fastapi /app

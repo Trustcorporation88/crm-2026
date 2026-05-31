@@ -17,7 +17,9 @@ COPY web_requirements.txt requirements-prod.txt ./
 RUN pip install --no-cache-dir -r requirements-prod.txt -r web_requirements.txt
 
 # Copy application files
-COPY crm_app.py crm_backend.py .streamlit ./
+COPY *.py ./
+COPY .streamlit/ ./.streamlit/
+COPY templates/ ./templates/
 
 # Create non-root user
 RUN useradd -m -u 1000 streamlit && chown -R streamlit:streamlit /app
@@ -30,5 +32,5 @@ EXPOSE 8512
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8512/_stcore/health || exit 1
 
-# Run Streamlit
-CMD ["streamlit", "run", "crm_app.py", "--server.port=8512", "--server.address=0.0.0.0"]
+# Run Streamlit (Render/Railway set PORT)
+CMD ["sh", "-c", "streamlit run crm_app.py --server.port=${PORT:-8512} --server.address=0.0.0.0"]

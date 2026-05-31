@@ -1,0 +1,23 @@
+# Deploy completo do CRM (Streamlit) no Render.com
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: crm-2026-streamlit
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: CRM_LOCAL_MODE
+        value: "0"
+      - key: STREAMLIT_SERVER_PORT
+        value: "8512"
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: "0.0.0.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
