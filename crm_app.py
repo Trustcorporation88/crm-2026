@@ -521,7 +521,6 @@ def sync_nav_section() -> None:
 
 def navigate_to_section(target_section: str) -> None:
     st.session_state["nav_section"] = target_section
-    st.session_state["nav_radio"] = target_section
     st.rerun()
 
 

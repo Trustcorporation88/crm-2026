@@ -865,6 +865,17 @@ def init_database() -> str:
         _migrate_role_permissions(connection)
         _migrate_refresh_tokens_schema(connection)
         _migrate_auth_throttle_schema(connection)
+    try:
+        from lead_scoring import init_lead_scoring_schema
+        from message_templates import init_templates_schema
+        from cadences import init_cadences_schema
+        from health_score import init_health_schema
+        init_lead_scoring_schema()
+        init_templates_schema()
+        init_cadences_schema()
+        init_health_schema()
+    except Exception:
+        pass
     return DB_PATH
 
 
@@ -1758,19 +1769,15 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
 
 def get_role_sections(role: str) -> list[str]:
     mapping = {
-        "admin": [
-            "Visao Executiva",
-            "Atendimento",
-            "Canais",
-            "Clientes 360",
-            "Pipeline",
-            "Marketing",
-            "Benchmark",
-            "Admin",
-        ],
-        "atendimento": ["Visao Executiva", "Atendimento", "Canais", "Clientes 360", "Benchmark"],
-        "vendas": ["Visao Executiva", "Clientes 360", "Pipeline", "Benchmark"],
-        "marketing": ["Visao Executiva", "Clientes 360", "Marketing", "Benchmark"],
+        "admin": ["Visao Executiva","Atendimento","Canais","Cadencias","Clientes 360",
+            "Health Score","Templates","Pipeline","Forecast","Produtividade",
+            "Marketing","Lead Scoring","Segmentacao","AI Insights","Benchmark","Admin"],
+        "atendimento": ["Visao Executiva","Atendimento","Canais","Cadencias","Clientes 360",
+            "Health Score","Templates","AI Insights","Benchmark"],
+        "vendas": ["Visao Executiva","Cadencias","Clientes 360","Templates",
+            "Pipeline","Forecast","Produtividade","Lead Scoring","AI Insights","Benchmark"],
+        "marketing": ["Visao Executiva","Clientes 360","Templates","Marketing",
+            "Lead Scoring","Segmentacao","Benchmark"],
     }
     return mapping.get(role, ["Visao Executiva"])
 
