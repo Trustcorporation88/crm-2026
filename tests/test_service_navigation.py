@@ -4,22 +4,22 @@ from services_catalog import SERVICE_CATALOG, resolve_service_section
 
 IMPLEMENTED_SECTIONS = {
     "Serviços",
-    "Visao Executiva",
+    "Visão Executiva",
     "Atendimento",
     "Canais",
-    "Cadencias",
+    "Cadências",
     "Clientes 360",
-    "Health Score",
-    "Templates",
-    "Pipeline",
-    "Forecast",
+    "Saúde da Conta",
+    "Modelos de Mensagem",
+    "Funil Comercial",
+    "Previsão de Receita",
     "Produtividade",
     "Marketing",
-    "Lead Scoring",
-    "Segmentacao",
-    "AI Insights",
-    "Benchmark",
-    "Admin",
+    "Qualificação de Leads",
+    "Segmentação",
+    "Insights com IA",
+    "Comparativo de Mercado",
+    "Administração",
 }
 
 

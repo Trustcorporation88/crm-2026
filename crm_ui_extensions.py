@@ -16,7 +16,7 @@ def render_cadences(user, customers_df):
     from cadences import (list_cadences, list_active_enrollments, list_pending_actions,
                           enroll, mark_action_done)
     owner_options = sorted([o for o in customers_df["owner"].dropna().unique().tolist() if o])
-    st.subheader("Cadencias de follow-up automatico")
+    st.subheader("Cadências de follow-up automático")
     st.caption("Sequencias programadas de toques (mensagens, ligacoes, emails) para nao deixar lead esfriar.")
 
     cadlist = list_cadences()
@@ -74,7 +74,7 @@ def render_cadences(user, customers_df):
 
 def render_templates(user, customers_df, can_admin):
     from message_templates import list_templates, render_template, save_template
-    st.subheader("Templates de mensagem")
+    st.subheader("Modelos de mensagem")
     st.caption("Modelos prontos para WhatsApp, email e SMS com variaveis dinamicas.")
     c1, c2 = st.columns(2)
     with c1: fch = st.selectbox("Canal", ["Todos", "WhatsApp", "Email", "SMS"],
@@ -122,7 +122,7 @@ def render_templates(user, customers_df, can_admin):
 
 def render_health():
     from health_score import recalculate_all_health, get_at_risk_customers, get_health_overview
-    st.subheader("Health Score e risco de churn")
+    st.subheader("Saúde da conta e risco de cancelamento")
     st.caption("Score 0-100 por cliente baseado em uso, suporte, NPS e tempo de relacionamento.")
     if st.button("Recalcular saude da carteira", type="primary",
                  help="Recalcula o score de todos os clientes. Pode demorar com base grande."):
@@ -158,7 +158,7 @@ def render_health():
 
 def render_lead_scoring(user, can_admin):
     from lead_scoring import recalculate_all_scores, get_lead_scores, get_active_rules, update_rule
-    st.subheader("Lead Scoring")
+    st.subheader("Qualificação de leads")
     st.caption("Pontuacao 0-100 que prioriza onde o time deve focar. Tier A = quente, D = frio.")
     if st.button("Recalcular scores", type="primary",
                  help="Roda as regras ativas para todos os leads. Use apos editar regras."):
@@ -197,7 +197,7 @@ def render_lead_scoring(user, can_admin):
 
 def render_forecast(selected_owner="Todos"):
     from forecast import get_pipeline_forecast, get_forecast_by_owner, get_velocity_metrics
-    st.subheader("Forecast de receita")
+    st.subheader("Previsão de receita")
     st.caption("Projecao de receita ponderada pela probabilidade de cada deal fechar.")
     f1, f2 = st.columns(2)
     with f1: ps = st.date_input("Inicio do periodo", value=date.today().replace(day=1),
@@ -207,8 +207,8 @@ def render_forecast(selected_owner="Todos"):
     fc = get_pipeline_forecast(period_start=ps.isoformat(), period_end=pe.isoformat(),
                                owner=None if selected_owner == "Todos" else selected_owner)
     cols = st.columns(4)
-    metrics = [("Pipeline bruto", fc["raw_pipeline_value"], str(fc["deal_count"]) + " deals"),
-               ("Forecast ponderado", fc["weighted_forecast"], "valor x probabilidade"),
+    metrics = [("Funil bruto", fc["raw_pipeline_value"], str(fc["deal_count"]) + " negócios"),
+               ("Previsão ponderada", fc["weighted_forecast"], "valor × probabilidade"),
                ("Commit (>=80%)", fc["commit_value"], "alta certeza de fechar"),
                ("Best case (50-79%)", fc["best_case_value"], "upside se tudo der certo")]
     for col, (lab, val, cap) in zip(cols, metrics):
@@ -233,7 +233,7 @@ def render_forecast(selected_owner="Todos"):
     with vc[0]: st.metric("Win rate", str(v["win_rate_pct"]) + "%", help="% de deals ganhos vs total fechado.")
     with vc[1]: st.metric("Ticket medio", _currency(v["avg_deal_size"]), help="Valor medio dos deals fechados.")
     with vc[2]: st.metric("Ganhos", v["won_count"], help="Quantos deals foram fechados ganhando.")
-    with vc[3]: st.metric("Pipeline aberto", _currency(v["open_value"]), help="Valor total dos deals em aberto.")
+    with vc[3]: st.metric("Funil aberto", _currency(v["open_value"]), help="Valor total das oportunidades em aberto.")
 
 
 def render_productivity():
@@ -271,7 +271,7 @@ def render_productivity():
 
 
 def render_segmentation(customers_df):
-    st.subheader("Segmentacao inteligente")
+    st.subheader("Segmentação inteligente")
     st.caption("Filtre a base por multiplos criterios e exporte para campanhas dirigidas.")
     g1 = st.columns(3)
     with g1[0]: sco = st.multiselect("Mercado", customers_df["country"].unique().tolist(),

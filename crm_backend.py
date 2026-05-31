@@ -1769,15 +1769,15 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
 
 def get_role_sections(role: str) -> list[str]:
     mapping = {
-        "admin": ["Visao Executiva","Atendimento","Canais","Cadencias","Clientes 360",
-            "Health Score","Templates","Pipeline","Forecast","Produtividade",
-            "Marketing","Lead Scoring","Segmentacao","AI Insights","Benchmark","Admin"],
-        "atendimento": ["Visao Executiva","Atendimento","Canais","Cadencias","Clientes 360",
-            "Health Score","Templates","AI Insights","Benchmark"],
-        "vendas": ["Visao Executiva","Cadencias","Clientes 360","Templates",
-            "Pipeline","Forecast","Produtividade","Lead Scoring","AI Insights","Benchmark"],
-        "marketing": ["Visao Executiva","Clientes 360","Templates","Marketing",
-            "Lead Scoring","Segmentacao","Benchmark"],
+        "admin": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+            "Saúde da Conta","Modelos de Mensagem","Funil Comercial","Previsão de Receita","Produtividade",
+            "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado","Administração"],
+        "atendimento": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+            "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado"],
+        "vendas": ["Visão Executiva","Cadências","Clientes 360","Modelos de Mensagem",
+            "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA","Comparativo de Mercado"],
+        "marketing": ["Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
+            "Qualificação de Leads","Segmentação","Comparativo de Mercado"],
     }
     return mapping.get(role, ["Visao Executiva"])
 

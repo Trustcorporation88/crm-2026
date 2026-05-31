@@ -44,10 +44,10 @@ from crm_backend import (
 
 PRIMARY_NAV_ORDER = [
     "Serviços",
-    "Visao Executiva",
+    "Visão Executiva",
     "Atendimento",
     "Clientes 360",
-    "Pipeline",
+    "Funil Comercial",
     "Canais",
 ]
 MORE_NAV_PLACEHOLDER = "— mais módulos —"
@@ -805,10 +805,10 @@ def ingest_message(uploaded_file) -> str:
 def render_page_header(section: str) -> None:
     hints = {
         "Serviços": "Escolha um módulo abaixo ou use o menu à esquerda.",
-        "Visao Executiva": "KPIs e leitura rápida da operação.",
+        "Visão Executiva": "KPIs e leitura rápida da operação.",
         "Atendimento": "Fila de tickets e SLA.",
-        "Clientes 360": "Conta, timeline e contexto comercial.",
-        "Pipeline": "Funil e oportunidades.",
+        "Clientes 360": "Conta, histórico e contexto comercial.",
+        "Funil Comercial": "Oportunidades e etapas de venda.",
         "Canais": "Entrada WhatsApp, e-mail e formulários.",
     }
     st.markdown(
@@ -835,7 +835,7 @@ def render_services_catalog() -> None:
     featured = [
         ("Atendimento", "Atendimento", "Tickets e SLA"),
         ("Clientes 360", "Clientes 360", "Visão da conta"),
-        ("Pipeline", "Pipeline", "Funil comercial"),
+        ("Funil Comercial", "Funil Comercial", "Oportunidades e vendas"),
         ("Canais", "Canais", "WhatsApp e e-mail"),
     ]
     featured = [item for item in featured if item[1] in allowed]
@@ -1017,7 +1017,7 @@ won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].
 
 render_top_bar(section)
 
-if section == "Visao Executiva":
+if section == "Visão Executiva":
     st.markdown(
         """
 <div class="hero">
@@ -1035,7 +1035,7 @@ if section == "Visao Executiva":
         [
             ("Clientes monitorados", str(len(filtered_customers)), "Base com owner e saúde."),
             ("Tickets abertos", str(len(open_tickets)), "Fila de atendimento."),
-            ("Pipeline aberto", currency(pipeline_open), "Oportunidades em curso."),
+            ("Funil aberto", currency(pipeline_open), "Oportunidades em curso."),
             ("Saúde média", f"{avg_health}/100", "Carteira filtrada."),
         ]
     )
@@ -1045,7 +1045,7 @@ elif section != "Serviços":
 if section == "Serviços":
     render_services_catalog()
 
-elif section == "Visao Executiva":
+elif section == "Visão Executiva":
     left, right = st.columns([1.2, 0.8])
     with left:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -1138,7 +1138,7 @@ elif section == "Canais":
         st.error("Seu perfil nao possui permissao para intake de canais.")
         st.stop()
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Intake multicanal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Entrada multicanal</div>', unsafe_allow_html=True)
     st.caption("Sem credenciais externas, a entrada operacional registra tickets e timeline por WhatsApp, email e formularios.")
     tabs = st.tabs(["WhatsApp", "Email", "Formulario"])
     channel_config = {
@@ -1252,7 +1252,7 @@ elif section == "Clientes 360":
 
             st.markdown(" ")
             st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Timeline 360</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Histórico 360</div>', unsafe_allow_html=True)
             render_timeline(timeline, customer["customer_id"])
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1268,7 +1268,7 @@ elif section == "Clientes 360":
                 st.markdown(f"<span class='status-pill {status_class(item['status'])}'>{item['status']}</span> {item['subject']}", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Pipeline":
+elif section == "Funil Comercial":
     if can_manage(user["role"], "deal"):
         with st.expander("Nova oportunidade", expanded=False):
             with st.form("new-deal-form"):
@@ -1325,22 +1325,22 @@ elif section == "Pipeline":
         render_empty_state("Nenhuma oportunidade encontrada.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Cadencias":
+elif section == "Cadências":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_cadences(user, customers_df)
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Health Score":
+elif section == "Saúde da Conta":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_health()
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Templates":
+elif section == "Modelos de Mensagem":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_templates(user, customers_df, can_manage(user["role"], "admin"))
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Forecast":
+elif section == "Previsão de Receita":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_forecast(selected_owner)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1350,17 +1350,17 @@ elif section == "Produtividade":
     render_productivity()
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Lead Scoring":
+elif section == "Qualificação de Leads":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_lead_scoring(user, can_manage(user["role"], "admin"))
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Segmentacao":
+elif section == "Segmentação":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
     st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "AI Insights":
+elif section == "Insights com IA":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1424,9 +1424,9 @@ elif section == "Marketing":
         st.warning("Proximo passo recomendado: conectar campanhas de reativacao aos tickets de churn e abrir handoff automatico para atendimento e vendas.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-elif section == "Benchmark":
+elif section == "Comparativo de Mercado":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Benchmarks BR e EUA que orientam esta construcao</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Comparativo de mercado — Brasil e EUA</div>', unsafe_allow_html=True)
     st.dataframe(BENCHMARKS, width="stretch", hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown(" ")
@@ -1438,7 +1438,7 @@ elif section == "Benchmark":
     with tabs[2]:
         st.markdown("- automacoes por evento\n- integrações externas reais com provedores\n- trilha de auditoria e permissoes mais finas\n- IA para resumo, priorizacao e resposta assistida")
 
-elif section == "Admin":
+elif section == "Administração":
     if not can_manage(user["role"], "admin"):
         st.error("Seu perfil nao possui permissao para area de administracao.")
         st.stop()
