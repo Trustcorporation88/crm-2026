@@ -205,89 +205,6 @@ st.markdown(
         margin: 2px 0 14px;
     }
 
-    .catalog-strip {
-        display: flex;
-        gap: 14px;
-        overflow-x: auto;
-        padding: 6px 2px 14px;
-        scroll-behavior: smooth;
-    }
-
-    .catalog-strip::-webkit-scrollbar {
-        height: 10px;
-    }
-
-    .catalog-strip::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 999px;
-    }
-
-    .catalog-strip::-webkit-scrollbar-thumb {
-        background: linear-gradient(90deg, rgba(229, 9, 20, 0.9), rgba(255, 204, 102, 0.75));
-        border-radius: 999px;
-    }
-
-    .catalog-card {
-        min-width: 280px;
-        max-width: 280px;
-        min-height: 240px;
-        padding: 18px;
-        border-radius: 22px;
-        background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
-            linear-gradient(120deg, rgba(229, 9, 20, 0.1), rgba(255, 204, 102, 0.04));
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
-        flex: 0 0 auto;
-    }
-
-    .catalog-kicker {
-        display: inline-flex;
-        margin-bottom: 10px;
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #ffe2a8;
-        background: rgba(255, 204, 102, 0.14);
-        border: 1px solid rgba(255, 204, 102, 0.24);
-        border-radius: 999px;
-        padding: 5px 10px;
-        font-weight: 800;
-    }
-
-    .catalog-card h3 {
-        margin: 0 0 8px;
-        color: #ffffff;
-        font-size: 1.1rem;
-    }
-
-    .catalog-card .guide-hint {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 10px;
-        font-size: 0.78rem;
-        color: #ffcc66;
-        font-weight: 700;
-    }
-
-    .catalog-card p {
-        margin: 0 0 10px;
-        color: rgba(245, 247, 255, 0.82);
-        font-size: 0.92rem;
-        line-height: 1.5;
-    }
-
-    .catalog-outcome {
-        color: #f8fafc;
-        font-weight: 700;
-    }
-
-    .service-anchor {
-        font-size: 0.76rem;
-        color: #ccd0df;
-        margin-bottom: 8px;
-    }
 
     .top-nav-pill {
         display: inline-flex;
@@ -822,82 +739,122 @@ def render_empty_state(message: str) -> None:
 
 
 def render_services_catalog() -> None:
+    """Catálogo orientado a objetivo: busca, cards clicáveis e desambiguação.
+
+    Substitui a versão antiga que desenhava cada serviço duas vezes
+    (card decorativo NÃO clicável em rolagem horizontal + botões abaixo).
+    """
     from services_catalog import CATEGORIES, get_services_by_category
 
+    # Rótulos orientados a objetivo (só exibição; não altera services_catalog.py).
+    OBJETIVOS = {
+        "operacao":      ("Resolver o dia a dia",
+                          "Atender, receber demandas e dar conta da operação."),
+        "relacionamento": ("Conhecer e cuidar dos clientes",
+                          "Contexto completo e prevenção de cancelamento."),
+        "comercial":     ("Vender e prever receita",
+                          "Gerir o funil, projetar resultado e medir o time."),
+        "growth":        ("Atrair e qualificar leads",
+                          "Encher e priorizar o topo do funil."),
+        "governanca":    ("Acompanhar e administrar",
+                          "Visão de cima, IA e controle de acesso."),
+    }
+
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Início — o que você quer fazer?</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-title">Início — o que você quer fazer?</div>',
+        unsafe_allow_html=True,
+    )
     st.caption(
-        "Principais fluxos em destaque. Em cada serviço, clique em **ℹ️ Guia** para ver "
-        "objetivo, resultado, dados de entrada, resumo e chat com IA (DeepSeek)."
+        "Escolha pelo objetivo. Cada serviço mostra **quando usar** e **o que entrega**. "
+        "Toque em **ℹ️ Guia** para objetivo, resultado, dados e chat com IA."
     )
 
-    allowed = _allowed_sections_for_user()
-    featured = [
-        ("Atendimento", "Atendimento", "Tickets e SLA"),
-        ("Clientes 360", "Clientes 360", "Visão da conta"),
-        ("Funil Comercial", "Funil Comercial", "Oportunidades e vendas"),
-        ("Canais", "Canais", "WhatsApp e e-mail"),
-    ]
-    featured = [item for item in featured if item[1] in allowed]
-    if featured:
-        feat_cols = st.columns(len(featured))
-        for col, (label, target, hint) in zip(feat_cols, featured):
-            with col:
-                st.markdown(f"**{label}**")
-                st.caption(hint)
-                if st.button(f"Abrir {label}", key=f"feat-{target}", use_container_width=True):
-                    navigate_to_section(target)
+    # 1) Busca por objetivo
+    query = st.text_input(
+        "Buscar por objetivo",
+        key="catalog_search",
+        placeholder="Ex.: reduzir cancelamento, priorizar leads, prever receita, atender no prazo…",
+        label_visibility="collapsed",
+    )
+    q = (query or "").strip().lower()
+
+    # 2) Desambiguação dos serviços que mais confundem
+    with st.expander("Confuso entre serviços parecidos? Veja a diferença"):
+        st.markdown(
+            "- **Cliente 360** = ficha consolidada agora · **Histórico 360** = linha do tempo cronológica\n"
+            "- **Saúde da Conta** = risco de *cancelamento* · **Qualificação de Leads** = potencial de *compra*\n"
+            "- **Insights com IA** = recomenda a ação · **Visão Executiva** = mostra os KPIs"
+        )
 
     st.divider()
 
+    # 3) Serviços agrupados por objetivo, em grade responsiva (sem rolagem horizontal)
+    total_shown = 0
     for category in CATEGORIES:
         services = get_services_by_category(str(category["id"]))
+        if q:
+            services = [
+                s for s in services
+                if q in " ".join([
+                    str(s.get("title", "")),
+                    str(s.get("tagline", "")),
+                    str(s.get("summary", "")),
+                    str(s.get("resultado_esperado", "")),
+                    str(s.get("description", "")),
+                ]).lower()
+            ]
         if not services:
             continue
-        st.markdown(f"#### {category['icon']} {category['title']}")
-        st.caption(str(category["tagline"]))
+        total_shown += len(services)
 
-        cards_html = []
-        for service in services:
-            cards_html.append(
-                f"""
-<div class="catalog-card">
-    <div class="catalog-kicker">{service["category"]}</div>
-    <h3>{service["title"]}</h3>
-    <p>{service["tagline"]}</p>
-    <p class="catalog-outcome">{service["resultado_esperado"]}</p>
-    <div class="guide-hint">ℹ️ Guia completo + Chat IA</div>
-</div>
-"""
-            )
-        st.markdown(f'<div class="catalog-strip">{"".join(cards_html)}</div>', unsafe_allow_html=True)
+        titulo, subtitulo = OBJETIVOS.get(
+            str(category["id"]),
+            (str(category["title"]), str(category.get("tagline", ""))),
+        )
+        st.markdown(f"#### {category['icon']} {titulo}")
+        st.caption(subtitulo)
 
-        for chunk_start in range(0, len(services), 4):
-            chunk = services[chunk_start : chunk_start + 4]
+        for chunk_start in range(0, len(services), 3):
+            chunk = services[chunk_start: chunk_start + 3]
             cols = st.columns(len(chunk))
             for col, service in zip(cols, chunk):
                 with col:
-                    btn_guide, btn_open = st.columns([0.22, 0.78])
-                    with btn_guide:
-                        if st.button(
-                            "ℹ️",
-                            key=f"service-guide-{service['id']}",
-                            help="Objetivo, resultado, dados, resumo e chat IA",
-                            use_container_width=True,
-                        ):
-                            open_service_guide_dialog(
-                                service,
-                                navigate_to_section,
-                                resolve_service_section,
-                            )
-                    with btn_open:
-                        if st.button(
-                            "Abrir",
-                            key=f"service-open-{service['id']}",
-                            use_container_width=True,
-                        ):
-                            navigate_to_section(resolve_service_section(str(service["id"])))
-    st.markdown('</div>', unsafe_allow_html=True)
+                    with st.container(border=True):
+                        st.markdown(f"**{service['title']}**")
+                        st.caption(f"🔹 Use quando: {service['tagline']}")
+                        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
+                        b_open, b_guide = st.columns(2)
+                        with b_open:
+                            if st.button(
+                                "Abrir",
+                                key=f"svc-open-{service['id']}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                navigate_to_section(
+                                    resolve_service_section(str(service["id"]))
+                                )
+                        with b_guide:
+                            if st.button(
+                                "ℹ️ Guia",
+                                key=f"svc-guide-{service['id']}",
+                                use_container_width=True,
+                                help="Objetivo, resultado, dados, resumo e chat IA",
+                            ):
+                                open_service_guide_dialog(
+                                    service,
+                                    navigate_to_section,
+                                    resolve_service_section,
+                                )
+
+    if total_shown == 0:
+        st.info(
+            f'Nenhum serviço corresponde a "{query}". '
+            "Tente outro termo (ex.: vendas, atendimento, leads, churn)."
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 init_database()
