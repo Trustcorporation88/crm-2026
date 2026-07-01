@@ -57,7 +57,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "aci.tools.read",
         "aci.tools.execute",
     ],
-    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update", "aci.tools.read", "aci.tools.execute"],
+    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update", "ticket.create", "ticket.update", "channel.intake", "aci.tools.read", "aci.tools.execute"],
     "marketing": ["campaign.create", "campaign.update", "aci.tools.read", "aci.tools.execute"],
 }
 
@@ -1783,7 +1783,7 @@ def get_role_sections(role: str) -> list[str]:
             "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado","Administração"],
         "atendimento": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado"],
-        "vendas": ["Visão Executiva","Cadências","Clientes 360","Modelos de Mensagem",
+        "vendas": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
             "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA","Comparativo de Mercado"],
         "marketing": ["Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
             "Qualificação de Leads","Segmentação","Comparativo de Mercado"],
