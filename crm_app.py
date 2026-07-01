@@ -746,6 +746,8 @@ def render_services_catalog() -> None:
     """
     from services_catalog import CATEGORIES, get_services_by_category
 
+    allowed_sections = _allowed_sections_for_user()
+
     # Rótulos orientados a objetivo (só exibição; não altera services_catalog.py).
     OBJETIVOS = {
         "operacao":      ("Resolver o dia a dia",
@@ -824,16 +826,27 @@ def render_services_catalog() -> None:
                         st.markdown(f"**{service['title']}**")
                         st.caption(f"🔹 Use quando: {service['tagline']}")
                         st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
+                        target_section = resolve_service_section(str(service["id"]))
+                        has_access = target_section in allowed_sections
+                        if not has_access:
+                            st.caption("🔒 Disponível para outro perfil de acesso")
                         b_open, b_guide = st.columns(2)
                         with b_open:
-                            if st.button(
-                                "Abrir",
-                                key=f"svc-open-{service['id']}",
-                                type="primary",
-                                use_container_width=True,
-                            ):
-                                navigate_to_section(
-                                    resolve_service_section(str(service["id"]))
+                            if has_access:
+                                if st.button(
+                                    "Abrir",
+                                    key=f"svc-open-{service['id']}",
+                                    type="primary",
+                                    use_container_width=True,
+                                ):
+                                    navigate_to_section(target_section)
+                            else:
+                                st.button(
+                                    "🔒 Sem acesso",
+                                    key=f"svc-open-{service['id']}",
+                                    disabled=True,
+                                    use_container_width=True,
+                                    help=f"Seu perfil não tem acesso a «{target_section}». Fale com um administrador para liberar.",
                                 )
                         with b_guide:
                             if st.button(
