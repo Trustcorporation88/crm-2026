@@ -479,6 +479,37 @@ st.markdown(
         color: #f8fafc !important;
     }
 
+    /* Cards lado a lado com a MESMA altura e botões alinhados no rodapé */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: stretch;
+    }
+
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] {
+        height: 100%;
+    }
+
+    /* O card com borda (stLayoutWrapper ou stVerticalBlockBorderWrapper,
+       conforme a versão do Streamlit) cresce para preencher a coluna */
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"],
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"] > div,
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] > div,
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"] {
+        flex: 1 1 auto;
+        height: 100%;
+    }
+
+    /* Empurra a última linha (botões Abrir/Guia) para o rodapé do card */
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"]
+        > div:last-child:has(div[data-testid="stHorizontalBlock"]) {
+        margin-top: auto;
+    }
+
     @media (max-width: 980px) {
         .hero-grid {
             grid-template-columns: 1fr;
