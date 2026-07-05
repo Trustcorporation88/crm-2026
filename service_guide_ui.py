@@ -86,32 +86,42 @@ def open_service_guide_dialog(
     st.markdown(f"### {guide['title']}")
     st.caption(f"{guide['category']} · {guide['tagline']}")
 
-    tab_obj, tab_resultado, tab_dados, tab_resumo, tab_chat = st.tabs(
+    tab_obj, tab_exemplo, tab_dados, tab_resumo, tab_chat = st.tabs(
         [
             "1 · Objetivo",
-            "2 · Resultado",
-            "3 · Dados e como usar",
+            "2 · Exemplo prático",
+            "3 · Como usar",
             "4 · Resumo geral",
             "Chat IA",
         ]
     )
 
     with tab_obj:
-        st.markdown("#### 1) Objetivo do serviço")
+        st.markdown("#### 1) Para que serve")
         st.success(guide["objetivo"])
+        st.markdown("**O que você ganha com isso**")
+        st.info(guide["resultado_esperado"])
 
-    with tab_resultado:
-        st.markdown("#### 2) Resultado esperado")
-        st.success(guide["resultado_esperado"])
+    with tab_exemplo:
+        st.markdown("#### 2) Exemplo prático (situação real)")
+        exemplo = guide.get("exemplo_pratico", "")
+        if exemplo:
+            st.success(exemplo)
+        else:
+            st.info(guide["resumo_geral"])
+        st.caption(
+            "Se a sua situação for parecida com essa, este é o serviço certo. "
+            "Dúvidas? Use a aba «Chat IA»."
+        )
 
     with tab_dados:
         st.markdown("#### 3) Como usar e quais dados informar")
-        st.markdown("**Dados de entrada (obrigatórios ou recomendados)**")
-        for item in guide["dados_input"]:
-            st.markdown(f"- {item}")
         st.markdown("**Passo a passo no sistema**")
         for index, step in enumerate(guide["como_usar"], start=1):
             st.markdown(f"{index}. {step}")
+        st.markdown("**Dados de entrada (obrigatórios ou recomendados)**")
+        for item in guide["dados_input"]:
+            st.markdown(f"- {item}")
 
     with tab_resumo:
         st.markdown("#### 4) Resumo geral do serviço")

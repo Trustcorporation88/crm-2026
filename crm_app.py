@@ -38,6 +38,8 @@ from crm_backend import (
     get_data,
     get_role_sections,
     get_timeline,
+    get_user_preference,
+    set_user_preference,
     init_database,
     update_role_permissions,
     verify_login,
@@ -796,6 +798,128 @@ DEMO_ACCOUNTS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Tour guiado no primeiro acesso
+# ---------------------------------------------------------------------------
+TOUR_STEPS = [
+    {
+        "title": "Bem-vindo(a) ao Mr.Holmes CRM",
+        "body": (
+            "Este é o seu CRM completo: atendimento, vendas, marketing e gestão de "
+            "clientes em um só lugar.\n\n"
+            "Este tour rápido de 4 passos mostra como tudo funciona. "
+            "Você pode pular a qualquer momento e rever depois pelo menu lateral."
+        ),
+    },
+    {
+        "title": "Passo 1 · Comece pelo Catálogo",
+        "body": (
+            "A tela inicial é o **Catálogo de Serviços**, organizado por objetivo: "
+            "*Resolver o dia a dia*, *Conhecer e cuidar dos clientes*, *Vender mais* e outros.\n\n"
+            "Não sabe onde clicar? Use a **busca no topo** e descreva com suas palavras "
+            "(ex.: «cliente quer cancelar») — o sistema indica o serviço certo.\n\n"
+            "Cada cartão tem dois botões: **Abrir** vai direto para a tela, e "
+            "**Guia** explica o serviço com exemplo prático e passo a passo."
+        ),
+    },
+    {
+        "title": "Passo 2 · Navegue pelo menu lateral",
+        "body": (
+            "À esquerda fica o **menu com os módulos** disponíveis para o seu perfil: "
+            "Atendimento, Funil de Vendas, Clientes 360 e mais.\n\n"
+            "Logo abaixo estão os **Filtros globais** (Mercado e Responsável). "
+            "Quando ativos, eles afetam todas as telas e aparecem indicados no topo.\n\n"
+            "No topo de qualquer tela, o botão **Início** traz você de volta ao catálogo."
+        ),
+    },
+    {
+        "title": "Passo 3 · Fluxo típico do dia a dia",
+        "body": (
+            "1. Chegou mensagem de cliente? Registre em **Canais** (WhatsApp, e-mail, site).\n"
+            "2. Acompanhe e responda na **Central de Atendimento**.\n"
+            "3. Antes de falar com alguém, consulte a **Ficha 360** do cliente.\n"
+            "4. Oportunidade de venda? Crie no **Funil de Vendas**.\n"
+            "5. Prometeu retorno? Agende em **Follow-up** e nada se perde."
+        ),
+    },
+    {
+        "title": "Pronto para começar!",
+        "body": (
+            "Dicas finais:\n\n"
+            "- Toda ação importante mostra uma **confirmação** no canto da tela.\n"
+            "- Sua sessão **continua ativa** mesmo se você atualizar a página.\n"
+            "- Dúvida em qualquer serviço? Clique em **Guia** e use a aba **Chat IA**.\n\n"
+            "Bom trabalho! Você pode rever este tour no menu lateral em «Rever tour»."
+        ),
+    },
+]
+
+
+@st.dialog("Tour guiado", width="large")
+def show_onboarding_tour() -> None:
+    step = int(st.session_state.get("tour_step", 0))
+    step = max(0, min(step, len(TOUR_STEPS) - 1))
+    data = TOUR_STEPS[step]
+
+    st.progress((step + 1) / len(TOUR_STEPS), text=f"Etapa {step + 1} de {len(TOUR_STEPS)}")
+    st.markdown(f"### {data['title']}")
+    st.markdown(data["body"])
+    st.divider()
+
+    col_skip, col_back, col_next = st.columns([1, 1, 1])
+    username = str(st.session_state.get("crm_user", {}).get("username", ""))
+
+    def _finish_tour() -> None:
+        if username:
+            try:
+                set_user_preference(username, "onboarding_tour", "done")
+            except Exception:
+                pass
+        st.session_state["tour_done_session"] = True
+        st.session_state.pop("tour_step", None)
+        st.session_state.pop("show_tour", None)
+
+    with col_skip:
+        if st.button("Pular tour", use_container_width=True, key="tour-skip"):
+            _finish_tour()
+            st.rerun()
+    with col_back:
+        if step > 0 and st.button("Voltar", use_container_width=True, key="tour-back"):
+            st.session_state["tour_step"] = step - 1
+            st.rerun()
+    with col_next:
+        is_last = step == len(TOUR_STEPS) - 1
+        label = "Concluir" if is_last else "Avançar"
+        if st.button(label, type="primary", use_container_width=True, key="tour-next"):
+            if is_last:
+                _finish_tour()
+                queue_toast("Tour concluído! Explore o catálogo à vontade.", icon="🎉")
+            else:
+                st.session_state["tour_step"] = step + 1
+            st.rerun()
+
+
+def maybe_show_onboarding_tour() -> None:
+    """Abre o tour no primeiro acesso do usuário (persistido em SQLite)."""
+    if st.session_state.get("tour_done_session"):
+        return
+    if st.session_state.get("show_tour"):
+        show_onboarding_tour()
+        return
+    username = str(st.session_state.get("crm_user", {}).get("username", ""))
+    if not username:
+        return
+    try:
+        already_done = get_user_preference(username, "onboarding_tour", "") == "done"
+    except Exception:
+        already_done = True  # Em caso de erro no banco, não bloqueia o uso.
+    if already_done:
+        st.session_state["tour_done_session"] = True
+        return
+    st.session_state["show_tour"] = True
+    show_onboarding_tour()
+
+
 def show_login() -> None:
     st.markdown(
         """
@@ -896,13 +1020,55 @@ def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
 
 
+def _render_service_card(service: dict[str, Any], allowed_sections: list[str], key_prefix: str = "svc") -> None:
+    """Card de serviço com botões Abrir/Guia (usado no catálogo e na busca)."""
+    with st.container(border=True):
+        st.markdown(f"**{service['title']}**")
+        st.caption(f"🔹 Use quando: {service['tagline']}")
+        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
+        target_section = resolve_service_section(str(service["id"]))
+        has_access = target_section in allowed_sections
+        if not has_access:
+            st.caption("🔒 Disponível para outro perfil de acesso")
+        b_open, b_guide = st.columns(2)
+        with b_open:
+            if has_access:
+                if st.button(
+                    "Abrir",
+                    key=f"{key_prefix}-open-{service['id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    navigate_to_section(target_section)
+            else:
+                st.button(
+                    "🔒 Sem acesso",
+                    key=f"{key_prefix}-open-{service['id']}",
+                    disabled=True,
+                    use_container_width=True,
+                    help=f"Seu perfil não tem acesso a «{target_section}». Fale com um administrador para liberar.",
+                )
+        with b_guide:
+            if st.button(
+                "ℹ️ Guia",
+                key=f"{key_prefix}-guide-{service['id']}",
+                use_container_width=True,
+                help="Objetivo, exemplo prático, passo a passo e chat IA",
+            ):
+                open_service_guide_dialog(
+                    service,
+                    navigate_to_section,
+                    resolve_service_section,
+                )
+
+
 def render_services_catalog() -> None:
     """Catálogo orientado a objetivo: busca, cards clicáveis e desambiguação.
 
     Substitui a versão antiga que desenhava cada serviço duas vezes
     (card decorativo NÃO clicável em rolagem horizontal + botões abaixo).
     """
-    from services_catalog import CATEGORIES, get_services_by_category
+    from services_catalog import CATEGORIES, get_services_by_category, search_services
 
     allowed_sections = _allowed_sections_for_user()
 
@@ -930,14 +1096,14 @@ def render_services_catalog() -> None:
         "Toque em **ℹ️ Guia** para objetivo, resultado, dados e chat com IA."
     )
 
-    # 1) Busca por objetivo
+    # 1) Assistente de busca: entenda o que o usuário precisa em linguagem natural
     query = st.text_input(
-        "Buscar por objetivo",
+        "O que você precisa fazer?",
         key="catalog_search",
-        placeholder="Ex.: reduzir cancelamento, priorizar leads, prever receita, atender no prazo…",
+        placeholder="Descreva com suas palavras: «cliente quer cancelar», «esqueci de dar retorno», «quanto vou faturar»…",
         label_visibility="collapsed",
     )
-    q = (query or "").strip().lower()
+    q = (query or "").strip()
 
     # 2) Desambiguação dos serviços que mais confundem
     with st.expander("Confuso entre serviços parecidos? Veja a diferença"):
@@ -949,21 +1115,31 @@ def render_services_catalog() -> None:
 
     st.divider()
 
-    # 3) Serviços agrupados por objetivo, em grade responsiva (sem rolagem horizontal)
+    # 3a) Com busca: mostra os resultados ranqueados por relevância e para aqui.
+    if q:
+        results = search_services(q)
+        if not results:
+            st.info(
+                f'Não encontrei nada para "{query}". '
+                "Tente outras palavras (ex.: «cancelamento», «lembrete», «vendas») "
+                "ou navegue pelas categorias apagando a busca."
+            )
+        else:
+            st.markdown(f"#### 🎯 Encontrei {len(results)} serviço(s) para você")
+            st.caption("Ordenados do mais indicado para o menos. Apague a busca para ver o catálogo completo.")
+            for chunk_start in range(0, len(results), 3):
+                chunk = results[chunk_start: chunk_start + 3]
+                cols = st.columns(len(chunk))
+                for col, service in zip(cols, chunk):
+                    with col:
+                        _render_service_card(service, allowed_sections, key_prefix="search")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # 3b) Sem busca: serviços agrupados por objetivo, em grade responsiva
     total_shown = 0
     for category in CATEGORIES:
         services = get_services_by_category(str(category["id"]))
-        if q:
-            services = [
-                s for s in services
-                if q in " ".join([
-                    str(s.get("title", "")),
-                    str(s.get("tagline", "")),
-                    str(s.get("summary", "")),
-                    str(s.get("resultado_esperado", "")),
-                    str(s.get("description", "")),
-                ]).lower()
-            ]
         if not services:
             continue
         total_shown += len(services)
@@ -980,50 +1156,10 @@ def render_services_catalog() -> None:
             cols = st.columns(len(chunk))
             for col, service in zip(cols, chunk):
                 with col:
-                    with st.container(border=True):
-                        st.markdown(f"**{service['title']}**")
-                        st.caption(f"🔹 Use quando: {service['tagline']}")
-                        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
-                        target_section = resolve_service_section(str(service["id"]))
-                        has_access = target_section in allowed_sections
-                        if not has_access:
-                            st.caption("🔒 Disponível para outro perfil de acesso")
-                        b_open, b_guide = st.columns(2)
-                        with b_open:
-                            if has_access:
-                                if st.button(
-                                    "Abrir",
-                                    key=f"svc-open-{service['id']}",
-                                    type="primary",
-                                    use_container_width=True,
-                                ):
-                                    navigate_to_section(target_section)
-                            else:
-                                st.button(
-                                    "🔒 Sem acesso",
-                                    key=f"svc-open-{service['id']}",
-                                    disabled=True,
-                                    use_container_width=True,
-                                    help=f"Seu perfil não tem acesso a «{target_section}». Fale com um administrador para liberar.",
-                                )
-                        with b_guide:
-                            if st.button(
-                                "ℹ️ Guia",
-                                key=f"svc-guide-{service['id']}",
-                                use_container_width=True,
-                                help="Objetivo, resultado, dados, resumo e chat IA",
-                            ):
-                                open_service_guide_dialog(
-                                    service,
-                                    navigate_to_section,
-                                    resolve_service_section,
-                                )
+                    _render_service_card(service, allowed_sections, key_prefix="svc")
 
     if total_shown == 0:
-        st.info(
-            f'Nenhum serviço corresponde a "{query}". '
-            "Tente outro termo (ex.: vendas, atendimento, leads, churn)."
-        )
+        st.info("Nenhum serviço disponível para o seu perfil.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1036,6 +1172,8 @@ flush_pending_toast()
 if "crm_user" not in st.session_state:
     show_login()
     st.stop()
+
+maybe_show_onboarding_tour()
 
 
 user = st.session_state["crm_user"]
@@ -1080,6 +1218,11 @@ with st.sidebar:
     st.success(f"{user['full_name']} | {user['role']}")
     if st.button("Início", use_container_width=True):
         navigate_to_section("Serviços")
+    if st.button("Rever tour", use_container_width=True, help="Reabrir o tour guiado de boas-vindas"):
+        st.session_state["tour_step"] = 0
+        st.session_state["show_tour"] = True
+        st.session_state.pop("tour_done_session", None)
+        st.rerun()
     if st.button("Sair", use_container_width=True):
         end_user_session()
 

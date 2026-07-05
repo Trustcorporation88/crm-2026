@@ -1,5 +1,7 @@
 """Service catalog organized in 5 Netflix-style categories."""
 from __future__ import annotations
+
+import unicodedata
 from typing import Any
 
 CATEGORIES = [
@@ -51,6 +53,7 @@ def service_guide_payload(service: dict[str, Any]) -> dict[str, Any]:
         "resultado_esperado": service.get("resultado_esperado") or service.get("outcome", ""),
         "dados_input": service.get("dados_input") or service.get("inputs", []),
         "como_usar": service.get("como_usar") or service.get("steps", []),
+        "exemplo_pratico": get_service_example(str(service["id"])),
     }
 
 SERVICE_CATALOG = [
@@ -239,3 +242,231 @@ SERVICE_TO_SECTION = {
 
 def resolve_service_section(sid):
     return SERVICE_TO_SECTION.get(sid, "Visão Executiva")
+
+
+# ---------------------------------------------------------------------------
+# Exemplos práticos por serviço (exibidos no Guia).
+# ---------------------------------------------------------------------------
+SERVICE_EXAMPLES = {
+    "ticketing-sla": (
+        "A cliente Maria manda: «meu pedido chegou errado». Você abre a Central, "
+        "cria um ticket para a Maria com prioridade Alta e responsável João. "
+        "O sistema marca o prazo e, ao resolver, registra a satisfação dela."
+    ),
+    "channel-intake": (
+        "Chegou um WhatsApp do Pedro perguntando preço. Você abre Canais, cola a "
+        "mensagem na aba WhatsApp e confirma. O sistema acha o Pedro na base "
+        "(ou cadastra) e já cria o atendimento ligado a ele."
+    ),
+    "tasks-cadences": (
+        "A lead Ana pediu «me chama semana que vem». Você a inscreve na cadência "
+        "de retorno: o sistema cria lembretes para D+3 e D+7. Na data, a tarefa "
+        "aparece para você e nada fica esquecido."
+    ),
+    "customer-360": (
+        "Antes de ligar para a TechCorp, você abre a ficha dela: 2 tickets "
+        "abertos, última compra há 3 meses, saúde da conta em 68. Em 30 segundos "
+        "você sabe exatamente o que falar."
+    ),
+    "timeline": (
+        "O colega de férias atendia a LojaX. Você abre a linha do tempo dela e "
+        "vê: proposta enviada dia 10, reclamação resolvida dia 15, follow-up "
+        "prometido para hoje. Você assume sem perder o fio."
+    ),
+    "health-score": (
+        "Segunda-feira, você abre a Saúde da Conta e filtra «risco alto»: "
+        "3 clientes com nota abaixo de 40. Para cada um, o sistema sugere a ação "
+        "(ligar, oferecer desconto, agendar visita) antes que cancelem."
+    ),
+    "templates": (
+        "Cliente novo fechou? Escolha o modelo «Boas-vindas»: o sistema preenche "
+        "nome e dados sozinho e você só copia e envia. O que levava 5 minutos "
+        "passa a levar 10 segundos."
+    ),
+    "pipeline": (
+        "Você cria a oportunidade «Projeto Site — R$ 15.000» na etapa Proposta. "
+        "Na reunião semanal, o funil mostra que ela está parada há 10 dias — "
+        "hora de fazer follow-up antes que esfrie."
+    ),
+    "forecast": (
+        "O chefe pergunta: «quanto entra este mês?». Você abre a Previsão: "
+        "R$ 80.000 em negócios abertos, ponderados pela chance de fechar = "
+        "R$ 42.000 prováveis. Resposta na hora, com base real."
+    ),
+    "productivity": (
+        "No fim do mês, você compara o time: a Carla resolveu 40 tickets com "
+        "nota 4,8; o Bruno vendeu R$ 30.000. Você reconhece os destaques e "
+        "treina quem ficou abaixo da média."
+    ),
+    "marketing-campaigns": (
+        "Você investiu em anúncio no Instagram e disparo de e-mail. Cadastra as "
+        "duas campanhas e descobre: o Instagram trouxe 50 leads (8 qualificados), "
+        "o e-mail trouxe 20 (12 qualificados). Agora sabe onde investir."
+    ),
+    "lead-scoring": (
+        "Chegaram 80 leads da campanha. Em vez de ligar um por um, você abre a "
+        "Qualificação: 12 estão na faixa A (quentes). O time começa por eles e "
+        "fecha mais rápido."
+    ),
+    "segmentation": (
+        "Você quer reativar clientes de São Paulo parados há 60 dias. Monta a "
+        "lista com 2 filtros, exporta e dispara uma oferta só para esse grupo — "
+        "comunicação certa, sem spam para o resto da base."
+    ),
+    "executive-view": (
+        "Reunião de segunda: você projeta o Painel do Negócio e mostra vendas do "
+        "mês, fila de atendimento e satisfação — tudo numa tela, sem montar "
+        "planilha na véspera."
+    ),
+    "ai-insights": (
+        "Você abre os Insights e a IA aponta: «3 clientes com padrão de "
+        "cancelamento», «tickets de cobrança subiram 40%». Cada alerta vem com a "
+        "ação recomendada. Você age antes do problema crescer."
+    ),
+    "rbac-admin": (
+        "Entrou uma estagiária no time. Você cria o usuário dela com perfil "
+        "«Atendimento»: ela vê tickets e clientes, mas não acessa números de "
+        "faturamento nem configurações. Tudo fica registrado na auditoria."
+    ),
+    "benchmark": (
+        "Antes de decidir o próximo investimento no CRM, você abre o Comparativo "
+        "e vê o que Salesforce e HubSpot oferecem a mais — e o que já está no "
+        "mesmo nível. Decisão informada, sem achismo."
+    ),
+}
+
+
+def get_service_example(sid: str) -> str:
+    return SERVICE_EXAMPLES.get(sid, "")
+
+
+# ---------------------------------------------------------------------------
+# Busca em linguagem natural: sinônimos e termos do dia a dia por serviço.
+# ---------------------------------------------------------------------------
+SEARCH_KEYWORDS = {
+    "ticketing-sla": (
+        "atender atendimento chamado ticket reclamacao reclamar pedido duvida "
+        "problema sla prazo fila resposta responder suporte resolver demanda "
+        "solicitacao cliente reclamou"
+    ),
+    "channel-intake": (
+        "whatsapp zap email e-mail site formulario mensagem canal canais entrada "
+        "receber inbox chegou mandou enviou omnichannel centralizar"
+    ),
+    "tasks-cadences": (
+        "lembrete lembrar followup follow retorno retornar esquecer esqueci "
+        "cadencia tarefa agenda avisar aviso lead esfriar recontato cobrar depois"
+    ),
+    "customer-360": (
+        "ficha cliente completo historico tudo sobre conta perfil 360 conhecer "
+        "informacao dados quem antes de ligar contexto"
+    ),
+    "timeline": (
+        "linha tempo historico cronologico ordem interacao diario timeline "
+        "aconteceu conversado registro passado"
+    ),
+    "health-score": (
+        "cancelamento cancelar churn risco saude conta sair perder cliente "
+        "retencao reter abandonar insatisfeito prestes evitar fuga"
+    ),
+    "templates": (
+        "modelo mensagem pronta template resposta rapida boas-vindas cobranca "
+        "macro padrao copiar texto pronto agilizar"
+    ),
+    "pipeline": (
+        "funil venda vendas vender negocio negocios oportunidade etapa fechar "
+        "fechamento deal comercial pipeline proposta acompanhar travou"
+    ),
+    "forecast": (
+        "previsao prever receita faturar faturamento quanto entrar dinheiro "
+        "projecao meta forecast estimar mes resultado financeiro"
+    ),
+    "productivity": (
+        "produtividade time equipe desempenho performance vendedor ranking "
+        "comparar pessoa quem vendeu resolveu metrica individual"
+    ),
+    "marketing-campaigns": (
+        "campanha marketing divulgacao divulgar anuncio roi retorno investimento "
+        "disparo publicidade midia trouxe resultado instagram google"
+    ),
+    "lead-scoring": (
+        "lead leads priorizar qualificar qualificacao nota score quente frio "
+        "interessado potencial comprar comecar por quem melhor"
+    ),
+    "segmentation": (
+        "lista listas segmento segmentacao filtro filtrar grupo publico exportar "
+        "base recorte regiao inativo especifico"
+    ),
+    "executive-view": (
+        "painel resumo kpi indicador numero numeros visao geral executivo "
+        "dashboard negocio gestor chefe reuniao relatorio"
+    ),
+    "ai-insights": (
+        "ia inteligencia artificial sugestao sugerir recomendacao insight "
+        "automatico alerta anomalia o que fazer proximo passo assistente"
+    ),
+    "rbac-admin": (
+        "usuario usuarios permissao permissoes acesso acessos perfil papel senha "
+        "administrar administracao seguranca auditoria liberar bloquear"
+    ),
+    "benchmark": (
+        "concorrente concorrentes comparar mercado benchmark salesforce hubspot "
+        "comparativo evoluir referencia"
+    ),
+}
+
+_STOPWORDS = {
+    "que", "com", "para", "por", "quero", "como", "uma", "meu", "minha", "dos",
+    "das", "nao", "não", "mais", "ver", "saber", "fazer", "preciso", "quais",
+    "qual", "onde", "esta", "estao", "sem", "ter", "vou", "ser",
+}
+
+
+def _normalize_text(text: str) -> str:
+    """Minúsculas e sem acentos, para casar «previsão» com «previsao»."""
+    return (
+        unicodedata.normalize("NFKD", str(text).lower())
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+
+
+def search_services(query: str, limit: int = 6) -> list[dict[str, Any]]:
+    """Busca em linguagem natural: entende frases como «cliente quer cancelar».
+
+    Pontuação: palavra-chave dedicada vale 3, título vale 2, demais textos valem 1.
+    Retorna os serviços ordenados por relevância (apenas score > 0).
+    """
+    tokens = [
+        t for t in _normalize_text(query).split()
+        if len(t) >= 3 and t not in _STOPWORDS
+    ]
+    if not tokens:
+        return []
+
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for service in SERVICE_CATALOG:
+        sid = str(service["id"])
+        keywords = _normalize_text(SEARCH_KEYWORDS.get(sid, ""))
+        title = _normalize_text(service["title"])
+        body = _normalize_text(
+            " ".join([
+                str(service.get("tagline", "")),
+                str(service.get("summary", "")),
+                str(service.get("description", "")),
+                str(service.get("outcome", "")),
+            ])
+        )
+        score = 0
+        for token in tokens:
+            if token in keywords:
+                score += 3
+            if token in title:
+                score += 2
+            if token in body:
+                score += 1
+        if score > 0:
+            scored.append((score, service))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [service for _, service in scored[:limit]]
