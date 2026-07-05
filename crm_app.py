@@ -713,27 +713,18 @@ def start_user_session(user: dict[str, Any]) -> None:
 
 
 def end_user_session() -> None:
+    """Sai da conta com um redirect real para a raiz, removendo o token da URL."""
     st.session_state.pop("crm_user", None)
-    # O flag evita que o token remanescente na URL refaça o login no rerun.
-    st.session_state["logging_out"] = True
-    try:
-        if "auth" in st.query_params:
-            del st.query_params["auth"]
-    except Exception:
-        pass
-    st.rerun()
+    # Redirect completo (não st.rerun): garante que o ?auth= saia da URL do navegador.
+    st.markdown(
+        '<meta http-equiv="refresh" content="0; url=./">',
+        unsafe_allow_html=True,
+    )
+    st.stop()
 
 
 def restore_session_from_url() -> None:
     """Se a página foi atualizada (F5), restaura o login a partir do token na URL."""
-    if st.session_state.get("logging_out"):
-        try:
-            if "auth" in st.query_params:
-                del st.query_params["auth"]
-            st.session_state.pop("logging_out", None)
-        except Exception:
-            pass
-        return
     if "crm_user" in st.session_state:
         return
     token = str(st.query_params.get("auth", "") or "")
