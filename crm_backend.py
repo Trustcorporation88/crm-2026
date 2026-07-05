@@ -506,6 +506,30 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def get_user_preference(username: str, pref_key: str, default: str = "") -> str:
+    """Lê uma preferência persistida do usuário (ex.: tour concluído)."""
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT pref_value FROM user_preferences WHERE username = ? AND pref_key = ?",
+            (username, pref_key),
+        ).fetchone()
+    return str(row["pref_value"]) if row else default
+
+
+def set_user_preference(username: str, pref_key: str, pref_value: str) -> None:
+    """Grava uma preferência do usuário com upsert."""
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO user_preferences (username, pref_key, pref_value)
+            VALUES (?, ?, ?)
+            ON CONFLICT (username, pref_key) DO UPDATE SET pref_value = excluded.pref_value
+            """,
+            (username, pref_key, pref_value),
+        )
+        connection.commit()
+
+
 def _seed_passwords() -> None:
     passwords = {
         "admin": "admin123",
@@ -527,6 +551,13 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             role TEXT NOT NULL,
             password_hash TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            username TEXT NOT NULL,
+            pref_key TEXT NOT NULL,
+            pref_value TEXT NOT NULL,
+            PRIMARY KEY (username, pref_key)
         );
 
         CREATE TABLE IF NOT EXISTS customers (

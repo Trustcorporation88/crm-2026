@@ -38,6 +38,8 @@ from crm_backend import (
     get_data,
     get_role_sections,
     get_timeline,
+    get_user_preference,
+    set_user_preference,
     init_database,
     update_role_permissions,
     verify_login,
@@ -896,13 +898,55 @@ def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
 
 
+def _render_service_card(service: dict[str, Any], allowed_sections: list[str], key_prefix: str = "svc") -> None:
+    """Card de serviço com botões Abrir/Guia (usado no catálogo e na busca)."""
+    with st.container(border=True):
+        st.markdown(f"**{service['title']}**")
+        st.caption(f"🔹 Use quando: {service['tagline']}")
+        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
+        target_section = resolve_service_section(str(service["id"]))
+        has_access = target_section in allowed_sections
+        if not has_access:
+            st.caption("🔒 Disponível para outro perfil de acesso")
+        b_open, b_guide = st.columns(2)
+        with b_open:
+            if has_access:
+                if st.button(
+                    "Abrir",
+                    key=f"{key_prefix}-open-{service['id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    navigate_to_section(target_section)
+            else:
+                st.button(
+                    "🔒 Sem acesso",
+                    key=f"{key_prefix}-open-{service['id']}",
+                    disabled=True,
+                    use_container_width=True,
+                    help=f"Seu perfil não tem acesso a «{target_section}». Fale com um administrador para liberar.",
+                )
+        with b_guide:
+            if st.button(
+                "ℹ️ Guia",
+                key=f"{key_prefix}-guide-{service['id']}",
+                use_container_width=True,
+                help="Objetivo, exemplo prático, passo a passo e chat IA",
+            ):
+                open_service_guide_dialog(
+                    service,
+                    navigate_to_section,
+                    resolve_service_section,
+                )
+
+
 def render_services_catalog() -> None:
     """Catálogo orientado a objetivo: busca, cards clicáveis e desambiguação.
 
     Substitui a versão antiga que desenhava cada serviço duas vezes
     (card decorativo NÃO clicável em rolagem horizontal + botões abaixo).
     """
-    from services_catalog import CATEGORIES, get_services_by_category
+    from services_catalog import CATEGORIES, get_services_by_category, search_services
 
     allowed_sections = _allowed_sections_for_user()
 
@@ -930,14 +974,14 @@ def render_services_catalog() -> None:
         "Toque em **ℹ️ Guia** para objetivo, resultado, dados e chat com IA."
     )
 
-    # 1) Busca por objetivo
+    # 1) Assistente de busca: entenda o que o usuário precisa em linguagem natural
     query = st.text_input(
-        "Buscar por objetivo",
+        "O que você precisa fazer?",
         key="catalog_search",
-        placeholder="Ex.: reduzir cancelamento, priorizar leads, prever receita, atender no prazo…",
+        placeholder="Descreva com suas palavras: «cliente quer cancelar», «esqueci de dar retorno», «quanto vou faturar»…",
         label_visibility="collapsed",
     )
-    q = (query or "").strip().lower()
+    q = (query or "").strip()
 
     # 2) Desambiguação dos serviços que mais confundem
     with st.expander("Confuso entre serviços parecidos? Veja a diferença"):
@@ -949,21 +993,31 @@ def render_services_catalog() -> None:
 
     st.divider()
 
-    # 3) Serviços agrupados por objetivo, em grade responsiva (sem rolagem horizontal)
+    # 3a) Com busca: mostra os resultados ranqueados por relevância e para aqui.
+    if q:
+        results = search_services(q)
+        if not results:
+            st.info(
+                f'Não encontrei nada para "{query}". '
+                "Tente outras palavras (ex.: «cancelamento», «lembrete», «vendas») "
+                "ou navegue pelas categorias apagando a busca."
+            )
+        else:
+            st.markdown(f"#### 🎯 Encontrei {len(results)} serviço(s) para você")
+            st.caption("Ordenados do mais indicado para o menos. Apague a busca para ver o catálogo completo.")
+            for chunk_start in range(0, len(results), 3):
+                chunk = results[chunk_start: chunk_start + 3]
+                cols = st.columns(len(chunk))
+                for col, service in zip(cols, chunk):
+                    with col:
+                        _render_service_card(service, allowed_sections, key_prefix="search")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # 3b) Sem busca: serviços agrupados por objetivo, em grade responsiva
     total_shown = 0
     for category in CATEGORIES:
         services = get_services_by_category(str(category["id"]))
-        if q:
-            services = [
-                s for s in services
-                if q in " ".join([
-                    str(s.get("title", "")),
-                    str(s.get("tagline", "")),
-                    str(s.get("summary", "")),
-                    str(s.get("resultado_esperado", "")),
-                    str(s.get("description", "")),
-                ]).lower()
-            ]
         if not services:
             continue
         total_shown += len(services)
@@ -980,50 +1034,10 @@ def render_services_catalog() -> None:
             cols = st.columns(len(chunk))
             for col, service in zip(cols, chunk):
                 with col:
-                    with st.container(border=True):
-                        st.markdown(f"**{service['title']}**")
-                        st.caption(f"🔹 Use quando: {service['tagline']}")
-                        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
-                        target_section = resolve_service_section(str(service["id"]))
-                        has_access = target_section in allowed_sections
-                        if not has_access:
-                            st.caption("🔒 Disponível para outro perfil de acesso")
-                        b_open, b_guide = st.columns(2)
-                        with b_open:
-                            if has_access:
-                                if st.button(
-                                    "Abrir",
-                                    key=f"svc-open-{service['id']}",
-                                    type="primary",
-                                    use_container_width=True,
-                                ):
-                                    navigate_to_section(target_section)
-                            else:
-                                st.button(
-                                    "🔒 Sem acesso",
-                                    key=f"svc-open-{service['id']}",
-                                    disabled=True,
-                                    use_container_width=True,
-                                    help=f"Seu perfil não tem acesso a «{target_section}». Fale com um administrador para liberar.",
-                                )
-                        with b_guide:
-                            if st.button(
-                                "ℹ️ Guia",
-                                key=f"svc-guide-{service['id']}",
-                                use_container_width=True,
-                                help="Objetivo, resultado, dados, resumo e chat IA",
-                            ):
-                                open_service_guide_dialog(
-                                    service,
-                                    navigate_to_section,
-                                    resolve_service_section,
-                                )
+                    _render_service_card(service, allowed_sections, key_prefix="svc")
 
     if total_shown == 0:
-        st.info(
-            f'Nenhum serviço corresponde a "{query}". '
-            "Tente outro termo (ex.: vendas, atendimento, leads, churn)."
-        )
+        st.info("Nenhum serviço disponível para o seu perfil.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
