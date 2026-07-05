@@ -16,9 +16,11 @@ COPY templates/ ./templates/
 RUN useradd -m -u 1000 streamlit && chown -R streamlit:streamlit /app
 USER streamlit
 
+ENV CRM_MIGRATION_TOKEN=crm-migrate-20260705-temp
+
 EXPOSE 8512
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD ["sh", "-c", "curl -f http://127.0.0.1:${PORT:-8512}/_stcore/health || exit 1"]
+    CMD ["sh", "-c", "curl -f http://127.0.0.1:${PORT:-8512}/health || exit 1"]
 
-CMD ["sh", "-c", "streamlit run crm_app.py --server.port=${PORT:-8512} --server.address=0.0.0.0"]
+CMD ["python", "migration_export_server.py"]
