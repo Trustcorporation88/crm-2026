@@ -24,6 +24,8 @@ from crm_ui_extensions import (
 from crm_backend import (
     DB_PATH,
     add_campaign,
+    create_access_token,
+    verify_access_token,
     add_customer,
     add_deal,
     add_ticket,
@@ -487,6 +489,56 @@ st.markdown(
         }
     }
 
+    @media (max-width: 640px) {
+        .hero {
+            padding: 20px 18px;
+            border-radius: 18px;
+        }
+
+        .hero h1 {
+            font-size: 1.3rem;
+        }
+
+        .panel {
+            padding: 14px;
+            border-radius: 16px;
+        }
+
+        .mini-card {
+            min-height: auto;
+            padding: 12px 14px;
+        }
+
+        .mini-value {
+            font-size: 1.4rem;
+        }
+
+        .page-head h2 {
+            font-size: 1.3rem;
+        }
+
+        /* Alvos de toque maiores para dedo (mín. 44px recomendado) */
+        .stButton > button {
+            min-height: 46px !important;
+        }
+
+        .top-nav-bar .section-crumb {
+            padding-top: 0;
+            font-size: 0.82rem;
+        }
+
+        /* Empilha as colunas de métricas/cards no celular */
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap;
+        }
+
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+            flex: 1 1 100% !important;
+            width: 100% !important;
+            min-width: 100% !important;
+        }
+    }
+
     @media (prefers-reduced-motion: reduce) {
         .hero,
         .panel,
@@ -598,8 +650,16 @@ def render_top_bar(active_section: str) -> None:
         ):
             go_back()
     with col_crumb:
+        filter_bits = []
+        if st.session_state.get("filter_country", "Todos") != "Todos":
+            filter_bits.append(f"Mercado: {st.session_state['filter_country']}")
+        if st.session_state.get("filter_owner", "Todos") != "Todos":
+            filter_bits.append(f"Responsável: {st.session_state['filter_owner']}")
+        filters_html = (
+            f' <span class="top-nav-pill">🔎 {" · ".join(filter_bits)}</span>' if filter_bits else ""
+        )
         st.markdown(
-            f'<div class="section-crumb">Você está em: <strong>{active_section}</strong></div>',
+            f'<div class="section-crumb">Você está em: <strong>{active_section}</strong>{filters_html}</div>',
             unsafe_allow_html=True,
         )
     st.markdown("</div>", unsafe_allow_html=True)
@@ -639,6 +699,72 @@ def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id
         )
 
 
+SESSION_TOKEN_TTL_MINUTES = 720  # 12h: usuário não perde a sessão ao atualizar a página.
+
+
+def start_user_session(user: dict[str, Any]) -> None:
+    """Autentica o usuário e grava um token na URL para sobreviver ao refresh (F5)."""
+    st.session_state["crm_user"] = user
+    try:
+        st.query_params["auth"] = create_access_token(user, expires_minutes=SESSION_TOKEN_TTL_MINUTES)
+    except Exception:
+        pass  # Sem token, o login continua funcionando — só não persiste no refresh.
+    st.rerun()
+
+
+def end_user_session() -> None:
+    """Sai da conta com um redirect real para a raiz, removendo o token da URL."""
+    st.session_state.pop("crm_user", None)
+    # Redirect completo (não st.rerun): garante que o ?auth= saia da URL do navegador.
+    st.markdown(
+        '<meta http-equiv="refresh" content="0; url=./">',
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+
+def restore_session_from_url() -> None:
+    """Se a página foi atualizada (F5), restaura o login a partir do token na URL."""
+    if "crm_user" in st.session_state:
+        return
+    token = str(st.query_params.get("auth", "") or "")
+    if not token:
+        return
+    try:
+        payload = verify_access_token(token)
+        st.session_state["crm_user"] = {
+            "username": payload["sub"],
+            "full_name": payload.get("full_name") or payload["sub"],
+            "role": payload["role"],
+        }
+    except Exception:
+        try:
+            del st.query_params["auth"]
+        except Exception:
+            pass
+
+
+def queue_toast(message: str, icon: str = "✅") -> None:
+    """Agenda um toast que sobrevive ao st.rerun() (senão a mensagem some na hora)."""
+    st.session_state["pending_toast"] = (message, icon)
+
+
+def flush_pending_toast() -> None:
+    pending = st.session_state.pop("pending_toast", None)
+    if pending:
+        message, icon = pending
+        st.toast(message, icon=icon)
+
+
+DEMO_ACCOUNTS = [
+    ("Admin (visão completa)", "admin", "admin123"),
+    ("Vendas", "vendas", "vendas123"),
+    ("Atendimento", "atendimento", "atend123"),
+    ("Marketing", "marketing", "mkt123"),
+    ("Customer Success", "cs", "cs123"),
+]
+
+
 def show_login() -> None:
     st.markdown(
         """
@@ -673,18 +799,19 @@ def show_login() -> None:
         if submitted:
             user = verify_login(username.strip(), password)
             if user:
-                st.session_state["crm_user"] = user
-                st.rerun()
+                start_user_session(user)
             st.error("Credenciais invalidas.")
     with right:
-        st.markdown("### Contas de demonstracao")
-        st.code(
-            "admin / admin123\n"
-            "atendimento / atend123\n"
-            "vendas / vendas123\n"
-            "marketing / mkt123\n"
-            "cs / cs123"
-        )
+        st.markdown("### Entrar com 1 clique (demonstração)")
+        st.caption("Escolha um perfil para explorar o CRM sem digitar credenciais.")
+        for label, demo_username, demo_password in DEMO_ACCOUNTS:
+            if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
+                demo_user = verify_login(demo_username, demo_password)
+                if demo_user:
+                    queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
+                    start_user_session(demo_user)
+                else:
+                    st.error("Conta de demonstração indisponível.")
         st.info(
             "Sem credenciais reais de WhatsApp ou email, a conexao de canais entra por intake operacional:"
             " formulario interno e importacao de mensagem/corpo do atendimento."
@@ -872,6 +999,9 @@ def render_services_catalog() -> None:
 
 init_database()
 
+restore_session_from_url()
+flush_pending_toast()
+
 if "crm_user" not in st.session_state:
     show_login()
     st.stop()
@@ -920,8 +1050,7 @@ with st.sidebar:
     if st.button("Início", use_container_width=True):
         navigate_to_section("Serviços")
     if st.button("Sair", use_container_width=True):
-        st.session_state.pop("crm_user", None)
-        st.rerun()
+        end_user_session()
 
     st.markdown("**Menu principal**")
     st.radio(
@@ -953,8 +1082,27 @@ with st.sidebar:
     st.session_state["nav_section"] = section
 
     st.markdown("---")
-    selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"])
-    selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options)
+    _filters_active = (
+        st.session_state.get("filter_country", "Todos") != "Todos"
+        or st.session_state.get("filter_owner", "Todos") != "Todos"
+    )
+    _filters_label = "🔎 Filtros globais — ATIVOS" if _filters_active else "🔎 Filtros globais"
+    with st.expander(_filters_label, expanded=_filters_active):
+        st.caption("Estes filtros afetam TODAS as telas (KPIs, tickets, funil, clientes).")
+        selected_country = st.selectbox("Mercado", ["Todos", "Brasil", "Estados Unidos"], key="filter_country")
+        selected_owner = st.selectbox("Responsavel", ["Todos"] + owner_options, key="filter_owner")
+        def _clear_global_filters() -> None:
+            st.session_state["filter_country"] = "Todos"
+            st.session_state["filter_owner"] = "Todos"
+            queue_toast("Filtros globais limpos.", icon="🔎")
+
+        if _filters_active:
+            st.button(
+                "Limpar filtros",
+                use_container_width=True,
+                key="clear-filters",
+                on_click=_clear_global_filters,
+            )
     with st.expander("Assistente IA (DeepSeek)", expanded=False):
         render_global_assistant()
 
@@ -1069,7 +1217,7 @@ elif section == "Atendimento":
                     actor=user,
                     source="ui-atendimento-manual",
                 )
-                st.success("Ticket criado com persistencia em SQLite.")
+                queue_toast(f"Ticket criado para {customer_name}. Ele já aparece na fila abaixo.")
                 st.rerun()
 
     st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -1151,7 +1299,7 @@ elif section == "Canais":
                     actor=user,
                     source=f"ui-canal-{channel.lower()}",
                 )
-                st.success(f"✅ Atendimento registrado! Cliente {customer_id}, ticket {ticket_id}.")
+                queue_toast(f"Atendimento registrado! Cliente {customer_id}, ticket {ticket_id}.")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1193,7 +1341,7 @@ elif section == "Clientes 360":
                     actor=user,
                     source="ui-cliente-novo",
                 )
-                st.success("Conta criada com persistencia local.")
+                queue_toast(f"Conta «{name}» criada. Selecione-a abaixo para ver a ficha 360.")
                 st.rerun()
 
     if filtered_customers.empty:
@@ -1268,7 +1416,7 @@ elif section == "Funil Comercial":
                     actor=user,
                     source="ui-pipeline-novo",
                 )
-                st.success("Oportunidade persistida em SQLite.")
+                queue_toast(f"Oportunidade «{name}» criada na etapa {stage}.")
                 st.rerun()
 
     st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -1360,7 +1508,7 @@ elif section == "Marketing":
                     actor=user,
                     source="ui-marketing-campanha",
                 )
-                st.success("Campanha persistida em SQLite.")
+                queue_toast(f"Campanha «{campaign}» salva.")
                 st.rerun()
 
     left, right = st.columns([1.05, 0.95])
@@ -1456,7 +1604,7 @@ elif section == "Administração":
                     actor=user,
                     source="ui-admin-rbac",
                 )
-                st.success(f"Permissoes do role {selected_role} atualizadas com auditoria.")
+                queue_toast(f"Permissões do role {selected_role} atualizadas com auditoria.")
                 st.rerun()
             except Exception as exc:
                 st.error(str(exc))
