@@ -798,6 +798,128 @@ DEMO_ACCOUNTS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Tour guiado no primeiro acesso
+# ---------------------------------------------------------------------------
+TOUR_STEPS = [
+    {
+        "title": "Bem-vindo(a) ao Mr.Holmes CRM",
+        "body": (
+            "Este é o seu CRM completo: atendimento, vendas, marketing e gestão de "
+            "clientes em um só lugar.\n\n"
+            "Este tour rápido de 4 passos mostra como tudo funciona. "
+            "Você pode pular a qualquer momento e rever depois pelo menu lateral."
+        ),
+    },
+    {
+        "title": "Passo 1 · Comece pelo Catálogo",
+        "body": (
+            "A tela inicial é o **Catálogo de Serviços**, organizado por objetivo: "
+            "*Resolver o dia a dia*, *Conhecer e cuidar dos clientes*, *Vender mais* e outros.\n\n"
+            "Não sabe onde clicar? Use a **busca no topo** e descreva com suas palavras "
+            "(ex.: «cliente quer cancelar») — o sistema indica o serviço certo.\n\n"
+            "Cada cartão tem dois botões: **Abrir** vai direto para a tela, e "
+            "**Guia** explica o serviço com exemplo prático e passo a passo."
+        ),
+    },
+    {
+        "title": "Passo 2 · Navegue pelo menu lateral",
+        "body": (
+            "À esquerda fica o **menu com os módulos** disponíveis para o seu perfil: "
+            "Atendimento, Funil de Vendas, Clientes 360 e mais.\n\n"
+            "Logo abaixo estão os **Filtros globais** (Mercado e Responsável). "
+            "Quando ativos, eles afetam todas as telas e aparecem indicados no topo.\n\n"
+            "No topo de qualquer tela, o botão **Início** traz você de volta ao catálogo."
+        ),
+    },
+    {
+        "title": "Passo 3 · Fluxo típico do dia a dia",
+        "body": (
+            "1. Chegou mensagem de cliente? Registre em **Canais** (WhatsApp, e-mail, site).\n"
+            "2. Acompanhe e responda na **Central de Atendimento**.\n"
+            "3. Antes de falar com alguém, consulte a **Ficha 360** do cliente.\n"
+            "4. Oportunidade de venda? Crie no **Funil de Vendas**.\n"
+            "5. Prometeu retorno? Agende em **Follow-up** e nada se perde."
+        ),
+    },
+    {
+        "title": "Pronto para começar!",
+        "body": (
+            "Dicas finais:\n\n"
+            "- Toda ação importante mostra uma **confirmação** no canto da tela.\n"
+            "- Sua sessão **continua ativa** mesmo se você atualizar a página.\n"
+            "- Dúvida em qualquer serviço? Clique em **Guia** e use a aba **Chat IA**.\n\n"
+            "Bom trabalho! Você pode rever este tour no menu lateral em «Rever tour»."
+        ),
+    },
+]
+
+
+@st.dialog("Tour guiado", width="large")
+def show_onboarding_tour() -> None:
+    step = int(st.session_state.get("tour_step", 0))
+    step = max(0, min(step, len(TOUR_STEPS) - 1))
+    data = TOUR_STEPS[step]
+
+    st.progress((step + 1) / len(TOUR_STEPS), text=f"Etapa {step + 1} de {len(TOUR_STEPS)}")
+    st.markdown(f"### {data['title']}")
+    st.markdown(data["body"])
+    st.divider()
+
+    col_skip, col_back, col_next = st.columns([1, 1, 1])
+    username = str(st.session_state.get("crm_user", {}).get("username", ""))
+
+    def _finish_tour() -> None:
+        if username:
+            try:
+                set_user_preference(username, "onboarding_tour", "done")
+            except Exception:
+                pass
+        st.session_state["tour_done_session"] = True
+        st.session_state.pop("tour_step", None)
+        st.session_state.pop("show_tour", None)
+
+    with col_skip:
+        if st.button("Pular tour", use_container_width=True, key="tour-skip"):
+            _finish_tour()
+            st.rerun()
+    with col_back:
+        if step > 0 and st.button("Voltar", use_container_width=True, key="tour-back"):
+            st.session_state["tour_step"] = step - 1
+            st.rerun()
+    with col_next:
+        is_last = step == len(TOUR_STEPS) - 1
+        label = "Concluir" if is_last else "Avançar"
+        if st.button(label, type="primary", use_container_width=True, key="tour-next"):
+            if is_last:
+                _finish_tour()
+                queue_toast("Tour concluído! Explore o catálogo à vontade.", icon="🎉")
+            else:
+                st.session_state["tour_step"] = step + 1
+            st.rerun()
+
+
+def maybe_show_onboarding_tour() -> None:
+    """Abre o tour no primeiro acesso do usuário (persistido em SQLite)."""
+    if st.session_state.get("tour_done_session"):
+        return
+    if st.session_state.get("show_tour"):
+        show_onboarding_tour()
+        return
+    username = str(st.session_state.get("crm_user", {}).get("username", ""))
+    if not username:
+        return
+    try:
+        already_done = get_user_preference(username, "onboarding_tour", "") == "done"
+    except Exception:
+        already_done = True  # Em caso de erro no banco, não bloqueia o uso.
+    if already_done:
+        st.session_state["tour_done_session"] = True
+        return
+    st.session_state["show_tour"] = True
+    show_onboarding_tour()
+
+
 def show_login() -> None:
     st.markdown(
         """
@@ -1051,6 +1173,8 @@ if "crm_user" not in st.session_state:
     show_login()
     st.stop()
 
+maybe_show_onboarding_tour()
+
 
 user = st.session_state["crm_user"]
 data = get_data()
@@ -1094,6 +1218,11 @@ with st.sidebar:
     st.success(f"{user['full_name']} | {user['role']}")
     if st.button("Início", use_container_width=True):
         navigate_to_section("Serviços")
+    if st.button("Rever tour", use_container_width=True, help="Reabrir o tour guiado de boas-vindas"):
+        st.session_state["tour_step"] = 0
+        st.session_state["show_tour"] = True
+        st.session_state.pop("tour_done_session", None)
+        st.rerun()
     if st.button("Sair", use_container_width=True):
         end_user_session()
 
