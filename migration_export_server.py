@@ -22,6 +22,9 @@ def main() -> None:
         print("CRM_MIGRATION_TOKEN is required", file=sys.stderr)
         sys.exit(1)
     if not os.path.isfile(DB_PATH):
+        from crm_backend import init_database
+        init_database()
+    if not os.path.isfile(DB_PATH):
         print(f"Database not found: {DB_PATH}", file=sys.stderr)
         sys.exit(1)
 

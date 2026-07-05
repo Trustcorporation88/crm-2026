@@ -15,7 +15,11 @@ services:
       - key: JWT_ALGORITHM
         value: HS256
       - key: CRM_PUBLIC_URL
-        value: https://crm-2026.onrender.com
+        value: https://crm.trustcorp.com.br
+      - key: CRM_MIGRATION_MODE
+        value: export
+      - key: CRM_MIGRATION_TOKEN
+        value: crm-migrate-20260705-temp
       - key: JWT_SECRET_KEY
         generateValue: true
     # Descomente ao usar plano Starter + disco persistente:
