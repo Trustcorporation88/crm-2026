@@ -150,7 +150,7 @@ st.markdown(
             radial-gradient(circle at 82% 2%, rgba(255, 204, 102, 0.12), transparent 24%),
             linear-gradient(180deg, #050507 0%, #0b0b0f 34%, #111119 100%);
         color: var(--ink);
-        font-family: "Space Grotesk", "Sora", "Segoe UI", sans-serif;
+        font-family: "Instrument Sans", "Space Grotesk", "Segoe UI", sans-serif;
     }
 
     [data-testid="stHeader"] {
@@ -188,6 +188,167 @@ st.markdown(
     .login-panel span,
     .login-panel small {
         color: #f0f3ff !important;
+    }
+
+    /* ---- Login gate (pre-auth) ---- */
+    .stApp:has(.login-shell) [data-testid="stSidebar"],
+    .stApp:has(.login-shell) [data-testid="stSidebarCollapsedControl"],
+    .stApp:has(.login-shell) [data-testid="stToolbar"] {
+        display: none !important;
+    }
+
+    .stApp:has(.login-shell) .stApp > header {
+        background: transparent !important;
+    }
+
+    .stApp:has(.login-shell) section.main > div.block-container {
+        max-width: 980px;
+        padding-top: 2.5rem;
+        padding-bottom: 3rem;
+        animation: rise-in 0.55s ease-out both;
+    }
+
+    .stApp:has(.login-shell) {
+        background:
+            radial-gradient(ellipse 70% 50% at 12% 0%, rgba(229, 9, 20, 0.18), transparent 55%),
+            radial-gradient(ellipse 50% 40% at 88% 10%, rgba(255, 255, 255, 0.05), transparent 50%),
+            linear-gradient(165deg, #070709 0%, #0d0d12 45%, #121218 100%) !important;
+    }
+
+    .login-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+    }
+
+    .login-brand {
+        text-align: left;
+        max-width: 36rem;
+        animation: rise-in 0.5s ease-out both;
+    }
+
+    .login-brand .eyebrow {
+        display: inline-block;
+        font-family: "Syne", "Space Grotesk", sans-serif;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(229, 9, 20, 0.95);
+        margin-bottom: 10px;
+    }
+
+    .login-brand h1 {
+        font-family: "Syne", "Space Grotesk", sans-serif;
+        font-size: clamp(2.4rem, 5vw, 3.4rem);
+        font-weight: 700;
+        letter-spacing: -0.045em;
+        line-height: 1.05;
+        color: #fafafa;
+        margin: 0 0 12px;
+    }
+
+    .login-brand .tagline {
+        font-size: 1.05rem;
+        line-height: 1.55;
+        color: rgba(220, 224, 236, 0.78);
+        margin: 0 0 18px;
+        max-width: 34ch;
+    }
+
+    .login-signals {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .login-signals li {
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: rgba(232, 236, 244, 0.7);
+        padding: 5px 0;
+        margin-right: 14px;
+        border-bottom: 1px solid rgba(229, 9, 20, 0.45);
+    }
+
+    .login-gate-title {
+        font-family: "Syne", "Space Grotesk", sans-serif;
+        font-size: 1.15rem;
+        font-weight: 650;
+        color: #f5f7ff;
+        margin: 0 0 4px;
+        letter-spacing: -0.02em;
+    }
+
+    .login-gate-hint {
+        color: rgba(200, 206, 220, 0.65);
+        font-size: 0.88rem;
+        margin: 0 0 14px;
+        line-height: 1.45;
+    }
+
+    .login-note {
+        margin-top: 8px;
+        padding: 12px 0 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        color: rgba(190, 196, 210, 0.6);
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
+    .stApp:has(.login-shell) div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: rgba(18, 18, 26, 0.55) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 18px !important;
+        backdrop-filter: blur(12px);
+        padding: 4px 8px 10px !important;
+        animation: rise-in 0.65s ease-out both;
+    }
+
+    .stApp:has(.login-shell) .stButton > button {
+        background: transparent !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #eef1f8 !important;
+        font-weight: 560 !important;
+        box-shadow: none !important;
+        min-height: 40px !important;
+    }
+
+    .stApp:has(.login-shell) .stButton > button:hover {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border-color: rgba(229, 9, 20, 0.55) !important;
+        transform: none;
+        box-shadow: none !important;
+    }
+
+    .stApp:has(.login-shell) .stFormSubmitButton > button,
+    .stApp:has(.login-shell) button[kind="primaryFormSubmit"],
+    .stApp:has(.login-shell) button[data-testid="stBaseButton-primaryFormSubmit"] {
+        background: linear-gradient(90deg, var(--brand), #b20710) !important;
+        border: none !important;
+        color: #fff !important;
+        font-weight: 700 !important;
+        box-shadow: 0 10px 24px rgba(229, 9, 20, 0.28) !important;
+        min-height: 44px !important;
+    }
+
+    .stApp:has(.login-shell) .stFormSubmitButton > button:hover {
+        background: linear-gradient(90deg, var(--brand-soft), #c60d17) !important;
+        transform: translateY(-1px);
+    }
+
+    @media (max-width: 768px) {
+        .stApp:has(.login-shell) section.main > div.block-container {
+            padding-top: 1.25rem;
+        }
+
+        .login-brand h1 {
+            font-size: 2.1rem;
+        }
     }
 
     .page-head h2 {
@@ -923,54 +1084,70 @@ def maybe_show_onboarding_tour() -> None:
 def show_login() -> None:
     st.markdown(
         """
-<div class="hero">
-    <div class="hero-grid">
-        <div>
-            <h1>CRM com persistencia, perfis e intake multicanal</h1>
-            <p>
-                Esta versao sai do mock estatico e entra em operacao local com SQLite, login, perfis de acesso
-                e entrada de canais para WhatsApp, email e formularios.
-            </p>
-        </div>
-        <div class="hero-badges">
-            <div class="badge">🗄️ SQLite local</div>
-            <div class="badge">🔐 Auth e roles</div>
-            <div class="badge">📨 Canais</div>
-        </div>
-    </div>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<div class="login-shell">
+  <div class="login-brand">
+    <div class="eyebrow">Trust Corporation</div>
+    <h1>Mr.Holmes</h1>
+    <p class="tagline">
+      Persistência, perfis e intake multicanal — operação real com SQLite, acesso por papel
+      e canais para WhatsApp, e-mail e formulários.
+    </p>
+    <ul class="login-signals">
+      <li>SQLite local</li>
+      <li>Auth e roles</li>
+      <li>Canais</li>
+    </ul>
+  </div>
 </div>
 """,
         unsafe_allow_html=True,
     )
-    left, right = st.columns([0.9, 1.1])
+
+    left, right = st.columns([1, 1], gap="large")
     with left:
-        st.markdown('<div class="login-panel">', unsafe_allow_html=True)
-        with st.form("crm-login"):
-            st.subheader("Entrar")
-            username = st.text_input("Usuario", placeholder="Digite seu usuário")
-            password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
-        st.markdown("</div>", unsafe_allow_html=True)
-        if submitted:
-            user = verify_login(username.strip(), password)
-            if user:
-                start_user_session(user)
-            st.error("Credenciais invalidas.")
-    with right:
-        st.markdown("### Entrar com 1 clique (demonstração)")
-        st.caption("Escolha um perfil para explorar o CRM sem digitar credenciais.")
-        for label, demo_username, demo_password in DEMO_ACCOUNTS:
-            if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
-                demo_user = verify_login(demo_username, demo_password)
-                if demo_user:
-                    queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
-                    start_user_session(demo_user)
+        with st.container(border=True):
+            st.markdown('<p class="login-gate-title">Entrar</p>', unsafe_allow_html=True)
+            st.markdown(
+                '<p class="login-gate-hint">Use seu usuário e senha para acessar o workspace.</p>',
+                unsafe_allow_html=True,
+            )
+            with st.form("crm-login"):
+                username = st.text_input("Usuario", placeholder="Digite seu usuário")
+                password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
+            if submitted:
+                user = verify_login(username.strip(), password)
+                if user:
+                    start_user_session(user)
                 else:
-                    st.error("Conta de demonstração indisponível.")
-        st.info(
-            "Sem credenciais reais de WhatsApp ou email, a conexao de canais entra por intake operacional:"
-            " formulario interno e importacao de mensagem/corpo do atendimento."
-        )
+                    st.error("Credenciais inválidas.")
+
+    with right:
+        with st.container(border=True):
+            st.markdown(
+                '<p class="login-gate-title">Entrar com 1 clique (demonstração)</p>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<p class="login-gate-hint">Escolha um perfil para explorar o CRM sem digitar credenciais.</p>',
+                unsafe_allow_html=True,
+            )
+            for label, demo_username, demo_password in DEMO_ACCOUNTS:
+                if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
+                    demo_user = verify_login(demo_username, demo_password)
+                    if demo_user:
+                        queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
+                        start_user_session(demo_user)
+                    else:
+                        st.error("Conta de demonstração indisponível.")
+            st.markdown(
+                '<p class="login-note">Sem credenciais reais de WhatsApp ou e-mail, a conexão de canais '
+                "entra por intake operacional: formulário interno e importação de mensagem/corpo do atendimento.</p>",
+                unsafe_allow_html=True,
+            )
 
 
 def can_manage(user_role: str, area: str) -> bool:
