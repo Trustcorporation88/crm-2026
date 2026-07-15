@@ -1,0 +1,10 @@
+# Variaveis para o servico crm-2026 no Railway -> Variables
+CRM_LOCAL_MODE=1
+JWT_SECRET_KEY=substitua-por-chave-aleatoria-com-32-caracteres-ou-mais
+JWT_ALGORITHM=HS256
+CRM_PUBLIC_URL=https://crm.trustcorp.com.br
+DEEPSEEK_API_KEY=sua-chave-deepseek-aqui
+DEEPSEEK_MODEL=deepseek-chat
+
+# Volume do Railway (Settings -> Volumes) deve estar montado em /data:
+CRM_DATA_DIR=/data

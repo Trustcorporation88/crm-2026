@@ -18,7 +18,19 @@ import pandas as pd
 
 
 BASE_DIR = os.path.dirname(__file__)
-DATA_DIR = os.getenv("CRM_DATA_DIR", os.path.join(BASE_DIR, "Data"))
+
+
+def _default_data_dir() -> str:
+    explicit = os.getenv("CRM_DATA_DIR")
+    if explicit:
+        return explicit
+    # Persistent volume convention (Railway / Render)
+    if os.path.isdir("/data") and os.access("/data", os.W_OK):
+        return "/data"
+    return os.path.join(BASE_DIR, "Data")
+
+
+DATA_DIR = _default_data_dir()
 DB_PATH = os.getenv("CRM_DB_PATH", os.path.join(DATA_DIR, "crm.sqlite3"))
 
 ACTIONS = [
@@ -897,14 +909,27 @@ def _migrate_admin_display_name(connection: sqlite3.Connection) -> None:
 
 def init_database() -> str:
     os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.access(DATA_DIR, os.W_OK):
+        raise PermissionError(
+            f"CRM data directory is not writable: {DATA_DIR}. "
+            "On Railway, mount the volume at /data and set CRM_DATA_DIR=/data."
+        )
     _seed_passwords()
-    with _connect() as connection:
-        _create_schema(connection)
-        _seed_defaults(connection)
-        _migrate_admin_display_name(connection)
-        _migrate_role_permissions(connection)
-        _migrate_refresh_tokens_schema(connection)
-        _migrate_auth_throttle_schema(connection)
+    try:
+        with _connect() as connection:
+            _create_schema(connection)
+            _seed_defaults(connection)
+            _migrate_admin_display_name(connection)
+            _migrate_role_permissions(connection)
+            _migrate_refresh_tokens_schema(connection)
+            _migrate_auth_throttle_schema(connection)
+    except sqlite3.OperationalError as exc:
+        if "readonly" in str(exc).lower():
+            raise PermissionError(
+                f"SQLite cannot write to {DB_PATH} (dir={DATA_DIR}). "
+                "Mount the Railway volume at /data, set CRM_DATA_DIR=/data, and redeploy."
+            ) from exc
+        raise
     try:
         from lead_scoring import init_lead_scoring_schema
         from message_templates import init_templates_schema
