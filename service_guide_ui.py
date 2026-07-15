@@ -148,6 +148,6 @@ def open_service_guide_dialog(
 
 
 def render_global_assistant() -> None:
-    st.markdown("**Assistente Mr.Holmes**")
+    st.markdown("**Assistente TRUST CRM**")
     st.caption("Dúvidas gerais sobre o CRM e como usar os módulos.")
     render_chat_panel(scope="global", service=None)

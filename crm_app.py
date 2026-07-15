@@ -1,4 +1,4 @@
-"""Mr.Holmes CRM - persisted CRM with auth, roles and channel intake."""
+"""TRUST CRM - persisted CRM with auth, roles and channel intake."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ BENCHMARKS = pd.DataFrame(
 
 
 st.set_page_config(
-    page_title="Mr.Holmes CRM",
+    page_title="TRUST CRM",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -964,7 +964,7 @@ DEMO_ACCOUNTS = [
 # ---------------------------------------------------------------------------
 TOUR_STEPS = [
     {
-        "title": "Bem-vindo(a) ao Mr.Holmes CRM",
+        "title": "Bem-vindo(a) ao TRUST CRM",
         "body": (
             "Este é o seu CRM completo: atendimento, vendas, marketing e gestão de "
             "clientes em um só lugar.\n\n"
@@ -1090,7 +1090,7 @@ def show_login() -> None:
 <div class="login-shell">
   <div class="login-brand">
     <div class="eyebrow">Trust Corporation</div>
-    <h1>Mr.Holmes</h1>
+    <h1>TRUST CRM</h1>
     <p class="tagline">
       Persistência, perfis e intake multicanal — operação real com SQLite, acesso por papel
       e canais para WhatsApp, e-mail e formulários.
@@ -1390,7 +1390,7 @@ if "nav_section" not in st.session_state or st.session_state["nav_section"] not 
 sync_nav_widgets_from_section(allowed_sections, primary_sections, secondary_sections)
 
 with st.sidebar:
-    st.markdown("## Mr.Holmes CRM")
+    st.markdown("## TRUST CRM")
     st.caption("Menu simples: principais abaixo, demais em «mais módulos».")
     st.success(f"{user['full_name']} | {user['role']}")
     if st.button("Início", use_container_width=True):

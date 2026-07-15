@@ -22,7 +22,7 @@ def build_service_system_prompt(service: dict[str, Any]) -> str:
     dados = ", ".join(service.get("dados_input") or service.get("inputs") or [])
     passos = "; ".join(service.get("como_usar") or service.get("steps") or [])
     return (
-        "Você é o assistente do CRM Mr.Holmes (Trust Corporation). "
+        "Você é o assistente do TRUST CRM (Trust Corporation). "
         f"Responda apenas sobre o serviço «{service.get('title', 'CRM')}».\n\n"
         f"Categoria: {service.get('category', '')}\n"
         f"Objetivo: {service.get('objetivo') or service.get('tagline', '')}\n"
@@ -37,7 +37,7 @@ def build_service_system_prompt(service: dict[str, Any]) -> str:
 
 def build_general_system_prompt() -> str:
     return (
-        "Você é o assistente do CRM Mr.Holmes (Trust Corporation). "
+        "Você é o assistente do TRUST CRM (Trust Corporation). "
         "Ajude com navegação, conceitos de CRM, atendimento, vendas e marketing. "
         "Os módulos principais são: Atendimento, Clientes 360, Funil Comercial, Canais, "
         "Cadências, Saúde da Conta, Modelos de Mensagem, Marketing, Qualificação de Leads e Administração. "
