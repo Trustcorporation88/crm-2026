@@ -914,6 +914,15 @@ def init_database() -> str:
             f"CRM data directory is not writable: {DATA_DIR}. "
             "On Railway, mount the volume at /data and set CRM_DATA_DIR=/data."
         )
+    # Recover from restored/imported DBs that landed as mode 0444 on the volume.
+    if os.path.isfile(DB_PATH) and not os.access(DB_PATH, os.W_OK):
+        try:
+            os.chmod(DB_PATH, 0o664)
+        except OSError as exc:
+            raise PermissionError(
+                f"SQLite file is not writable: {DB_PATH}. "
+                "Check volume mount path and CRM_DATA_DIR=/data."
+            ) from exc
     _seed_passwords()
     try:
         with _connect() as connection:
