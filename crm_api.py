@@ -227,7 +227,11 @@ async def health_check():
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        raise CRMException("Service unavailable", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        raise CRMException(
+            code="SERVICE_UNAVAILABLE",
+            message="Service unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 @app.get("/metrics")
 async def get_metrics():

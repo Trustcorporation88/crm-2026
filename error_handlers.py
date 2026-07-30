@@ -8,14 +8,23 @@ from structured_logging import get_logger
 logger = get_logger("error_handlers")
 
 class CRMException(Exception):
-    """Base CRM exception"""
+    """Base CRM exception.
+
+    Permite tanto CRMException("mensagem") quanto CRMException(code="...", message="...").
+    """
+
     def __init__(
         self,
         code: str,
-        message: str,
+        message: Optional[str] = None,
         status_code: int = 400,
-        details: Optional[Dict[str, Any]] = None
+        details: Optional[Dict[str, Any]] = None,
     ):
+        # Se apenas uma string for passada, tratamos como message e usamos um code genérico.
+        if message is None:
+            message = code
+            code = "ERROR"
+
         self.code = code
         self.message = message
         self.status_code = status_code

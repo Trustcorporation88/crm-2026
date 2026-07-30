@@ -43,6 +43,7 @@ from crm_backend import (
     init_database,
     update_role_permissions,
     verify_login,
+    change_own_password,
 )
 
 
@@ -1400,6 +1401,32 @@ with st.sidebar:
         st.session_state["show_tour"] = True
         st.session_state.pop("tour_done_session", None)
         st.rerun()
+    with st.expander("Minha conta", expanded=False):
+        st.caption("Altere sua senha de acesso ao CRM.")
+        with st.form("change-password-form"):
+            current_pw = st.text_input("Senha atual", type="password")
+            new_pw = st.text_input("Nova senha", type="password")
+            confirm_pw = st.text_input("Confirmar nova senha", type="password")
+            submitted_change = st.form_submit_button("Atualizar senha", use_container_width=True)
+
+        if submitted_change:
+            if not current_pw or not new_pw or not confirm_pw:
+                st.error("Preencha todos os campos.")
+            elif new_pw != confirm_pw:
+                st.error("A nova senha e a confirmação não conferem.")
+            elif len(new_pw) < 8:
+                st.error("Use uma senha com pelo menos 8 caracteres.")
+            else:
+                try:
+                    change_own_password(user, current_pw, new_pw)
+                except ValueError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("Não foi possível atualizar a senha agora.")
+                else:
+                    queue_toast("Senha atualizada com sucesso.", icon="✅")
+                    # Opcionalmente, força novo login
+                    # end_user_session()
     if st.button("Sair", use_container_width=True):
         end_user_session()
 

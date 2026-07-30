@@ -15,6 +15,7 @@ from typing import Any
 
 import jwt
 import pandas as pd
+from passlib.hash import bcrypt
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -508,8 +509,36 @@ DEFAULT_INTERACTIONS = [
 ]
 
 
-def hash_password(password: str) -> str:
+def _legacy_sha256(password: str) -> str:
+    """Legacy SHA-256 hash used before migrating to bcrypt.
+
+    Mantido apenas para compatibilidade com bancos existentes.
+    """
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def hash_password(password: str) -> str:
+    """Default secure password hash using bcrypt."""
+    return bcrypt.hash(password)
+
+
+def _password_matches(stored_hash: str, password: str) -> bool:
+    """Check password against stored hash.
+
+    Suporta hashes bcrypt novos e SHA-256 legados, para migração gradual.
+    """
+    if not stored_hash:
+        return False
+
+    # Bcrypt hashes start with $2a$, $2b$ or $2y$
+    if stored_hash.startswith("$2a$") or stored_hash.startswith("$2b$") or stored_hash.startswith("$2y$"):
+        try:
+            return bcrypt.verify(password, stored_hash)
+        except ValueError:
+            return False
+
+    # Fallback: antigo SHA-256
+    return stored_hash == _legacy_sha256(password)
 
 
 def _connect() -> sqlite3.Connection:
@@ -1832,13 +1861,61 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
         ).fetchone()
     if row is None or not row["is_active"]:
         return None
-    if row["password_hash"] != hash_password(password):
+
+    stored_hash = row["password_hash"] or ""
+
+    # valida senha com suporte a bcrypt + SHA-256 legado
+    if not _password_matches(stored_hash, password):
         return None
+
+    # auto-migração: se ainda for SHA-256, regrava em bcrypt
+    if not (stored_hash.startswith("$2a$") or stored_hash.startswith("$2b$") or stored_hash.startswith("$2y$")):
+        new_hash = hash_password(password)
+        with _connect() as connection:
+            connection.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (new_hash, row["username"]),
+            )
+            connection.commit()
+
     return {
         "username": row["username"],
         "full_name": row["full_name"],
         "role": row["role"],
     }
+
+
+def change_own_password(actor: dict[str, Any], old_password: str, new_password: str) -> None:
+    """Change password for the currently authenticated user.
+
+    Valida a senha antiga usando o mesmo fluxo de login e grava um hash
+    novo (bcrypt). Lança ValueError se a senha atual estiver incorreta.
+    """
+
+    username = str(actor.get("username", "")).strip()
+    if not username:
+        raise ValueError("Actor username is required")
+
+    # Confirma senha atual
+    if verify_login(username, old_password) is None:
+        raise ValueError("Senha atual incorreta")
+
+    new_hash = hash_password(new_password)
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (new_hash, username),
+        )
+        connection.commit()
+
+    log_audit_event(
+        actor,
+        "user.password.change",
+        "user",
+        username,
+        {"username": username},
+        "ui-change-password",
+    )
 
 
 def get_role_sections(role: str) -> list[str]:
