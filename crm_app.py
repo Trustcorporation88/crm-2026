@@ -1394,6 +1394,7 @@ with st.sidebar:
     st.markdown("## TRUST CRM")
     st.caption("Menu simples: principais abaixo, demais em «mais módulos».")
     st.success(f"{user['full_name']} | {user['role']}")
+    st.caption("Versão: senha segura ativa")
     if st.button("Início", use_container_width=True):
         navigate_to_section("Serviços")
     if st.button("Rever tour", use_container_width=True, help="Reabrir o tour guiado de boas-vindas"):
@@ -1401,7 +1402,7 @@ with st.sidebar:
         st.session_state["show_tour"] = True
         st.session_state.pop("tour_done_session", None)
         st.rerun()
-    with st.expander("Minha conta", expanded=False):
+    with st.expander("🔐 Minha conta / Trocar senha", expanded=False):
         st.caption("Altere sua senha de acesso ao CRM.")
         with st.form("change-password-form"):
             current_pw = st.text_input("Senha atual", type="password")
