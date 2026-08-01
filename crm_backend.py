@@ -13,9 +13,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 import jwt
 import pandas as pd
-from passlib.hash import bcrypt
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -517,9 +517,22 @@ def _legacy_sha256(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+def _password_bytes(password: str) -> bytes:
+    """Encode password for bcrypt, enforcing the 72-byte limit.
+
+    bcrypt rejects secrets longer than 72 bytes (passlib used to truncate).
+    Keep the check explicit so startup/login fail with a clear error instead of
+    crashing inside backend self-tests of older passlib releases.
+    """
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        raise ValueError("password cannot be longer than 72 bytes")
+    return raw
+
+
 def hash_password(password: str) -> str:
     """Default secure password hash using bcrypt."""
-    return bcrypt.hash(password)
+    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def _password_matches(stored_hash: str, password: str) -> bool:
@@ -533,8 +546,8 @@ def _password_matches(stored_hash: str, password: str) -> bool:
     # Bcrypt hashes start with $2a$, $2b$ or $2y$
     if stored_hash.startswith("$2a$") or stored_hash.startswith("$2b$") or stored_hash.startswith("$2y$"):
         try:
-            return bcrypt.verify(password, stored_hash)
-        except ValueError:
+            return bcrypt.checkpw(_password_bytes(password), stored_hash.encode("utf-8"))
+        except (ValueError, TypeError):
             return False
 
     # Fallback: antigo SHA-256
