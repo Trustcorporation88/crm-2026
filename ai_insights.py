@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any
 from crm_backend import _connect
 
 USE_LLM = bool(os.getenv("CRM_OPENAI_API_KEY","").strip())

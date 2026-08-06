@@ -1,7 +1,6 @@
 # prometheus_metrics.py - Prometheus metrics for monitoring
 from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
 import time
 from structured_logging import get_logger
 
@@ -115,23 +114,20 @@ def add_metrics_middleware(app: FastAPI):
         endpoint = request.url.path
         method = request.method
         
+        # Never consume the request stream here: reading the body and then
+        # replacing `receive` with an http.disconnect made the payload
+        # unavailable to the endpoint, breaking every POST/PUT/PATCH route.
+        # Content-Length gives the same metric without touching the stream.
         try:
-            # Get request size
-            if request.method in ["POST", "PUT", "PATCH"]:
-                body = await request.body()
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
                 http_request_size_bytes.labels(
                     method=method,
                     endpoint=endpoint
-                ).observe(len(body))
-                
-                # Re-create receive for body consumption
-                async def receive():
-                    return {"type": "http.disconnect"}
-                
-                request._receive = receive
-        except Exception:
+                ).observe(int(content_length))
+        except (TypeError, ValueError):
             pass
-        
+
         response = await call_next(request)
         
         # Record metrics
@@ -149,11 +145,12 @@ def add_metrics_middleware(app: FastAPI):
         ).inc()
         
         try:
+            # observe() needs a number; the header comes back as a string.
             http_response_size_bytes.labels(
                 method=method,
                 endpoint=endpoint
-            ).observe(response.headers.get("content-length", 0))
-        except Exception:
+            ).observe(int(response.headers.get("content-length") or 0))
+        except (TypeError, ValueError):
             pass
         
         logger.debug(

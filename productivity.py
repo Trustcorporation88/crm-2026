@@ -1,7 +1,6 @@
 """Productivity reports per owner."""
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Any
 from crm_backend import _connect
 
 def get_owner_productivity(period_days=30) -> list:

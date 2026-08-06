@@ -5,30 +5,35 @@ Enhanced REST API with rate limiting, caching, monitoring, and automation.
 
 import os
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Iterator, Optional, Dict, Any
 from functools import lru_cache
 
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, Request, Query
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, status, Request, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, EmailStr, validator
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, JSON
-from sqlalchemy.ext.declarative import declarative_base
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 import jwt
 import redis
 
 # Import new modules
-from structured_logging import get_logger, set_correlation_id, get_correlation_id, init_redis
-from error_handlers import register_error_handlers, CRMException, ValidationError, AuthenticationError, NotFoundError
-from cache_utils import cache, CacheStrategy, init_redis as init_cache_redis
+from structured_logging import get_logger, set_correlation_id, get_correlation_id
+from error_handlers import (
+    register_error_handlers,
+    CRMException,
+    AuthenticationError,
+    AuthorizationError,
+    InternalServerError,
+)
+from cache_utils import clear_cache_pattern, init_redis as init_cache_redis
 from prometheus_metrics import add_metrics_middleware, record_login_attempt, record_cache_hit, record_cache_miss
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-import uuid
 
 # Initialize structured logger
 logger = get_logger("crm_api")
@@ -50,7 +55,6 @@ API_VERSION = "2.0.0"
 # ====== DATABASE SETUP ======
 engine = create_engine(DATABASE_URL, echo=False, pool_size=20, max_overflow=40)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 # ====== REDIS SETUP ======
 @lru_cache()
@@ -115,7 +119,10 @@ class WebhookPayload(BaseModel):
     channel: str
     source_id: str
     payload: Dict[str, Any]
-    timestamp: Optional[datetime] = Field(default_factory=datetime.now)
+    # Naive local timestamps make webhook ordering unreliable across hosts.
+    timestamp: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
 class LoginRequest(BaseModel):
     username: str
@@ -146,20 +153,32 @@ async def add_correlation_id(request: Request, call_next):
 # Add Prometheus metrics middleware
 add_metrics_middleware(app)
 
-# Add rate limiting
+# Add rate limiting (the handler is required, otherwise a throttled request
+# surfaces as an unhandled 500 instead of a 429).
 app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ====== CORS MIDDLEWARE ======
-origins = os.getenv("CORS_ORIGINS", '["http://localhost:3000", "http://localhost:8512"]')
+DEFAULT_ORIGINS = ["http://localhost:3000", "http://localhost:8512"]
+origins = os.getenv("CORS_ORIGINS", json.dumps(DEFAULT_ORIGINS))
 try:
     origins_list = json.loads(origins)
-except:
-    origins_list = ["http://localhost:3000", "http://localhost:8512"]
+    if not isinstance(origins_list, list):
+        raise ValueError("CORS_ORIGINS must be a JSON list")
+except (json.JSONDecodeError, ValueError):
+    # Fall back to a comma-separated list before giving up on the value.
+    origins_list = [item.strip() for item in origins.split(",") if item.strip()] or DEFAULT_ORIGINS
+
+# Credentials cannot be combined with a wildcard origin: browsers reject the
+# response and the CRM session cookie silently stops working.
+allow_credentials = "*" not in origins_list
+if not allow_credentials:
+    logger.warning("CORS_ORIGINS contains '*'; disabling allow_credentials")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins_list,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -170,29 +189,45 @@ register_error_handlers(app)
 security = HTTPBearer()
 
 # ====== AUTH FUNCTIONS ======
-def verify_token(credentials: HTTPAuthCredentials = Depends(security)) -> Dict[str, Any]:
-    """Verify JWT token and return user info"""
+def _is_blacklisted(token: str) -> bool:
+    """Return True when a token was explicitly revoked via /auth/logout."""
     try:
-        correlation_id = get_correlation_id()
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        
+        return bool(get_redis().get(f"blacklist:{token}"))
+    except redis.RedisError as exc:
+        # Fail closed: if the revocation list is unreachable we cannot prove the
+        # token is still valid.
+        logger.error("Blacklist lookup failed", error=str(exc))
+        raise AuthenticationError("Unable to validate session")
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    """Verify JWT token and return user info"""
+    token = credentials.credentials
+
+    if _is_blacklisted(token):
+        logger.warning("Revoked token presented")
+        raise AuthenticationError("Token has been revoked")
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
         logger.info(
             "Token verified successfully",
             user_id=payload.get("user_id"),
             username=payload.get("username")
         )
-        
-        return payload
-    
-    except jwt.ExpiredSignatureError:
-        logger.warning("Token expired", correlation_id=get_correlation_id())
-        raise AuthenticationError("Token expired", status_code=status.HTTP_401_UNAUTHORIZED)
-    
-    except jwt.InvalidTokenError as e:
-        logger.warning("Invalid token", error=str(e), correlation_id=get_correlation_id())
-        raise AuthenticationError("Invalid token", status_code=status.HTTP_401_UNAUTHORIZED)
 
-def get_db() -> Session:
+        return payload
+
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token expired")
+        raise AuthenticationError("Token expired")
+
+    except jwt.InvalidTokenError as e:
+        logger.warning("Invalid token", error=str(e))
+        raise AuthenticationError("Invalid token")
+
+def get_db() -> Iterator[Session]:
     """Database session dependency"""
     db = SessionLocal()
     try:
@@ -208,39 +243,60 @@ async def get_pagination(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    components: Dict[str, str] = {}
+
+    # Check database. SQLAlchemy 2.0 requires an executable construct, a raw
+    # string raises ObjectNotExecutableError.
     try:
-        # Check database
         db = SessionLocal()
-        db.execute("SELECT 1")
-        db.close()
-        
-        # Check Redis
-        redis_client = get_redis()
-        redis_client.ping()
-        
-        logger.info("Health check passed")
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": API_VERSION,
-            "correlation_id": get_correlation_id()
-        }
+        try:
+            db.execute(text("SELECT 1"))
+            components["database"] = "up"
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error("Health check: database unreachable", error=str(e))
+        components["database"] = "down"
+
+    # Check Redis
+    try:
+        get_redis().ping()
+        components["redis"] = "up"
+    except Exception as e:
+        logger.error("Health check: redis unreachable", error=str(e))
+        components["redis"] = "down"
+
+    healthy = all(state == "up" for state in components.values())
+
+    if not healthy:
         raise CRMException(
             code="SERVICE_UNAVAILABLE",
             message="Service unavailable",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details={"components": components},
         )
+
+    logger.info("Health check passed")
+    return {
+        "status": "healthy",
+        "components": components,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": API_VERSION,
+        "correlation_id": get_correlation_id()
+    }
 
 @app.get("/metrics")
 async def get_metrics():
     """Prometheus metrics endpoint"""
-    from prometheus_client import generate_latest, REGISTRY
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     from prometheus_metrics import REGISTRY as CUSTOM_REGISTRY
-    
-    metrics_output = generate_latest(CUSTOM_REGISTRY)
-    return metrics_output
+
+    # Must be served as text/plain in the Prometheus exposition format,
+    # otherwise the scraper rejects the payload.
+    return PlainTextResponse(
+        content=generate_latest(CUSTOM_REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 # ====== ROUTES: AUTH ======
 @app.post("/auth/login", response_model=LoginResponse)
@@ -250,58 +306,75 @@ async def login(request: Request, login_request: LoginRequest, db: Session = Dep
     Authenticate user and return JWT token
     Rate limited to 5 attempts per minute
     """
-    try:
-        logger.info(f"Login attempt for user: {login_request.username}")
-        
-        # This is a placeholder - real implementation would query the database
-        # For now, we're using the Streamlit auth from crm_backend
-        
-        record_login_attempt(False)
-        raise ValidationError("Use Streamlit app for authentication")
-    
-    except Exception as e:
-        logger.error(f"Login failed: {e}")
-        record_login_attempt(False)
-        raise
+    logger.info("Login attempt", username=login_request.username)
+
+    # Authentication is owned by crm_backend (used by the Streamlit app and by
+    # crm_whatsapp_webhook /auth/token). This endpoint is intentionally not a
+    # second implementation of it.
+    record_login_attempt(False)
+    raise AuthenticationError("Authenticate via the CRM auth service (/auth/token)")
 
 @app.post("/auth/refresh")
-async def refresh_token(credentials: HTTPAuthCredentials = Depends(security)):
+async def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Refresh JWT token"""
+    token = credentials.credentials
+
+    # A revoked token must not be exchangeable for a fresh one.
+    if _is_blacklisted(token):
+        logger.warning("Refresh attempted with revoked token")
+        raise AuthenticationError("Token has been revoked")
+
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+        # Rebuild the claims instead of copying: reusing the old payload would
+        # carry over iat/jti and let a token be refreshed indefinitely.
+        claims = {k: v for k, v in payload.items() if k not in {"exp", "iat"}}
+        now = datetime.now(timezone.utc)
         new_token = jwt.encode(
-            {
-                **payload,
-                "exp": datetime.now(timezone.utc) + timedelta(hours=24)
-            },
+            {**claims, "iat": now, "exp": now + timedelta(hours=24)},
             JWT_SECRET,
             algorithm=JWT_ALGORITHM
         )
-        
+
         logger.info("Token refreshed", user_id=payload.get("user_id"))
         return {"access_token": new_token, "token_type": "bearer"}
-    
+
     except jwt.InvalidTokenError as e:
-        logger.warning(f"Token refresh failed: {e}")
+        logger.warning("Token refresh failed", error=str(e))
         raise AuthenticationError("Invalid token")
 
 @app.post("/auth/logout")
-async def logout(credentials: HTTPAuthCredentials = Depends(security)):
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Logout user (add token to blacklist)"""
+    token = credentials.credentials
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        redis_client = get_redis()
-        redis_client.setex(
-            f"blacklist:{credentials.credentials}",
-            3600,
-            "true"
-        )
-        logger.info("User logged out", user_id=payload.get("user_id"))
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        # Already unusable; nothing to revoke.
         return {"message": "Logout successful"}
-    
     except jwt.InvalidTokenError:
         raise AuthenticationError("Invalid token")
+
+    # Keep the entry until the token would have expired anyway, otherwise a
+    # long-lived token becomes usable again after the old hardcoded hour.
+    exp = payload.get("exp")
+    ttl = 3600
+    if isinstance(exp, (int, float)):
+        ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+
+    try:
+        get_redis().setex(f"blacklist:{token}", ttl, "true")
+    except redis.RedisError as exc:
+        logger.error("Could not blacklist token", error=str(exc))
+        raise CRMException(
+            code="SERVICE_UNAVAILABLE",
+            message="Logout could not be completed",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    logger.info("User logged out", user_id=payload.get("user_id"))
+    return {"message": "Logout successful"}
 
 # ====== ROUTES: CUSTOMERS ======
 @app.get("/api/customers")
@@ -346,9 +419,12 @@ async def list_customers(
         
         return result
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error listing customers: {e}")
-        raise CRMException(str(e))
+        logger.error("Error listing customers", error=str(e))
+        raise InternalServerError()
 
 @app.get("/api/customers/{customer_id}")
 @limiter.limit("60/minute")
@@ -378,9 +454,12 @@ async def get_customer(
         redis_client.setex(cache_key, 3600, json.dumps(result))
         return result
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error getting customer: {e}")
-        raise CRMException(str(e))
+        logger.error("Error getting customer", error=str(e))
+        raise InternalServerError()
 
 @app.post("/api/customers")
 @limiter.limit("10/minute")
@@ -395,8 +474,7 @@ async def create_customer(
         logger.info(f"New customer created by {user.get('username')}: {customer.customer_id}")
         
         # Invalidate cache
-        redis_client = get_redis()
-        redis_client.delete("customers:*")
+        clear_cache_pattern("customers:*")
         
         return {
             "status": "created",
@@ -404,9 +482,12 @@ async def create_customer(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error creating customer: {e}")
-        raise CRMException(str(e))
+        logger.error("Error creating customer", error=str(e))
+        raise InternalServerError()
 
 @app.put("/api/customers/{customer_id}")
 @limiter.limit("10/minute")
@@ -431,9 +512,12 @@ async def update_customer(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error updating customer: {e}")
-        raise CRMException(str(e))
+        logger.error("Error updating customer", error=str(e))
+        raise InternalServerError()
 
 @app.delete("/api/customers/{customer_id}")
 @limiter.limit("10/minute")
@@ -447,7 +531,7 @@ async def delete_customer(
     try:
         if user.get("role") != "admin":
             logger.warning(f"Unauthorized delete attempt by {user.get('username')}")
-            raise ValidationError("Only admins can delete customers")
+            raise AuthorizationError("Only admins can delete customers")
         
         logger.info(f"Customer {customer_id} deleted by {user.get('username')}")
         
@@ -461,9 +545,12 @@ async def delete_customer(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error deleting customer: {e}")
-        raise CRMException(str(e))
+        logger.error("Error deleting customer", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: TICKETS ======
 @app.get("/api/tickets")
@@ -489,9 +576,12 @@ async def list_tickets(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error listing tickets: {e}")
-        raise CRMException(str(e))
+        logger.error("Error listing tickets", error=str(e))
+        raise InternalServerError()
 
 @app.get("/api/tickets/{ticket_id}")
 @limiter.limit("60/minute")
@@ -511,9 +601,12 @@ async def get_ticket(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error getting ticket: {e}")
-        raise CRMException(str(e))
+        logger.error("Error getting ticket", error=str(e))
+        raise InternalServerError()
 
 @app.post("/api/tickets")
 @limiter.limit("10/minute")
@@ -533,9 +626,12 @@ async def create_ticket(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error creating ticket: {e}")
-        raise CRMException(str(e))
+        logger.error("Error creating ticket", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: DEALS ======
 @app.get("/api/deals")
@@ -561,9 +657,12 @@ async def list_deals(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error listing deals: {e}")
-        raise CRMException(str(e))
+        logger.error("Error listing deals", error=str(e))
+        raise InternalServerError()
 
 @app.get("/api/deals/{deal_id}")
 @limiter.limit("60/minute")
@@ -583,9 +682,12 @@ async def get_deal(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error getting deal: {e}")
-        raise CRMException(str(e))
+        logger.error("Error getting deal", error=str(e))
+        raise InternalServerError()
 
 @app.post("/api/deals")
 @limiter.limit("10/minute")
@@ -605,9 +707,12 @@ async def create_deal(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error creating deal: {e}")
-        raise CRMException(str(e))
+        logger.error("Error creating deal", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: WEBHOOKS ======
 @app.post("/webhooks/whatsapp")
@@ -620,7 +725,7 @@ async def webhook_whatsapp(request: Request, payload: WebhookPayload, db: Sessio
         # Queue for retry if needed
         redis_client = get_redis()
         webhook_key = f"webhook:whatsapp:{payload.source_id}:{datetime.now(timezone.utc).isoformat()}"
-        redis_client.setex(webhook_key, 86400, json.dumps(payload.dict()))
+        redis_client.setex(webhook_key, 86400, payload.model_dump_json())
         
         return {
             "status": "received",
@@ -628,9 +733,12 @@ async def webhook_whatsapp(request: Request, payload: WebhookPayload, db: Sessio
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error processing WhatsApp webhook: {e}")
-        raise CRMException(str(e))
+        logger.error("Error processing WhatsApp webhook", error=str(e))
+        raise InternalServerError()
 
 @app.post("/webhooks/email")
 @limiter.limit("100/minute")
@@ -645,9 +753,12 @@ async def webhook_email(request: Request, payload: WebhookPayload, db: Session =
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error processing email webhook: {e}")
-        raise CRMException(str(e))
+        logger.error("Error processing email webhook", error=str(e))
+        raise InternalServerError()
 
 @app.post("/webhooks/form")
 @limiter.limit("100/minute")
@@ -662,9 +773,12 @@ async def webhook_form(request: Request, payload: WebhookPayload, db: Session = 
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error processing form webhook: {e}")
-        raise CRMException(str(e))
+        logger.error("Error processing form webhook", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: INTEGRATIONS ======
 @app.get("/api/integrations")
@@ -688,9 +802,12 @@ async def list_integrations(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error listing integrations: {e}")
-        raise CRMException(str(e))
+        logger.error("Error listing integrations", error=str(e))
+        raise InternalServerError()
 
 @app.post("/api/integrations/{integration_name}/connect")
 @limiter.limit("10/minute")
@@ -710,9 +827,12 @@ async def connect_integration(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error connecting integration: {e}")
-        raise CRMException(str(e))
+        logger.error("Error connecting integration", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: REPORTS ======
 @app.get("/api/reports/dashboard")
@@ -734,9 +854,12 @@ async def dashboard_report(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error generating dashboard report: {e}")
-        raise CRMException(str(e))
+        logger.error("Error generating dashboard report", error=str(e))
+        raise InternalServerError()
 
 @app.get("/api/reports/export/{report_type}")
 @limiter.limit("5/minute")
@@ -757,9 +880,12 @@ async def export_report(
             "correlation_id": get_correlation_id()
         }
     
+    except CRMException:
+        # Domain errors already carry the right status code.
+        raise
     except Exception as e:
-        logger.error(f"Error exporting report: {e}")
-        raise CRMException(str(e))
+        logger.error("Error exporting report", error=str(e))
+        raise InternalServerError()
 
 # ====== ROUTES: ADMIN ======
 @app.get("/api/admin/users")
@@ -772,7 +898,7 @@ async def list_users(
     try:
         if user.get("role") != "admin":
             logger.warning(f"Unauthorized admin access attempt by {user.get('username')}")
-            raise ValidationError("Admin access required", status_code=status.HTTP_403_FORBIDDEN)
+            raise AuthorizationError("Admin access required")
         
         logger.info("Users list requested by admin")
         
@@ -781,9 +907,11 @@ async def list_users(
             "correlation_id": get_correlation_id()
         }
     
-    except Exception as e:
-        logger.error(f"Error listing users: {e}")
+    except CRMException:
         raise
+    except Exception as e:
+        logger.error("Error listing users", error=str(e))
+        raise InternalServerError()
 
 @app.post("/api/admin/backup")
 @limiter.limit("5/minute")
@@ -795,7 +923,7 @@ async def trigger_backup(
     try:
         if user.get("role") != "admin":
             logger.warning(f"Unauthorized backup attempt by {user.get('username')}")
-            raise ValidationError("Admin access required", status_code=status.HTTP_403_FORBIDDEN)
+            raise AuthorizationError("Admin access required")
         
         logger.info(f"Backup triggered by {user.get('username')}")
         
@@ -805,9 +933,11 @@ async def trigger_backup(
             "correlation_id": get_correlation_id()
         }
     
-    except Exception as e:
-        logger.error(f"Error triggering backup: {e}")
+    except CRMException:
         raise
+    except Exception as e:
+        logger.error("Error triggering backup", error=str(e))
+        raise InternalServerError()
 
 @app.get("/api/admin/logs")
 @limiter.limit("10/minute")
@@ -820,7 +950,7 @@ async def view_logs(
     try:
         if user.get("role") != "admin":
             logger.warning(f"Unauthorized logs access by {user.get('username')}")
-            raise ValidationError("Admin access required", status_code=status.HTTP_403_FORBIDDEN)
+            raise AuthorizationError("Admin access required")
         
         logger.info("Audit logs requested by admin")
         
@@ -830,9 +960,11 @@ async def view_logs(
             "correlation_id": get_correlation_id()
         }
     
-    except Exception as e:
-        logger.error(f"Error retrieving logs: {e}")
+    except CRMException:
         raise
+    except Exception as e:
+        logger.error("Error retrieving logs", error=str(e))
+        raise InternalServerError()
 
 if __name__ == "__main__":
     import uvicorn

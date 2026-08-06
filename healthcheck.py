@@ -6,12 +6,10 @@ Monitora saúde de todos os serviços em tempo real
 
 import os
 import sys
-import json
 import time
 import requests
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 class Colors:
     GREEN = '\033[92m'
@@ -150,13 +148,13 @@ class HealthChecker:
                     if "Connection refused" in message:
                         print(f"  {Colors.YELLOW}→ {name} not running{Colors.END}")
                         if name == "Streamlit":
-                            print(f"    Try: streamlit run crm_app.py --server.port=8512")
+                            print("    Try: streamlit run crm_app.py --server.port=8512")
                         elif name == "FastAPI":
-                            print(f"    Try: uvicorn crm_api:app --host 0.0.0.0 --port 8000")
+                            print("    Try: uvicorn crm_api:app --host 0.0.0.0 --port 8000")
                         elif name == "PostgreSQL":
-                            print(f"    Try: docker-compose up -d postgres")
+                            print("    Try: docker-compose up -d postgres")
                         elif name == "Redis":
-                            print(f"    Try: docker-compose up -d redis")
+                            print("    Try: docker-compose up -d redis")
                     
                     elif "Timeout" in message:
                         print(f"  {Colors.YELLOW}→ {name} timeout (too slow or unresponsive){Colors.END}")

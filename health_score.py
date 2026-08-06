@@ -2,7 +2,6 @@
 from __future__ import annotations
 import json
 from datetime import datetime, timedelta
-from typing import Any
 from crm_backend import _connect
 
 POS = {"recent_interaction":20,"no_open_critical_ticket":15,"csat_above_4":15,

@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from services_catalog import SERVICE_CATALOG, resolve_service_section
+from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
 from crm_ui_extensions import (
     render_ai_insights,

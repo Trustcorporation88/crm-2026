@@ -5,9 +5,7 @@ Testes básicos pós-deployment para verificar que tudo está funcionando
 """
 
 import requests
-import json
 import sys
-import time
 from datetime import datetime
 
 class Colors:

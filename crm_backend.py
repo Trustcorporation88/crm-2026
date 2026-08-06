@@ -779,8 +779,22 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
+def _safe_identifier(name: str) -> str:
+    """Validate a SQL identifier that has to be interpolated.
+
+    Table names cannot be passed as bound parameters, so they are formatted
+    into the statement. Every current caller passes an internal literal, but
+    this guard stops a future caller from turning that into an injection point.
+    """
+    if not name.isidentifier():
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name
+
+
 def _table_has_rows(connection: sqlite3.Connection, table_name: str) -> bool:
-    row = connection.execute(f"SELECT COUNT(*) AS total FROM {table_name}").fetchone()
+    row = connection.execute(
+        f"SELECT COUNT(*) AS total FROM {_safe_identifier(table_name)}"
+    ).fetchone()
     return bool(row["total"])
 
 
@@ -912,7 +926,9 @@ def _migrate_role_permissions(connection: sqlite3.Connection) -> None:
 
 
 def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
-    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    rows = connection.execute(
+        f"PRAGMA table_info({_safe_identifier(table_name)})"
+    ).fetchall()
     return {row["name"] for row in rows}
 
 
