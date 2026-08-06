@@ -840,3 +840,317 @@ def can_advance_to_stage(
     if len(labels) == 1:
         return False, f"Para mover para «{stage}», preencha: {labels[0]}."
     return False, f"Para mover para «{stage}», preencha: {', '.join(labels[:-1])} e {labels[-1]}."
+
+
+# ---------------------------------------------------------------------------
+# Ficha do cliente orientada à linha do tempo
+# (padrão Pipedrive / Close / Attio 2026)
+#
+# Um cliente é a história das interações com ele, não um formulário de campos.
+# Liderar pela narrativa é o que separa a ficha de um CRM da de um cadastro.
+# ---------------------------------------------------------------------------
+
+EVENT_ICONS = {
+    "note": "📝",
+    "call": "📞",
+    "email": "✉️",
+    "whatsapp": "💬",
+    "meeting": "🤝",
+    "ticket": "🎫",
+    "deal": "💼",
+    "stage": "📈",
+    "system": "⚙️",
+}
+DEFAULT_EVENT_ICON = "•"
+
+CHANNEL_ICONS = {
+    "whatsapp": "💬",
+    "email": "✉️",
+    "telefone": "📞",
+    "portal": "🌐",
+    "formulario": "📄",
+    "campanha": "📣",
+}
+
+
+@dataclass(frozen=True)
+class TimelineEntry:
+    when: date | None
+    event_type: str
+    title: str
+    body: str
+    channel: str
+    owner: str
+
+    @property
+    def icon(self) -> str:
+        by_channel = CHANNEL_ICONS.get(self.channel.strip().lower())
+        if by_channel:
+            return by_channel
+        return EVENT_ICONS.get(self.event_type.strip().lower(), DEFAULT_EVENT_ICON)
+
+
+def build_customer_timeline(
+    interactions: pd.DataFrame | None,
+    customer_id: str,
+    limit: int = 50,
+) -> list[TimelineEntry]:
+    """Interações de um cliente, da mais recente para a mais antiga."""
+    if interactions is None or interactions.empty or "customer_id" not in interactions.columns:
+        return []
+
+    subset = interactions[interactions["customer_id"] == customer_id]
+    if subset.empty:
+        return []
+
+    entries = [
+        TimelineEntry(
+            when=parse_date(row.get("event_at")),
+            event_type=str(row.get("event_type") or ""),
+            title=str(row.get("title") or ""),
+            body=str(row.get("body") or ""),
+            channel=str(row.get("channel") or ""),
+            owner=str(row.get("owner") or ""),
+        )
+        for row in subset.to_dict("records")
+    ]
+    # Sem data vai para o fim: é registro incompleto, não é o mais recente.
+    entries.sort(key=lambda e: (e.when is not None, e.when or date.min), reverse=True)
+    return entries[:limit]
+
+
+def relative_day_label(value: date | None, today: date | None = None) -> str:
+    """Rótulo humano para agrupar a linha do tempo por dia."""
+    if value is None:
+        return "Sem data"
+    today = today or date.today()
+    delta = (today - value).days
+    if delta == 0:
+        return "Hoje"
+    if delta == 1:
+        return "Ontem"
+    if 2 <= delta <= 6:
+        return f"Há {delta} dias"
+    return value.strftime("%d/%m/%Y")
+
+
+def group_timeline_by_day(
+    entries: Sequence[TimelineEntry],
+    today: date | None = None,
+) -> list[tuple[str, list[TimelineEntry]]]:
+    """Agrupa entradas por dia preservando a ordem cronológica inversa."""
+    grouped: list[tuple[str, list[TimelineEntry]]] = []
+    for entry in entries:
+        label = relative_day_label(entry.when, today=today)
+        if grouped and grouped[-1][0] == label:
+            grouped[-1][1].append(entry)
+        else:
+            grouped.append((label, [entry]))
+    return grouped
+
+
+@dataclass(frozen=True)
+class NextAction:
+    """Recomendação de próximo passo para a conta."""
+
+    urgency: str  # "critica" | "alta" | "normal"
+    headline: str
+    reason: str
+
+    @property
+    def is_urgent(self) -> bool:
+        return self.urgency in {"critica", "alta"}
+
+
+def next_best_action(
+    customer: dict[str, Any],
+    deals: pd.DataFrame | None = None,
+    tickets: pd.DataFrame | None = None,
+    last_activity: Any = None,
+    today: date | None = None,
+) -> NextAction:
+    """Decide o próximo passo mais relevante para a conta.
+
+    A ordem é deliberada: obrigação contratual (SLA) vence receita em risco,
+    que vence prospecção, que vence o plano cadastrado. Sem essa hierarquia, a
+    recomendação vira ruído.
+    """
+    today = today or date.today()
+
+    # 1. SLA estourado é obrigação com o cliente.
+    if tickets is not None and not tickets.empty:
+        for row in tickets.to_dict("records"):
+            if str(row.get("status", "")).strip().lower() in {"resolvido", "fechado", "encerrado"}:
+                continue
+            try:
+                sla = float(row.get("sla_hours") or 0)
+                age = float(row.get("age_hours") or 0)
+            except (TypeError, ValueError):
+                continue
+            if sla > 0 and age > sla:
+                return NextAction(
+                    "critica",
+                    f"Responder o chamado «{row.get('subject', '')}»",
+                    "SLA estourado — é a pendência mais urgente da conta.",
+                )
+
+    # 2. Receita em risco: negociação aberta e parada.
+    if deals is not None and not deals.empty:
+        stale: list[tuple[float, dict[str, Any], DealHealth]] = []
+        for row in deals.to_dict("records"):
+            health = deal_health(str(row.get("stage", "")), last_activity, today=today)
+            if health.is_stale:
+                try:
+                    value = float(row.get("value") or 0)
+                except (TypeError, ValueError):
+                    value = 0.0
+                stale.append((value, row, health))
+        if stale:
+            # A de maior valor primeiro: é onde o silêncio custa mais.
+            value, row, health = max(stale, key=lambda item: item[0])
+            return NextAction(
+                "alta",
+                f"Retomar a negociação «{row.get('name', '')}»",
+                f"{format_brl(value)} em risco · {health.label.lower()}.",
+            )
+
+    # 3. Conta sem nenhuma interação registrada.
+    last = parse_date(last_activity)
+    if last is None:
+        return NextAction(
+            "alta",
+            "Fazer o primeiro contato",
+            "Não há nenhuma interação registrada nesta conta.",
+        )
+
+    # 4. Silêncio prolongado, mesmo sem negociação aberta.
+    days_idle = max(0, (today - last).days)
+    if days_idle >= 30:
+        return NextAction(
+            "alta",
+            "Retomar o relacionamento",
+            f"Último contato há {days_idle} dias.",
+        )
+
+    # 5. O plano já cadastrado na conta.
+    planned = str(customer.get("next_action") or "").strip()
+    if planned:
+        return NextAction("normal", planned, f"Último contato há {days_idle} dias.")
+
+    return NextAction("normal", "Sem pendência", f"Último contato há {days_idle} dias.")
+
+
+_URGENCY_STYLE = {
+    "critica": ("#ef4444", "🔴"),
+    "alta": ("#f59e0b", "🟡"),
+    "normal": ("#22c55e", "🟢"),
+}
+
+
+def render_next_action(action: NextAction) -> None:
+    """Faixa de próxima ação no topo da ficha."""
+    import streamlit as st
+
+    color, icon = _URGENCY_STYLE.get(action.urgency, _URGENCY_STYLE["normal"])
+    st.markdown(
+        f"""
+        <div style='border-left:3px solid {color};background:rgba(255,255,255,0.03);
+                    padding:0.85rem 1.1rem;border-radius:4px;margin-bottom:0.75rem;'>
+            <div style='font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;
+                        opacity:0.65;margin-bottom:0.2rem;'>Próxima ação</div>
+            <div style='font-size:1.05rem;font-weight:600;'>{icon} {action.headline}</div>
+            <div style='opacity:0.7;font-size:0.88rem;margin-top:0.15rem;'>{action.reason}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_activity_timeline(
+    entries: Sequence[TimelineEntry],
+    today: date | None = None,
+    empty_message: str = "Nenhuma interação registrada ainda.",
+) -> None:
+    """Linha do tempo agrupada por dia — a visão principal da ficha."""
+    import streamlit as st
+
+    if not entries:
+        st.caption(empty_message)
+        return
+
+    for label, group in group_timeline_by_day(entries, today=today):
+        st.markdown(
+            f"<div style='font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;"
+            f"opacity:0.55;margin:1.1rem 0 0.5rem;'>{label}</div>",
+            unsafe_allow_html=True,
+        )
+        for entry in group:
+            autor = f" · {entry.owner}" if entry.owner else ""
+            corpo = (
+                f"<div style='opacity:0.72;font-size:0.9rem;margin-top:0.15rem;'>{entry.body}</div>"
+                if entry.body
+                else ""
+            )
+            st.markdown(
+                f"""
+                <div style='display:flex;gap:0.7rem;padding:0.55rem 0;
+                            border-bottom:1px solid rgba(255,255,255,0.06);'>
+                    <div style='font-size:1.05rem;line-height:1.4;'>{entry.icon}</div>
+                    <div style='flex:1;'>
+                        <div style='font-weight:600;font-size:0.95rem;'>{entry.title}</div>
+                        {corpo}
+                        <div style='opacity:0.45;font-size:0.75rem;margin-top:0.2rem;'>
+                            {entry.event_type or 'interação'}{autor}
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_related_records(
+    deals: pd.DataFrame | None,
+    tickets: pd.DataFrame | None,
+    stale_ids: Iterable[Any] = (),
+) -> None:
+    """Oportunidades e chamados da conta, com o sinal de saúde de cada um."""
+    import streamlit as st
+
+    stale = set(stale_ids)
+
+    st.markdown("**Oportunidades**")
+    if deals is None or deals.empty:
+        st.caption("Nenhuma oportunidade aberta.")
+    else:
+        for row in deals.to_dict("records"):
+            marca = "🔴 " if row.get("deal_id") in stale else ""
+            st.markdown(
+                f"<div style='padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06);'>"
+                f"{marca}<strong>{row.get('name','')}</strong><br>"
+                f"<span style='opacity:0.65;font-size:0.85rem;'>"
+                f"{format_brl(row.get('value'))} · {row.get('stage','')}</span></div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='height:0.9rem'></div>", unsafe_allow_html=True)
+    st.markdown("**Atendimentos**")
+    if tickets is None or tickets.empty:
+        st.caption("Nenhum chamado registrado.")
+        return
+
+    for row in tickets.to_dict("records"):
+        try:
+            sla = float(row.get("sla_hours") or 0)
+            age = float(row.get("age_hours") or 0)
+        except (TypeError, ValueError):
+            sla, age = 0.0, 0.0
+        estourado = sla > 0 and age > sla
+        marca = "🔴 " if estourado else ""
+        st.markdown(
+            f"<div style='padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06);'>"
+            f"{marca}<strong>{row.get('subject','')}</strong><br>"
+            f"<span style='opacity:0.65;font-size:0.85rem;'>"
+            f"{row.get('status','')} · {row.get('channel','')}</span></div>",
+            unsafe_allow_html=True,
+        )

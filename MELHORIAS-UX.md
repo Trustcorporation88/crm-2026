@@ -117,11 +117,29 @@ informação. Cada etapa agora cobra só o que ela pressupõe — Proposta pede 
 e data de fechamento, Negociação pede também probabilidade. Valor zero conta
 como ausente: proposta de R$ 0 é dado faltando, não valor legítimo.
 
+### Ficha do cliente orientada à linha do tempo (referência: Pipedrive, Close, Attio)
+
+A ficha deixou de abrir por cadastro e passa a abrir pelo que exige decisão.
+
+**Próxima ação** no topo, com hierarquia deliberada: SLA estourado vence receita
+em risco, que vence prospecção, que vence o plano cadastrado. Sem essa ordem, a
+recomendação viraria ruído. Entre negociações paradas, a de maior valor vem
+primeiro — é onde o silêncio custa mais caro.
+
+**Linha do tempo como conteúdo principal**, agrupada por dia com rótulos humanos
+("Hoje", "Ontem", "Há 3 dias") e ícone por canal. O cadastro foi para o painel
+lateral, junto com oportunidades e chamados relacionados — cada um com seu
+sinal de saúde.
+
+**Registro de interação na própria tela**: canal, título e detalhe, sem sair da
+ficha. Era o elo que faltava — antes o histórico só crescia por evento de
+sistema, nunca pelo que o vendedor tinha acabado de fazer.
+
 ---
 
 ## 2. Como isso foi verificado
 
-- **194 testes**, contra 25 no início da auditoria.
+- **224 testes**, contra 25 no início da auditoria.
 - A lógica de produto — formatação pt-BR, dígito verificador, estagnação,
   agenda do dia, duplicados, busca, visões salvas, portões de etapa — está
   separada da renderização (`crm_ux.py`, `crm_views.py`, `crm_receita.py`) e
@@ -145,20 +163,17 @@ consultar CNPJ. A correção foi mover as três ações para callbacks.
 
 Em ordem de valor sobre esforço.
 
-1. **Linha do tempo como visão principal do cliente** — hoje a ficha lidera por
-   campos; Pipedrive, Close e Attio lideram pela narrativa de interações, que é
-   como o vendedor de fato lê um cliente.
-2. **WhatsApp com contexto do CRM** — 79% das vendas brasileiras acontecem no
+1. **WhatsApp com contexto do CRM** — 79% das vendas brasileiras acontecem no
    WhatsApp (RD Station). O módulo Canais é a superfície natural: conversa,
    resposta e vínculo com a negociação na mesma tela.
-3. **Edição em linha nas tabelas** via `st.data_editor` — evita abrir formulário
-   para trocar um campo.
-4. **Visões salvas por módulo** — hoje as visões cobrem os filtros globais;
+2. **Edição em linha nas tabelas** via `st.data_editor` — evita abrir formulário
+   para trocar um campo, e **ações em lote** para reatribuir vários registros.
+3. **Visões salvas por módulo** — hoje as visões cobrem os filtros globais;
    estendê-las a filtros por módulo (etapa, situação, faixa de valor) multiplica
    o ganho.
-5. **Consentimento LGPD por titular**, com exclusão que apaga CPF, e-mail e
+4. **Consentimento LGPD por titular**, com exclusão que apaga CPF, e-mail e
    telefone preservando o histórico anonimizado.
-6. **Arrastar e soltar no funil** — exige componente externo; o ganho é menor
+5. **Arrastar e soltar no funil** — exige componente externo; o ganho é menor
    que os itens acima, apesar de ser o mais pedido visualmente.
 
 ### O que ainda separa este CRM dos líderes

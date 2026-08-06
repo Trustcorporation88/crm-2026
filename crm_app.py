@@ -22,6 +22,7 @@ from crm_views import (
     save_view,
 )
 from crm_ux import (
+    build_customer_timeline,
     build_day_agenda,
     can_advance_to_stage,
     demo_login_enabled,
@@ -30,16 +31,21 @@ from crm_ux import (
     format_brl,
     format_date_br,
     global_search,
+    format_cpf_cnpj,
     last_activity_by_customer,
+    next_best_action,
     onboarding_steps,
     pipeline_totals,
+    render_activity_timeline,
     render_day_agenda,
     render_deal_card,
     render_document_field,
     render_duplicate_warning,
     render_empty_module,
     render_global_search,
+    render_next_action,
     render_onboarding_checklist,
+    render_related_records,
     render_pipeline_summary,
     render_stage_header,
     summarize_stage,
@@ -57,6 +63,7 @@ from crm_ui_extensions import (
 from crm_backend import (
     DB_PATH,
     add_campaign,
+    add_interaction,
     create_access_token,
     verify_access_token,
     add_customer,
@@ -1978,42 +1985,109 @@ elif section == "Clientes 360":
     else:
         customer_name = st.selectbox("Selecionar conta", filtered_customers["name"].tolist())
         customer = filtered_customers[filtered_customers["name"] == customer_name].iloc[0].to_dict()
-        left, right = st.columns([1.15, 0.85])
+        account_id = customer["customer_id"]
+        account_tickets = filtered_tickets[filtered_tickets["customer_id"] == account_id]
+        account_deals = filtered_deals[filtered_deals["customer_id"] == account_id]
+
+        account_last_activity = last_activity_by_customer(interactions_df).get(account_id)
+        account_stale = {
+            row["deal_id"]
+            for row in account_deals.to_dict("records")
+            if deal_health(row["stage"], account_last_activity).is_stale
+        } if not account_deals.empty else set()
+
+        # A conta abre pelo que exige decisão, não pelo cadastro.
+        render_next_action(
+            next_best_action(
+                customer,
+                account_deals,
+                account_tickets,
+                last_activity=account_last_activity,
+            )
+        )
+
+        header_cols = st.columns(4)
+        header_cols[0].metric("Saúde da conta", f"{customer['health_score']}/100")
+        header_cols[1].metric("Valor em pipeline", format_brl(
+            account_deals["value"].sum() if not account_deals.empty else 0
+        ))
+        header_cols[2].metric("Lifetime value", format_brl(customer["lifetime_value"]))
+        header_cols[3].metric("Chamados abertos", int(
+            (account_tickets["status"] != "Resolvido").sum() if not account_tickets.empty else 0
+        ))
+
+        st.markdown(" ")
+        # Linha do tempo como conteúdo principal; cadastro em painel lateral.
+        left, right = st.columns([1.35, 0.65])
+
         with left:
             st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Conta e relacionamento</div>', unsafe_allow_html=True)
-            info_cols = st.columns(3)
-            items = [
-                ("Segmento", customer["segment"]),
-                ("Mercado", customer["country"]),
-                ("Canal preferencial", customer["channel"]),
-                ("Owner", customer["owner"]),
-                ("Status", customer["status"]),
-                ("Ultima compra", customer["last_purchase"]),
-            ]
-            for col, pair in zip(info_cols * 2, items):
-                with col:
-                    st.markdown(f"<div class='mini-card'><div class='mini-label'>{pair[0]}</div><div class='mini-value' style='font-size:1.15rem;'>{pair[1]}</div></div>", unsafe_allow_html=True)
-            st.markdown(f"**Lifetime value:** {currency(customer['lifetime_value'])}")
-            st.markdown(f"**Proxima acao recomendada:** {customer['next_action']}")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Linha do tempo</div>', unsafe_allow_html=True)
 
-            st.markdown(" ")
-            st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Histórico 360</div>', unsafe_allow_html=True)
-            render_timeline(timeline, customer["customer_id"])
+            if can_manage(user["role"], "customer"):
+                with st.form(f"log-interaction-{account_id}", clear_on_submit=True):
+                    note_cols = st.columns([0.28, 0.72])
+                    note_channel = note_cols[0].selectbox(
+                        "Canal", ["Nota", "Telefone", "WhatsApp", "Email", "Reunião"],
+                        key="log_channel",
+                    )
+                    note_title = note_cols[1].text_input(
+                        "Registrar interação", placeholder="O que aconteceu com este cliente?",
+                        key="log_title",
+                    )
+                    note_body = st.text_area("Detalhes (opcional)", key="log_body", height=68)
+                    logged = st.form_submit_button("Registrar", type="primary")
+
+                if logged and note_title.strip():
+                    add_interaction(
+                        account_id,
+                        note_title.strip(),
+                        note_body.strip(),
+                        channel=note_channel,
+                        owner=user.get("full_name", user["username"]),
+                        event_type="note" if note_channel == "Nota" else note_channel.lower(),
+                    )
+                    queue_toast("Interação registrada na linha do tempo.", icon="📝")
+                    st.rerun()
+                elif logged:
+                    st.error("Descreva a interação antes de registrar.")
+
+            render_activity_timeline(
+                build_customer_timeline(interactions_df, account_id),
+                empty_message=(
+                    "Nenhuma interação registrada ainda. Use o campo acima para começar "
+                    "o histórico desta conta."
+                ),
+            )
             st.markdown('</div>', unsafe_allow_html=True)
 
         with right:
             st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Atendimentos e oportunidades</div>', unsafe_allow_html=True)
-            account_tickets = filtered_tickets[filtered_tickets["customer_id"] == customer["customer_id"]]
-            account_deals = filtered_deals[filtered_deals["customer_id"] == customer["customer_id"]]
-            st.metric("Health score", f"{customer['health_score']}/100")
-            st.metric("Tickets relacionados", len(account_tickets))
-            st.metric("Valor em pipeline", currency(account_deals["value"].sum() if not account_deals.empty else 0))
-            for item in account_tickets.head(5).to_dict("records"):
-                st.markdown(f"<span class='status-pill {status_class(item['status'])}'>{item['status']}</span> {item['subject']}", unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Relacionados</div>', unsafe_allow_html=True)
+            render_related_records(account_deals, account_tickets, stale_ids=account_stale)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown(" ")
+            st.markdown('<div class="panel">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Cadastro</div>', unsafe_allow_html=True)
+            cadastro = [
+                ("CPF / CNPJ", format_cpf_cnpj(customer.get("document", "")) or "—"),
+                ("Segmento", customer["segment"]),
+                ("Mercado", customer["country"]),
+                ("Cidade", customer["city"]),
+                ("Canal preferencial", customer["channel"]),
+                ("Responsável", customer["owner"]),
+                ("Status", customer["status"]),
+                ("Última compra", format_date_br(customer["last_purchase"])),
+            ]
+            for rotulo, valor in cadastro:
+                st.markdown(
+                    f"<div style='display:flex;justify-content:space-between;gap:1rem;"
+                    f"padding:0.35rem 0;border-bottom:1px solid rgba(255,255,255,0.06);'>"
+                    f"<span style='opacity:0.6;font-size:0.85rem;'>{rotulo}</span>"
+                    f"<span style='font-size:0.88rem;text-align:right;'>{valor}</span></div>",
+                    unsafe_allow_html=True,
+                )
             st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Funil Comercial":

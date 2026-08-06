@@ -222,3 +222,59 @@ class TestAplicacaoDeVisaoSalva:
 
         assert not app.exception
         assert app.session_state["filter_country"] == "Brasil"
+
+
+class TestFichaOrientadaALinhaDoTempo:
+    """A ficha do cliente lidera pela narrativa, não pelo cadastro."""
+
+    def test_ficha_renderiza_com_os_novos_blocos(self):
+        app = _run_section("Clientes 360")
+        assert not app.exception
+
+        conteudo = " ".join(m.value for m in app.markdown)
+        assert "Linha do tempo" in conteudo
+        assert "Próxima ação" in conteudo
+        assert "Relacionados" in conteudo
+        assert "Cadastro" in conteudo
+
+    def test_cabecalho_traz_os_indicadores_da_conta(self):
+        app = _run_section("Clientes 360")
+        rotulos = [m.label for m in app.metric]
+        assert "Saúde da conta" in rotulos, f"métricas: {rotulos}"
+        assert "Valor em pipeline" in rotulos
+        assert "Chamados abertos" in rotulos
+
+    def test_formulario_de_registro_de_interacao_existe(self):
+        app = _run_section("Clientes 360")
+        chaves = [w.key for w in app.text_input]
+        assert "log_title" in chaves, f"campos: {chaves}"
+
+    def test_registrar_interacao_grava_na_linha_do_tempo(self):
+        app = _run_section("Clientes 360")
+        app.text_input(key="log_title").set_value("Ligação de teste automatizado").run()
+
+        # O botão de submit do formulário aparece com a chave prefixada.
+        registrar = next(
+            b for b in app.button if "log-interaction" in str(b.key)
+        )
+        registrar.click().run()
+        assert not app.exception
+
+        depois = _run_section("Clientes 360")
+        conteudo = " ".join(m.value for m in depois.markdown)
+        assert "Ligação de teste automatizado" in conteudo
+
+    def test_interacao_vazia_e_recusada(self):
+        app = _run_section("Clientes 360")
+        registrar = next(b for b in app.button if "log-interaction" in str(b.key))
+        registrar.click().run()
+
+        assert not app.exception
+        assert any("Descreva a interação" in e.value for e in app.error)
+
+    def test_valores_da_ficha_em_formato_brasileiro(self):
+        app = _run_section("Clientes 360")
+        valores = [m.value for m in app.metric]
+        assert not any("," in str(v) and "R$" in str(v) and "." not in str(v) for v in valores), (
+            f"valor em formato americano: {valores}"
+        )
