@@ -11,8 +11,19 @@ import streamlit as st
 
 from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
+from crm_receita import apply_lookup_to_form, lookup_cnpj
+from crm_views import (
+    SavedViewError,
+    apply_view_to_state,
+    capture_filters,
+    delete_view,
+    get_view,
+    load_views,
+    save_view,
+)
 from crm_ux import (
     build_day_agenda,
+    can_advance_to_stage,
     demo_login_enabled,
     deal_health,
     find_duplicates,
@@ -1535,6 +1546,79 @@ with st.sidebar:
             st.session_state["filter_owner"] = "Todos"
             queue_toast("Filtros globais limpos.", icon="🔎")
 
+        # Visões salvas: o mesmo recorte de filtros reaplicado em um clique,
+        # em vez de refeito toda sessão.
+        _view_module = "filtros-globais"
+        _view_keys = ["filter_country", "filter_owner"]
+        _reader = lambda key: get_user_preference(user["username"], key, "")  # noqa: E731
+        _writer = lambda key, value: set_user_preference(user["username"], key, value)  # noqa: E731
+
+        # As ações rodam em callbacks (on_click): o Streamlit proíbe alterar o
+        # valor de um widget já instanciado, e os seletores de filtro acima já
+        # foram criados neste ponto. Callbacks executam antes da próxima
+        # renderização, que é justamente onde essa escrita é permitida.
+        def _apply_saved_view() -> None:
+            chosen = st.session_state.get("saved_view_pick", "")
+            view = get_view(_reader, _view_module, chosen)
+            if not view:
+                return
+            apply_view_to_state(view, st.session_state, _view_keys)
+            queue_toast(f"Visão «{view.name}» aplicada.", icon="🔖")
+
+        def _delete_saved_view() -> None:
+            chosen = st.session_state.get("saved_view_pick", "")
+            delete_view(_reader, _writer, _view_module, chosen)
+            st.session_state["saved_view_pick"] = "— escolher —"
+            queue_toast("Visão removida.", icon="🗑️")
+
+        def _save_current_view() -> None:
+            name = st.session_state.get("new_view_name", "")
+            try:
+                save_view(
+                    _reader,
+                    _writer,
+                    _view_module,
+                    name,
+                    capture_filters(st.session_state, _view_keys),
+                )
+            except SavedViewError as exc:
+                st.session_state["_view_error"] = str(exc)
+                return
+            st.session_state["_view_error"] = ""
+            st.session_state["new_view_name"] = ""
+            queue_toast(f"Visão «{name}» salva.", icon="🔖")
+
+        _saved_views = load_views(_reader, _view_module)
+        if _saved_views:
+            _chosen = st.selectbox(
+                "Visões salvas",
+                ["— escolher —", *[v.name for v in _saved_views]],
+                key="saved_view_pick",
+            )
+            if _chosen != "— escolher —":
+                pick_cols = st.columns(2)
+                pick_cols[0].button(
+                    "Aplicar", key="apply_view", width="stretch", on_click=_apply_saved_view
+                )
+                pick_cols[1].button(
+                    "Excluir", key="delete_view", width="stretch", on_click=_delete_saved_view
+                )
+
+        _new_view_name = st.text_input(
+            "Salvar recorte atual como",
+            key="new_view_name",
+            placeholder="Ex.: Minha carteira Brasil",
+        )
+        st.button(
+            "Salvar visão",
+            key="save_view_btn",
+            width="stretch",
+            disabled=not _new_view_name,
+            on_click=_save_current_view,
+        )
+        if st.session_state.get("_view_error"):
+            st.error(st.session_state["_view_error"])
+
         if _filters_active:
             st.button(
                 "Limpar filtros",
@@ -1801,19 +1885,54 @@ elif section == "Clientes 360":
             # enquanto o usuário digita — dentro do form só haveria feedback
             # depois do submit, quando o erro já custou o preenchimento inteiro.
             new_name = st.text_input("Nome da conta", key="new_customer_name")
-            new_document, document_valid = render_document_field(
-                "CPF / CNPJ",
-                key="new_customer_document",
-                help_text="Validado pelo dígito verificador antes de gravar.",
-            )
+            doc_col, lookup_col = st.columns([0.72, 0.28])
+            with doc_col:
+                new_document, document_valid = render_document_field(
+                    "CPF / CNPJ",
+                    key="new_customer_document",
+                    help_text="Validado pelo dígito verificador antes de gravar.",
+                )
+            def _fill_from_receita() -> None:
+                """Consulta a Receita e preenche o formulário.
+
+                Roda como callback porque escreve em chaves de widgets já
+                instanciados — o que só é permitido antes da renderização
+                seguinte.
+                """
+                lookup = lookup_cnpj(st.session_state.get("new_customer_document", ""))
+                if not lookup.success:
+                    st.session_state["_receita_error"] = lookup.message
+                    return
+                st.session_state["_receita_error"] = ""
+                for field_name, field_value in apply_lookup_to_form(lookup).items():
+                    st.session_state[f"new_customer_{field_name}"] = field_value
+                aviso = "" if lookup.is_active else f" Atenção: situação cadastral {lookup.situacao}."
+                queue_toast(f"Dados de «{lookup.display_name}» preenchidos.{aviso}", icon="🏢")
+
+            with lookup_col:
+                st.markdown("<div style='height:1.8rem'></div>", unsafe_allow_html=True)
+                st.button(
+                    "Buscar na Receita",
+                    key="lookup_cnpj_btn",
+                    width="stretch",
+                    help="Preenche nome, segmento e cidade a partir do CNPJ.",
+                    disabled=not document_valid,
+                    on_click=_fill_from_receita,
+                )
+
+            if st.session_state.get("_receita_error"):
+                st.warning(st.session_state["_receita_error"])
 
             # Duplicado detectado na criação custa muito menos que deduplicar depois.
             duplicates = find_duplicates(customers_df, name=new_name, document=new_document)
             render_duplicate_warning(duplicates)
 
             with st.form("new-customer-form"):
-                segment = st.text_input("Segmento", value="Servicos")
-                city = st.text_input("Cidade", value="Sao Paulo")
+                # As chaves permitem que a consulta de CNPJ preencha os campos.
+                st.session_state.setdefault("new_customer_segment", "Servicos")
+                st.session_state.setdefault("new_customer_city", "Sao Paulo")
+                segment = st.text_input("Segmento", key="new_customer_segment")
+                city = st.text_input("Cidade", key="new_customer_city")
                 country = st.selectbox("Pais", ["Brasil", "Estados Unidos"])
                 owner = st.selectbox("Owner da conta", owner_options)
                 channel = st.selectbox("Canal preferencial", ["WhatsApp", "Email", "Telefone", "Portal", "Campanha"])
@@ -1911,6 +2030,17 @@ elif section == "Funil Comercial":
                 close_date = st.date_input("Fechamento previsto")
                 submitted = st.form_submit_button("Criar oportunidade", type="primary")
             if submitted and name:
+                # Portão de etapa: cada etapa cobra apenas o que ela pressupõe.
+                _candidate = {
+                    "value": value,
+                    "close_date": close_date.isoformat() if close_date else "",
+                    "probability": probability,
+                    "owner": owner,
+                }
+                _allowed, _reason = can_advance_to_stage(_candidate, stage)
+            if submitted and name and not _allowed:
+                st.error(_reason)
+            elif submitted and name:
                 customer_id = customers_df.loc[customers_df["name"] == customer_name, "customer_id"].iloc[0]
                 add_deal(
                     {

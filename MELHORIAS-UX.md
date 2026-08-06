@@ -88,15 +88,56 @@ resultado. Antes era preciso adivinhar em qual módulo o registro morava.
 
 ---
 
+### Auto-preenchimento por CNPJ (referência: Ploomes, RD Station)
+
+Digite o CNPJ, clique em **Buscar na Receita** e o cadastro chega preenchido
+com razão social / nome fantasia, CNAE, cidade e situação cadastral. Se a
+empresa não estiver **ATIVA**, o aviso aparece junto — informação que muda a
+decisão comercial antes da primeira conversa.
+
+Usa a [BrasilAPI](https://brasilapi.com.br), gratuita e sem chave. Todo o
+acesso à rede está isolado em `crm_receita.py` e é tolerante a falha por
+princípio: API fora do ar, CNPJ inexistente ou limite de requisições viram
+aviso e **nunca** impedem o cadastro manual. O dígito verificador é conferido
+antes da chamada, para não gastar rede com documento inválido.
+
+### Visões salvas (referência: Attio, HubSpot 2026)
+
+O recorte de filtros vira uma visão nomeada — "Minha carteira Brasil" — que se
+reaplica em um clique, por usuário, persistida em `user_preferences`. Salvar
+com um nome existente sobrescreve, em vez de criar duas visões homônimas.
+
+Ao aplicar, só chaves de uma lista de permissão entram no estado da aplicação:
+uma preferência antiga com campos que não existem mais não injeta lixo na tela.
+
+### Campos obrigatórios por etapa (referência: RD Station, Ploomes, HubSpot)
+
+Exigir tudo no cadastro afasta o vendedor; não exigir nada produz funil sem
+informação. Cada etapa agora cobra só o que ela pressupõe — Proposta pede valor
+e data de fechamento, Negociação pede também probabilidade. Valor zero conta
+como ausente: proposta de R$ 0 é dado faltando, não valor legítimo.
+
+---
+
 ## 2. Como isso foi verificado
 
-- **73 testes novos** (139 no total, de 25 na primeira auditoria).
+- **194 testes**, contra 25 no início da auditoria.
 - A lógica de produto — formatação pt-BR, dígito verificador, estagnação,
-  agenda do dia, duplicados, busca — está em `crm_ux.py`, separada da
-  renderização e testada isoladamente.
+  agenda do dia, duplicados, busca, visões salvas, portões de etapa — está
+  separada da renderização (`crm_ux.py`, `crm_views.py`, `crm_receita.py`) e
+  testada isoladamente.
 - **Testes de renderização** (`tests/test_app_smoke.py`) executam o app de
-  verdade com o `AppTest` do Streamlit e falham se qualquer seção quebrar.
-  Foram validados por controle negativo: com um defeito injetado, eles falham.
+  verdade com o `AppTest` do Streamlit. Validados por controle negativo: com um
+  defeito injetado, eles falham.
+- **A rede fica fora da suíte.** Os testes de CNPJ injetam o cliente HTTP e
+  cobrem sucesso, 404, 429, erro 500, resposta vazia e timeout. Um teste de
+  contrato separado (`pytest -m contract`) confere o formato real da BrasilAPI
+  sem poder quebrar a CI por indisponibilidade de terceiro.
+
+Esses testes de renderização pagaram por si: pegaram **três defeitos reais**
+antes do deploy — em três pontos distintos eu escrevia em estado de widget já
+instanciado, o que teria quebrado a tela ao salvar visão, aplicar visão e
+consultar CNPJ. A correção foi mover as três ações para callbacks.
 
 ---
 
@@ -104,24 +145,32 @@ resultado. Antes era preciso adivinhar em qual módulo o registro morava.
 
 Em ordem de valor sobre esforço.
 
-1. **Visões salvas por módulo** — filtro + ordenação nomeados e reaplicáveis
-   num clique. Hoje o usuário refaz o mesmo filtro toda sessão. É o padrão
-   central do Attio e do HubSpot pós-2026. Exige persistência por usuário.
-2. **Auto-preenchimento por CNPJ** — consultar a Receita Federal e preencher
-   razão social, CNAE, endereço e situação cadastral. A validação de dígito já
-   está pronta; falta a chamada de API (~R$ 0,13/consulta). É expectativa
-   básica de CRM B2B brasileiro.
-3. **Campos obrigatórios por etapa** — bloquear o avanço da negociação até que
-   os campos daquela etapa estejam preenchidos. Amarra a qualidade do dado a
-   uma ação que o vendedor já está fazendo.
-4. **Linha do tempo como visão principal do cliente** — hoje a ficha lidera por
-   campos; os líderes lideram pela narrativa de interações.
-5. **Edição em linha nas tabelas** via `st.data_editor` — evita abrir formulário
-   para trocar um campo.
-6. **WhatsApp com contexto do CRM** — 79% das vendas brasileiras acontecem no
+1. **Linha do tempo como visão principal do cliente** — hoje a ficha lidera por
+   campos; Pipedrive, Close e Attio lideram pela narrativa de interações, que é
+   como o vendedor de fato lê um cliente.
+2. **WhatsApp com contexto do CRM** — 79% das vendas brasileiras acontecem no
    WhatsApp (RD Station). O módulo Canais é a superfície natural: conversa,
    resposta e vínculo com a negociação na mesma tela.
-7. **Consentimento LGPD por titular**, com exclusão que apaga CPF, e-mail e
+3. **Edição em linha nas tabelas** via `st.data_editor` — evita abrir formulário
+   para trocar um campo.
+4. **Visões salvas por módulo** — hoje as visões cobrem os filtros globais;
+   estendê-las a filtros por módulo (etapa, situação, faixa de valor) multiplica
+   o ganho.
+5. **Consentimento LGPD por titular**, com exclusão que apaga CPF, e-mail e
    telefone preservando o histórico anonimizado.
-8. **Arrastar e soltar no funil** — exige componente externo; o ganho é menor
+6. **Arrastar e soltar no funil** — exige componente externo; o ganho é menor
    que os itens acima, apesar de ser o mais pedido visualmente.
+
+### O que ainda separa este CRM dos líderes
+
+Vale ser direto: as melhorias acima fecham lacunas de **usabilidade**, e nisso o
+produto está competitivo. Estar entre os melhores do mundo depende de três
+coisas que nenhuma tela resolve:
+
+1. **Persistência.** O sistema roda em SQLite num volume só. Os líderes operam
+   Postgres com réplica e backup testado. Sem isso, um incidente de disco é
+   perda de base — e nenhuma quantidade de recurso compensa isso.
+2. **Os endpoints placeholder.** Boa parte de `crm_api.py` ainda devolve lista
+   vazia. Enquanto existirem, a API não é integrável de verdade.
+3. **Multi-tenant e auditoria.** Hoje há papéis, mas não isolamento por
+   organização. É pré-requisito para vender o produto a mais de um cliente.

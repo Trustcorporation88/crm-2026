@@ -771,3 +771,72 @@ def render_global_search(results: Sequence[dict[str, Any]], on_select=None) -> N
         if st.button(label, key=f"gs_{item['kind']}_{item['id']}", width="stretch"):
             if on_select:
                 on_select(item)
+
+
+# ---------------------------------------------------------------------------
+# Campos obrigatórios por etapa (padrão RD Station / Ploomes / HubSpot)
+#
+# Exigir tudo no cadastro afasta o vendedor; não exigir nada produz funil sem
+# informação. A saída dos líderes é o "portão de etapa": cada avanço cobra
+# apenas o que aquela etapa pressupõe.
+# ---------------------------------------------------------------------------
+
+STAGE_REQUIRED_FIELDS: dict[str, list[str]] = {
+    "Proposta": ["value", "close_date"],
+    "Negociacao": ["value", "close_date", "probability"],
+    "Negociação": ["value", "close_date", "probability"],
+    "Fechado ganho": ["value", "close_date", "owner"],
+}
+
+FIELD_LABELS = {
+    "value": "Valor",
+    "close_date": "Fechamento previsto",
+    "probability": "Probabilidade",
+    "owner": "Responsável",
+    "name": "Nome da oportunidade",
+    "customer_id": "Cliente",
+}
+
+
+def _is_blank(value: Any) -> bool:
+    """Campo vazio para efeito de obrigatoriedade.
+
+    Zero é ausência de informação num valor de negociação ou probabilidade —
+    tratar como preenchido deixaria passar proposta de R$ 0.
+    """
+    if value is None:
+        return True
+    if isinstance(value, float) and pd.isna(value):
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    return False
+
+
+def missing_fields_for_stage(
+    deal: dict[str, Any],
+    stage: str,
+    requirements: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Campos que faltam para a negociação entrar na etapa."""
+    requirements = requirements or STAGE_REQUIRED_FIELDS
+    required = requirements.get(stage, [])
+    return [field_name for field_name in required if _is_blank(deal.get(field_name))]
+
+
+def can_advance_to_stage(
+    deal: dict[str, Any],
+    stage: str,
+    requirements: dict[str, list[str]] | None = None,
+) -> tuple[bool, str]:
+    """Autoriza (ou não) o avanço de etapa, com mensagem pronta para o usuário."""
+    missing = missing_fields_for_stage(deal, stage, requirements)
+    if not missing:
+        return True, ""
+
+    labels = [FIELD_LABELS.get(name, name) for name in missing]
+    if len(labels) == 1:
+        return False, f"Para mover para «{stage}», preencha: {labels[0]}."
+    return False, f"Para mover para «{stage}», preencha: {', '.join(labels[:-1])} e {labels[-1]}."

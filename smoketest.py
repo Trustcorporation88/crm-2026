@@ -260,9 +260,8 @@ class SmokeTests:
             assert response.status_code == 200
             
             # Check if user has roles
-            token = response.json()["access_token"]
-            headers = {"Authorization": f"Bearer {token}"}
-            
+            assert response.json().get("access_token"), "login não devolveu access_token"
+
             # This would require endpoints to return user info
             test_info("Role permissions: Assumed OK (full test requires more endpoints)")
             self.passed += 1
