@@ -584,16 +584,52 @@ def set_user_preference(username: str, pref_key: str, pref_value: str) -> None:
         connection.commit()
 
 
+DEFAULT_SEED_PASSWORDS = {
+    "admin": "admin123",
+    "atendimento": "atend123",
+    "vendas": "vendas123",
+    "marketing": "mkt123",
+    "cs": "cs123",
+}
+
+
+def seed_password_for(username: str) -> str:
+    """Senha inicial do usuário, sobrescrevível por variável de ambiente.
+
+    Ex.: CRM_SEED_PASSWORD_ADMIN permite subir uma instância nova já sem a
+    senha padrão pública.
+    """
+    override = os.getenv(f"CRM_SEED_PASSWORD_{username.upper()}")
+    return override or DEFAULT_SEED_PASSWORDS[username]
+
+
 def _seed_passwords() -> None:
-    passwords = {
-        "admin": "admin123",
-        "atendimento": "atend123",
-        "vendas": "vendas123",
-        "marketing": "mkt123",
-        "cs": "cs123",
-    }
     for user in DEFAULT_USERS:
-        user["password_hash"] = hash_password(passwords[user["username"]])
+        user["password_hash"] = hash_password(seed_password_for(user["username"]))
+
+
+def uses_default_password(username: str) -> bool:
+    """Indica se a conta ainda usa a senha padrão pública do projeto.
+
+    Serve para alertar o administrador dentro do produto — senha padrão em
+    ambiente exposto é acesso aberto, não um detalhe de configuração.
+    """
+    default = DEFAULT_SEED_PASSWORDS.get(username)
+    if not default:
+        return False
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT password_hash FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+    if row is None:
+        return False
+    return _password_matches(row["password_hash"] or "", default)
+
+
+def accounts_with_default_password() -> list[str]:
+    """Lista das contas que ainda estão com a senha padrão."""
+    return [name for name in DEFAULT_SEED_PASSWORDS if uses_default_password(name)]
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
@@ -941,6 +977,20 @@ def _migrate_refresh_tokens_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def _migrate_customers_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona o CPF/CNPJ da conta.
+
+    Documento é campo esperado em qualquer CRM B2B brasileiro e serve de chave
+    natural para detectar cadastro duplicado.
+    """
+    columns = _table_columns(connection, "customers")
+    if not columns:
+        return
+    if "document" not in columns:
+        connection.execute("ALTER TABLE customers ADD COLUMN document TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+
+
 def _migrate_auth_throttle_schema(connection: sqlite3.Connection) -> None:
     columns = _table_columns(connection, "auth_throttle")
     if not columns:
@@ -990,6 +1040,7 @@ def init_database() -> str:
             _migrate_role_permissions(connection)
             _migrate_refresh_tokens_schema(connection)
             _migrate_auth_throttle_schema(connection)
+            _migrate_customers_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -1948,15 +1999,17 @@ def change_own_password(actor: dict[str, Any], old_password: str, new_password: 
 
 
 def get_role_sections(role: str) -> list[str]:
+    # "Meu Dia" abre a lista para todo papel: é a superfície de trabalho diário
+    # (padrão Sales Workspace do HubSpot / Inbox do Close).
     mapping = {
-        "admin": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+        "admin": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Funil Comercial","Previsão de Receita","Produtividade",
             "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado","Administração"],
-        "atendimento": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+        "atendimento": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado"],
-        "vendas": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
+        "vendas": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
             "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA","Comparativo de Mercado"],
-        "marketing": ["Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
+        "marketing": ["Meu Dia","Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
             "Qualificação de Leads","Segmentação","Comparativo de Mercado"],
     }
     return mapping.get(role, ["Visao Executiva"])
@@ -2135,8 +2188,9 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
             """
             INSERT INTO customers (
                 customer_id, name, segment, city, country, owner, status,
-                health_score, lifetime_value, last_purchase, channel, next_action, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                health_score, lifetime_value, last_purchase, channel, next_action, source,
+                document
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
@@ -2152,6 +2206,7 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
                 payload.get("channel", "Formulario"),
                 payload.get("next_action", "Qualificar e registrar a proxima acao"),
                 payload.get("source", "Manual"),
+                payload.get("document", ""),
             ),
         )
         connection.commit()

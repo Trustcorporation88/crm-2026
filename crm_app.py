@@ -11,6 +11,28 @@ import streamlit as st
 
 from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
+from crm_ux import (
+    build_day_agenda,
+    demo_login_enabled,
+    deal_health,
+    find_duplicates,
+    format_brl,
+    format_date_br,
+    global_search,
+    last_activity_by_customer,
+    onboarding_steps,
+    pipeline_totals,
+    render_day_agenda,
+    render_deal_card,
+    render_document_field,
+    render_duplicate_warning,
+    render_empty_module,
+    render_global_search,
+    render_onboarding_checklist,
+    render_pipeline_summary,
+    render_stage_header,
+    summarize_stage,
+)
 from crm_ui_extensions import (
     render_ai_insights,
     render_cadences,
@@ -44,10 +66,12 @@ from crm_backend import (
     update_role_permissions,
     verify_login,
     change_own_password,
+    accounts_with_default_password,
 )
 
 
 PRIMARY_NAV_ORDER = [
+    "Meu Dia",
     "Serviços",
     "Visão Executiva",
     "Atendimento",
@@ -960,6 +984,7 @@ DEMO_ACCOUNTS = [
 ]
 
 
+
 # ---------------------------------------------------------------------------
 # Tour guiado no primeiro acesso
 # ---------------------------------------------------------------------------
@@ -1128,22 +1153,39 @@ def show_login() -> None:
 
     with right:
         with st.container(border=True):
-            st.markdown(
-                '<p class="login-gate-title">Entrar com 1 clique (demonstração)</p>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                '<p class="login-gate-hint">Escolha um perfil para explorar o CRM sem digitar credenciais.</p>',
-                unsafe_allow_html=True,
-            )
-            for label, demo_username, demo_password in DEMO_ACCOUNTS:
-                if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
-                    demo_user = verify_login(demo_username, demo_password)
-                    if demo_user:
-                        queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
-                        start_user_session(demo_user)
-                    else:
-                        st.error("Conta de demonstração indisponível.")
+            if demo_login_enabled():
+                st.markdown(
+                    '<p class="login-gate-title">Entrar com 1 clique (demonstração)</p>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p class="login-gate-hint">Escolha um perfil para explorar o CRM sem digitar credenciais.</p>',
+                    unsafe_allow_html=True,
+                )
+                st.warning(
+                    "Modo demonstração ativo: qualquer visitante entra sem senha. "
+                    "Não use em ambiente com dado real.",
+                    icon="⚠️",
+                )
+                for label, demo_username, demo_password in DEMO_ACCOUNTS:
+                    if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
+                        demo_user = verify_login(demo_username, demo_password)
+                        if demo_user:
+                            queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
+                            start_user_session(demo_user)
+                        else:
+                            st.error("Conta de demonstração indisponível.")
+            else:
+                st.markdown(
+                    '<p class="login-gate-title">Acesso restrito</p>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p class="login-gate-hint">Use as credenciais fornecidas pelo administrador. '
+                    "Para liberar o acesso de demonstração em um clique, defina "
+                    "<code>CRM_DEMO_LOGIN=true</code> no ambiente.</p>",
+                    unsafe_allow_html=True,
+                )
             st.markdown(
                 '<p class="login-note">Sem credenciais reais de WhatsApp ou e-mail, a conexão de canais '
                 "entra por intake operacional: formulário interno e importação de mensagem/corpo do atendimento.</p>",
@@ -1461,6 +1503,24 @@ with st.sidebar:
     st.session_state["nav_section"] = section
 
     st.markdown("---")
+
+    # Busca global: um só campo para cliente, oportunidade e chamado.
+    # Sem isso o usuário precisa adivinhar em qual módulo o registro mora.
+    _search_term = st.text_input(
+        "🔍 Buscar",
+        key="global_search_term",
+        placeholder="Cliente, oportunidade ou chamado…",
+        help="Busca em Clientes 360, Funil Comercial e Atendimento ao mesmo tempo.",
+    )
+    if _search_term:
+        _results = global_search(_search_term, customers_df, deals_df, tickets_df)
+
+        def _go_to_result(item: dict[str, Any]) -> None:
+            navigate_to_section(item["section"])
+
+        render_global_search(_results, on_select=_go_to_result)
+
+    st.markdown("---")
     _filters_active = (
         st.session_state.get("filter_country", "Todos") != "Todos"
         or st.session_state.get("filter_owner", "Todos") != "Todos"
@@ -1514,6 +1574,23 @@ won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].
 
 render_top_bar(section)
 
+# Senha padrão em ambiente exposto é acesso aberto. O aviso fica visível para o
+# admin até que as contas sejam trocadas.
+if user.get("role") == "admin":
+    try:
+        _weak_accounts = accounts_with_default_password()
+    except Exception:
+        _weak_accounts = []
+    if _weak_accounts:
+        st.error(
+            "**Risco de segurança:** as contas "
+            + ", ".join(f"`{name}`" for name in _weak_accounts)
+            + " ainda usam a senha padrão publicada no repositório. "
+            "Troque em «Minha conta / Trocar senha» — enquanto isso, qualquer pessoa "
+            "com o endereço do sistema consegue entrar.",
+            icon="🔓",
+        )
+
 if section == "Visão Executiva":
     st.markdown(
         """
@@ -1539,7 +1616,34 @@ if section == "Visão Executiva":
 elif section != "Serviços":
     render_page_header(section)
 
-if section == "Serviços":
+if section == "Meu Dia":
+    # Superfície de trabalho diário: responde "o que eu faço agora?" sem
+    # obrigar o usuário a varrer módulo por módulo.
+    agenda_owner = None if selected_owner == "Todos" else selected_owner
+
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    if agenda_owner:
+        st.caption(f"Pendências de **{agenda_owner}**. Troque o responsável nos filtros globais.")
+    else:
+        st.caption("Pendências de **toda a equipe**. Escolha um responsável nos filtros globais para ver só as suas.")
+
+    render_day_agenda(
+        build_day_agenda(
+            tasks_df,
+            filtered_deals,
+            filtered_tickets,
+            interactions_df,
+            owner=agenda_owner,
+        )
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(" ")
+    render_onboarding_checklist(
+        onboarding_steps(customers_df, deals_df, tickets_df)
+    )
+
+elif section == "Serviços":
     render_services_catalog()
 
 elif section == "Visão Executiva":
@@ -1693,35 +1797,62 @@ elif section == "Canais":
 elif section == "Clientes 360":
     if can_manage(user["role"], "customer"):
         with st.expander("Nova conta", expanded=False):
+            # Documento fora do st.form para validar o dígito verificador
+            # enquanto o usuário digita — dentro do form só haveria feedback
+            # depois do submit, quando o erro já custou o preenchimento inteiro.
+            new_name = st.text_input("Nome da conta", key="new_customer_name")
+            new_document, document_valid = render_document_field(
+                "CPF / CNPJ",
+                key="new_customer_document",
+                help_text="Validado pelo dígito verificador antes de gravar.",
+            )
+
+            # Duplicado detectado na criação custa muito menos que deduplicar depois.
+            duplicates = find_duplicates(customers_df, name=new_name, document=new_document)
+            render_duplicate_warning(duplicates)
+
             with st.form("new-customer-form"):
-                name = st.text_input("Nome da conta")
                 segment = st.text_input("Segmento", value="Servicos")
                 city = st.text_input("Cidade", value="Sao Paulo")
                 country = st.selectbox("Pais", ["Brasil", "Estados Unidos"])
                 owner = st.selectbox("Owner da conta", owner_options)
                 channel = st.selectbox("Canal preferencial", ["WhatsApp", "Email", "Telefone", "Portal", "Campanha"])
                 next_action = st.text_input("Proxima acao", value="Agendar qualificacao inicial")
-                submitted = st.form_submit_button("Criar conta", type="primary")
-            if submitted and name:
-                add_customer(
-                    {
-                        "name": name,
-                        "segment": segment,
-                        "city": city,
-                        "country": country,
-                        "owner": owner,
-                        "status": "Novo",
-                        "health_score": 72,
-                        "lifetime_value": 0,
-                        "channel": channel,
-                        "next_action": next_action,
-                        "source": "Manual",
-                    },
-                    actor=user,
-                    source="ui-cliente-novo",
+                confirm_duplicate = (
+                    st.checkbox("Já verifiquei: não é duplicado, pode criar assim mesmo.")
+                    if duplicates
+                    else True
                 )
-                queue_toast(f"Conta «{name}» criada. Selecione-a abaixo para ver a ficha 360.")
-                st.rerun()
+                submitted = st.form_submit_button("Criar conta", type="primary")
+
+            if submitted:
+                if not new_name:
+                    st.error("Informe o nome da conta.")
+                elif new_document and not document_valid:
+                    st.error("Corrija o CPF/CNPJ antes de criar a conta.")
+                elif duplicates and not confirm_duplicate:
+                    st.error("Confirme que não é duplicado para prosseguir.")
+                else:
+                    add_customer(
+                        {
+                            "name": new_name,
+                            "document": new_document,
+                            "segment": segment,
+                            "city": city,
+                            "country": country,
+                            "owner": owner,
+                            "status": "Novo",
+                            "health_score": 72,
+                            "lifetime_value": 0,
+                            "channel": channel,
+                            "next_action": next_action,
+                            "source": "Manual",
+                        },
+                        actor=user,
+                        source="ui-cliente-novo",
+                    )
+                    queue_toast(f"Conta «{new_name}» criada. Selecione-a abaixo para ver a ficha 360.")
+                    st.rerun()
 
     if filtered_customers.empty:
         render_empty_state("Nenhuma conta encontrada para os filtros atuais.")
@@ -1798,18 +1929,38 @@ elif section == "Funil Comercial":
                 queue_toast(f"Oportunidade «{name}» criada na etapa {stage}.")
                 st.rerun()
 
+    ordered_stages = ["Descoberta", "Proposta", "Negociacao", "Fechado ganho"]
+    open_stages = [stage for stage in ordered_stages if stage != "Fechado ganho"]
+
+    # Última interação por cliente alimenta o indicador de estagnação.
+    last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
+    health_by_deal = {
+        item["deal_id"]: deal_health(item["stage"], last_activity.get(item["customer_id"]))
+        for item in filtered_deals.to_dict("records")
+    } if not filtered_deals.empty else {}
+    stale_ids = {deal_id for deal_id, health in health_by_deal.items() if health.is_stale}
+
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Resumo do funil</div>', unsafe_allow_html=True)
+    render_pipeline_summary(pipeline_totals(filtered_deals, open_stages=open_stages))
+    if stale_ids:
+        st.warning(
+            f"{len(stale_ids)} negociação(ões) sem contato além do limite da etapa. "
+            "Elas aparecem com marca vermelha no funil."
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Funil comercial</div>', unsafe_allow_html=True)
-    ordered_stages = ["Descoberta", "Proposta", "Negociacao", "Fechado ganho"]
     stage_columns = st.columns(len(ordered_stages))
     for col, stage in zip(stage_columns, ordered_stages):
         with col:
-            stage_items = filtered_deals[filtered_deals["stage"] == stage]
-            st.markdown(f"**{stage}**")
-            st.caption(f"{len(stage_items)} oportunidade(s)")
+            render_stage_header(summarize_stage(filtered_deals, stage, stale_ids=stale_ids))
+            stage_items = filtered_deals[filtered_deals["stage"] == stage] if not filtered_deals.empty else filtered_deals
             for item in stage_items.to_dict("records"):
                 customer = customer_lookup[item["customer_id"]]
-                st.markdown(f"<div class='mini-card'><div class='mini-label'>{customer['name']}</div><div class='mini-value' style='font-size:1.05rem;'>{item['name']}</div><div class='mini-caption'>{currency(item['value'])} • {item['probability']}% • {item['owner']}</div></div>", unsafe_allow_html=True)
+                render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(" ")
@@ -1817,10 +1968,34 @@ elif section == "Funil Comercial":
     st.markdown('<div class="section-title">Tabela de oportunidades</div>', unsafe_allow_html=True)
     deals_table = filtered_deals.copy()
     if not deals_table.empty:
-        deals_table["cliente"] = deals_table["customer_id"].map(lambda value: customer_lookup[value]["name"])
-        st.dataframe(deals_table[["deal_id", "cliente", "name", "stage", "value", "probability", "close_date", "owner"]], width="stretch", hide_index=True)
+        # Rótulos e formatos em pt-BR: "190000" não é como um vendedor lê valor.
+        deals_table["Cliente"] = deals_table["customer_id"].map(lambda value: customer_lookup[value]["name"])
+        deals_table["Situação"] = deals_table["deal_id"].map(
+            lambda deal_id: health_by_deal[deal_id].label
+        )
+        deals_table["Valor"] = deals_table["value"].map(format_brl)
+        deals_table["Fechamento"] = deals_table["close_date"].map(format_date_br)
+        deals_table["Probabilidade"] = deals_table["probability"].map(lambda p: f"{p}%")
+        st.dataframe(
+            deals_table.rename(columns={
+                "deal_id": "Código",
+                "name": "Oportunidade",
+                "stage": "Etapa",
+                "owner": "Responsável",
+            })[[
+                "Código", "Cliente", "Oportunidade", "Etapa",
+                "Valor", "Probabilidade", "Fechamento", "Responsável", "Situação",
+            ]],
+            width="stretch",
+            hide_index=True,
+        )
     else:
-        render_empty_state("Nenhuma oportunidade encontrada.")
+        render_empty_module(
+            "Nenhuma oportunidade no funil",
+            "O funil comercial acompanha cada negociação da descoberta ao fechamento, "
+            "mostrando valor previsto e sinalizando quem está sem contato há tempo demais.",
+            action_label="abra «Nova oportunidade» acima para cadastrar a primeira.",
+        )
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Cadências":
