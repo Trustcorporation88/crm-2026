@@ -106,6 +106,24 @@ PRIMARY_NAV_ORDER = [
 ]
 MORE_NAV_PLACEHOLDER = "— mais módulos —"
 
+# Ícones por seção (exibição apenas: o valor do widget segue sendo o nome puro,
+# então nada de estado, permissão ou roteamento muda).
+NAV_ICONS = {
+    "Meu Dia": ":material/today:",
+    "Serviços": ":material/apps:",
+    "Visão Executiva": ":material/monitoring:",
+    "Atendimento": ":material/support_agent:",
+    "Clientes 360": ":material/group:",
+    "Funil Comercial": ":material/filter_alt:",
+    "Canais": ":material/forum:",
+}
+
+
+def nav_option_label(section: str) -> str:
+    icon = NAV_ICONS.get(section)
+    return f"{icon} {section}" if icon else section
+
+
 
 def split_nav_sections(allowed: list[str]) -> tuple[list[str], list[str]]:
     primary = [name for name in PRIMARY_NAV_ORDER if name in allowed]
@@ -219,6 +237,10 @@ st.markdown(
         background: rgba(255, 255, 255, 0.12) !important;
         border-color: rgba(255, 255, 255, 0.32) !important;
     }
+    [data-testid="stSidebar"] [data-testid="stTextInputRootElement"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.22) !important;
+    }
     [data-testid="stSidebar"] .stTextInput input {
         background: rgba(255, 255, 255, 0.08) !important;
         color: #f4f6f8 !important;
@@ -228,6 +250,99 @@ st.markdown(
     [data-testid="stSidebar"] .stTextInput input::placeholder {
         color: rgba(238, 242, 247, 0.55) !important;
         -webkit-text-fill-color: rgba(238, 242, 247, 0.55) !important;
+    }
+
+    /* ---- Lateral: marca, navegação e rodapé de usuário ---- */
+    [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.55rem; }
+    [data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.12); margin: 6px 0; }
+
+    .side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
+    .side-brand-mark {
+        width: 10px; height: 10px; border-radius: 3px; background: var(--green);
+        box-shadow: 0 0 0 4px rgba(8, 167, 66, 0.22);
+    }
+    .side-brand-name {
+        font-size: 1.2rem; letter-spacing: -0.02em; font-weight: 400; color: #f4f6f8 !important;
+    }
+    .side-brand-name strong { font-weight: 800; }
+
+    .side-label {
+        font-size: 0.67rem; font-weight: 700; letter-spacing: 0.12em;
+        text-transform: uppercase; color: rgba(238, 242, 247, 0.5) !important;
+        margin: 8px 2px 0;
+    }
+
+    /* Navegação: o st.radio vira um menu — sem círculos, linhas inteiras
+       clicáveis, hover suave e item ativo com barra verde (padrão Pipedrive). */
+    [data-testid="stSidebar"] [data-testid="stRadioGroup"] {
+        display: flex; flex-direction: column; gap: 2px;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] {
+        display: flex; align-items: center; margin: 0; padding: 8px 10px;
+        border-radius: 8px; cursor: pointer;
+        transition: background 0.12s ease;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+    /* Esconde o círculo do radio (primeiro filho estrutural; o texto vem no
+       stMarkdownContainer ao lado) */
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div > div:first-child:not([data-testid="stMarkdownContainer"]) {
+        display: none;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] { width: 100%; }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p {
+        font-size: 0.93rem; font-weight: 500; color: #d9e0ea !important;
+        display: flex; align-items: center; gap: 10px;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p span[role="img"] {
+        font-size: 1.15rem; opacity: 0.85;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {
+        background: rgba(8, 167, 66, 0.16);
+        box-shadow: inset 3px 0 0 var(--green);
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p {
+        color: #ffffff !important; font-weight: 600;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p span[role="img"] {
+        opacity: 1; color: #4ade80;
+    }
+
+    /* Selectbox e expanders sobre o fundo escuro */
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox svg { fill: #d9e0ea; }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #e8edf4 !important; }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover { color: #ffffff !important; }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary svg { fill: #d9e0ea; }
+
+    /* Rodapé: chip do usuário logado */
+    .side-user {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px; border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.05);
+        margin-top: 6px;
+    }
+    .side-avatar {
+        width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px;
+        background: linear-gradient(135deg, var(--green), var(--blue));
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 0.85rem; color: #ffffff !important;
+    }
+    .side-user-name { font-size: 0.9rem; font-weight: 600; color: #ffffff !important; line-height: 1.25; }
+    .side-user-role {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: rgba(238, 242, 247, 0.6) !important;
     }
 
     /* ---- Rótulos de campos (área clara) ---- */
@@ -778,7 +893,7 @@ TOUR_STEPS = [
             "- Toda ação importante mostra uma **confirmação** no canto da tela.\n"
             "- Sua sessão **continua ativa** mesmo se você atualizar a página.\n"
             "- Dúvida em qualquer serviço? Clique em **Guia** e use a aba **Chat IA**.\n\n"
-            "Bom trabalho! Você pode rever este tour no menu lateral em «Rever tour»."
+            "Bom trabalho! Você pode rever este tour no menu lateral em «Minha conta»."
         ),
     },
 ]
@@ -1176,64 +1291,56 @@ if "nav_section" not in st.session_state or st.session_state["nav_section"] not 
 sync_nav_widgets_from_section(allowed_sections, primary_sections, secondary_sections)
 
 with st.sidebar:
-    st.markdown("## TRUST CRM")
-    st.caption("Menu simples: principais abaixo, demais em «mais módulos».")
-    st.success(f"{user['full_name']} | {user['role']}")
-    st.caption("Versão: senha segura ativa")
-    if st.button("Início", use_container_width=True):
-        navigate_to_section("Serviços")
-    if st.button("Rever tour", use_container_width=True, help="Reabrir o tour guiado de boas-vindas"):
-        st.session_state["tour_step"] = 0
-        st.session_state["show_tour"] = True
-        st.session_state.pop("tour_done_session", None)
-        st.rerun()
-    with st.expander("🔐 Minha conta / Trocar senha", expanded=False):
-        st.caption("Altere sua senha de acesso ao CRM.")
-        with st.form("change-password-form"):
-            current_pw = st.text_input("Senha atual", type="password")
-            new_pw = st.text_input("Nova senha", type="password")
-            confirm_pw = st.text_input("Confirmar nova senha", type="password")
-            submitted_change = st.form_submit_button("Atualizar senha", use_container_width=True)
+    # ------------------------------------------------------------------
+    # Lateral no padrão dos CRMs líderes: marca compacta, busca no topo,
+    # navegação como menu (não formulário) e conta do usuário no rodapé.
+    # ------------------------------------------------------------------
+    st.markdown(
+        """
+<div class="side-brand">
+  <span class="side-brand-mark"></span>
+  <span class="side-brand-name">Trust<strong>CRM</strong></span>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-        if submitted_change:
-            if not current_pw or not new_pw or not confirm_pw:
-                st.error("Preencha todos os campos.")
-            elif new_pw != confirm_pw:
-                st.error("A nova senha e a confirmação não conferem.")
-            elif len(new_pw) < 8:
-                st.error("Use uma senha com pelo menos 8 caracteres.")
-            else:
-                try:
-                    change_own_password(user, current_pw, new_pw)
-                except ValueError as exc:
-                    st.error(str(exc))
-                except Exception:
-                    st.error("Não foi possível atualizar a senha agora.")
-                else:
-                    queue_toast("Senha atualizada com sucesso.", icon="✅")
-                    # Opcionalmente, força novo login
-                    # end_user_session()
-    if st.button("Sair", use_container_width=True):
-        end_user_session()
+    # Busca global no topo (HubSpot/Attio): um campo para cliente,
+    # oportunidade e chamado — sem adivinhar em qual módulo o registro mora.
+    _search_term = st.text_input(
+        "Buscar",
+        key="global_search_term",
+        placeholder="Buscar cliente, negócio, chamado…",
+        label_visibility="collapsed",
+        help="Busca em Clientes 360, Funil Comercial e Atendimento ao mesmo tempo.",
+    )
+    if _search_term:
+        _results = global_search(_search_term, customers_df, deals_df, tickets_df)
 
-    st.markdown("**Menu principal**")
+        def _go_to_result(item: dict[str, Any]) -> None:
+            navigate_to_section(item["section"])
+
+        render_global_search(_results, on_select=_go_to_result)
+
+    st.markdown('<div class="side-label">Navegação</div>', unsafe_allow_html=True)
     st.radio(
         "Principal",
         primary_sections,
         key="nav_primary",
+        format_func=nav_option_label,
         on_change=on_primary_nav_change,
         label_visibility="collapsed",
     )
 
     if secondary_sections:
-        st.markdown("**Outras áreas**")
-        st.caption("Cadências, marketing, admin e ferramentas avançadas.")
+        st.markdown('<div class="side-label">Mais módulos</div>', unsafe_allow_html=True)
         st.selectbox(
             "Mais módulos",
             [MORE_NAV_PLACEHOLDER, *secondary_sections],
             key="nav_more_select",
             on_change=on_more_nav_change,
             label_visibility="collapsed",
+            help="Cadências, marketing, admin e ferramentas avançadas.",
         )
 
     if (
@@ -1245,25 +1352,7 @@ with st.sidebar:
         section = str(st.session_state["nav_primary"])
     st.session_state["nav_section"] = section
 
-    st.markdown("---")
-
-    # Busca global: um só campo para cliente, oportunidade e chamado.
-    # Sem isso o usuário precisa adivinhar em qual módulo o registro mora.
-    _search_term = st.text_input(
-        "🔍 Buscar",
-        key="global_search_term",
-        placeholder="Cliente, oportunidade ou chamado…",
-        help="Busca em Clientes 360, Funil Comercial e Atendimento ao mesmo tempo.",
-    )
-    if _search_term:
-        _results = global_search(_search_term, customers_df, deals_df, tickets_df)
-
-        def _go_to_result(item: dict[str, Any]) -> None:
-            navigate_to_section(item["section"])
-
-        render_global_search(_results, on_select=_go_to_result)
-
-    st.markdown("---")
+    st.markdown('<div class="side-label">Ferramentas</div>', unsafe_allow_html=True)
     _filters_active = (
         st.session_state.get("filter_country", "Todos") != "Todos"
         or st.session_state.get("filter_owner", "Todos") != "Todos"
@@ -1361,6 +1450,37 @@ with st.sidebar:
     with st.expander("Assistente IA (DeepSeek)", expanded=False):
         render_global_assistant()
 
+    with st.expander(":material/manage_accounts: Minha conta", expanded=False):
+        st.caption("Altere sua senha de acesso ao CRM.")
+        with st.form("change-password-form"):
+            current_pw = st.text_input("Senha atual", type="password")
+            new_pw = st.text_input("Nova senha", type="password")
+            confirm_pw = st.text_input("Confirmar nova senha", type="password")
+            submitted_change = st.form_submit_button("Atualizar senha", use_container_width=True)
+
+        if submitted_change:
+            if not current_pw or not new_pw or not confirm_pw:
+                st.error("Preencha todos os campos.")
+            elif new_pw != confirm_pw:
+                st.error("A nova senha e a confirmação não conferem.")
+            elif len(new_pw) < 8:
+                st.error("Use uma senha com pelo menos 8 caracteres.")
+            else:
+                try:
+                    change_own_password(user, current_pw, new_pw)
+                except ValueError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("Não foi possível atualizar a senha agora.")
+                else:
+                    queue_toast("Senha atualizada com sucesso.", icon="✅")
+                    # Opcionalmente, força novo login
+                    # end_user_session()
+        if st.button("Rever tour de boas-vindas", use_container_width=True, key="rever-tour"):
+            st.session_state["tour_step"] = 0
+            st.session_state["show_tour"] = True
+            st.session_state.pop("tour_done_session", None)
+            st.rerun()
     with st.expander("Sistema", expanded=False):
         st.caption(f"Banco: {DB_PATH}")
         public_url = os.getenv("CRM_PUBLIC_URL", "").strip()
@@ -1369,6 +1489,27 @@ with st.sidebar:
         if not os.getenv("DEEPSEEK_API_KEY", "").strip():
             st.caption("Defina DEEPSEEK_API_KEY para o chat.")
 
+    # Rodapé: usuário logado (como nos líderes: conta embaixo, navegação em cima)
+    _name_parts = [p for p in str(user.get("full_name", "")).split() if p]
+    _initials = (
+        (_name_parts[0][0] + (_name_parts[-1][0] if len(_name_parts) > 1 else "")).upper()
+        if _name_parts
+        else "?"
+    )
+    st.markdown(
+        f"""
+<div class="side-user">
+  <div class="side-avatar">{_initials}</div>
+  <div class="side-user-meta">
+    <div class="side-user-name">{user["full_name"]}</div>
+    <div class="side-user-role">{user["role"]}</div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    if st.button("Sair", use_container_width=True, key="sidebar-logout"):
+        end_user_session()
 
 filtered_customers = customers_df.copy()
 if selected_country != "Todos":
