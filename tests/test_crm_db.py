@@ -152,3 +152,32 @@ class TestDivisaoDeScript:
 
     def test_script_vazio(self):
         assert split_script("   ") == []
+
+
+class TestDependenciaDeDeploy:
+    """O driver precisa estar no arquivo que a imagem de produção instala.
+
+    A imagem do Railway roda `pip install -r requirements-docker.txt`, que
+    inclui `requirements.txt`. Ter o psycopg2 apenas em requirements-prod.txt
+    faria o app subir e quebrar no primeiro acesso ao banco — o tipo de
+    lacuna que só aparece em produção.
+    """
+
+    def _leia(self, nome: str) -> str:
+        from pathlib import Path
+
+        caminho = Path(__file__).resolve().parent.parent / nome
+        return caminho.read_text(encoding="utf-8")
+
+    def test_driver_declarado_no_requirements_do_app(self):
+        assert "psycopg2" in self._leia("requirements.txt"), (
+            "psycopg2 ausente de requirements.txt — a imagem do Railway não teria o driver"
+        )
+
+    def test_imagem_docker_puxa_o_requirements_do_app(self):
+        # Se esta cadeia mudar, o teste acima deixa de proteger o deploy.
+        assert "requirements.txt" in self._leia("requirements-docker.txt")
+        assert "requirements-docker.txt" in self._leia("Dockerfile")
+
+    def test_driver_tambem_no_requirements_de_producao(self):
+        assert "psycopg2" in self._leia("requirements-prod.txt")
