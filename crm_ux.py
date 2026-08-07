@@ -846,6 +846,93 @@ def can_advance_to_stage(
 
 
 # ---------------------------------------------------------------------------
+# Funil kanban (arrastar e soltar, padrão Pipedrive)
+#
+# O componente de drag devolve o board rearranjado; estas funções puras
+# montam os containers e detectam o que mudou — testáveis sem Streamlit.
+# ---------------------------------------------------------------------------
+
+def kanban_deal_label(deal: dict[str, Any], customer_name: str, is_stale: bool = False) -> str:
+    """Rótulo do cartão: id, cliente e valor compacto (🔴 = parada)."""
+    flag = "🔴 " if is_stale else ""
+    return f"{flag}{deal['deal_id']} · {customer_name} — {format_compact_brl(deal.get('value'))}"
+
+
+def build_kanban_containers(
+    deals: list[dict[str, Any]],
+    customer_names: dict[str, str],
+    stages: list[str],
+    stale_ids: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str]]:
+    """Monta o board por etapa.
+
+    Retorna (containers, header→etapa, rótulo→deal_id). O cabeçalho carrega
+    contagem e soma da etapa — e serve de chave para mapear o retorno do drag.
+    """
+    stale_ids = stale_ids or set()
+    por_etapa: dict[str, list[str]] = {stage: [] for stage in stages}
+    rotulo_para_deal: dict[str, str] = {}
+    total_por_etapa: dict[str, float] = {stage: 0.0 for stage in stages}
+    for deal in deals:
+        stage = str(deal.get("stage", ""))
+        if stage not in por_etapa:
+            continue
+        nome = customer_names.get(str(deal.get("customer_id")), "—")
+        rotulo = kanban_deal_label(deal, nome, str(deal.get("deal_id")) in stale_ids)
+        por_etapa[stage].append(rotulo)
+        rotulo_para_deal[rotulo] = str(deal["deal_id"])
+        try:
+            total_por_etapa[stage] += float(deal.get("value") or 0)
+        except (TypeError, ValueError):
+            pass
+    containers: list[dict[str, Any]] = []
+    header_para_etapa: dict[str, str] = {}
+    for stage in stages:
+        n = len(por_etapa[stage])
+        header = f"{stage}  ·  {n}  ·  {format_compact_brl(total_por_etapa[stage])}"
+        header_para_etapa[header] = stage
+        containers.append({"header": header, "items": por_etapa[stage]})
+    return containers, header_para_etapa, rotulo_para_deal
+
+
+def diff_kanban(
+    before: list[dict[str, Any]],
+    after: Any,
+    header_para_etapa: dict[str, str],
+    rotulo_para_deal: dict[str, str],
+) -> list[tuple[str, str, str]]:
+    """Compara o board antes/depois do drag: [(deal_id, de_etapa, para_etapa)].
+
+    Reordenação dentro da mesma coluna não gera mudança. Retorno inválido do
+    componente (None, tipo inesperado) é tratado como «nada mudou».
+    """
+    if not after or not isinstance(after, list):
+        return []
+
+    def _mapa(containers: list[dict[str, Any]]) -> dict[str, str]:
+        mapa: dict[str, str] = {}
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            stage = header_para_etapa.get(str(container.get("header")))
+            if stage is None:
+                continue
+            for rotulo in container.get("items", []) or []:
+                mapa[str(rotulo)] = stage
+        return mapa
+
+    antes, depois = _mapa(before), _mapa(after)
+    mudancas: list[tuple[str, str, str]] = []
+    for rotulo, etapa_depois in depois.items():
+        etapa_antes = antes.get(rotulo)
+        if etapa_antes and etapa_antes != etapa_depois:
+            deal_id = rotulo_para_deal.get(rotulo)
+            if deal_id:
+                mudancas.append((deal_id, etapa_antes, etapa_depois))
+    return mudancas
+
+
+# ---------------------------------------------------------------------------
 # Ficha do cliente orientada à linha do tempo
 # (padrão Pipedrive / Close / Attio 2026)
 #

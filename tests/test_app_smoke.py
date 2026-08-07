@@ -73,10 +73,16 @@ class TestFunilComercial:
 
     def test_valores_usam_formato_brasileiro(self):
         app = _run_section("Funil Comercial")
-        conteudo = " ".join(m.value for m in app.markdown)
+        # Com o funil em kanban, os valores visíveis ficam no componente e na
+        # tabela de oportunidades — o formato pt-BR é verificado na tabela.
+        valores = []
+        for el in app.dataframe:
+            df = el.value
+            if "Valor" in getattr(df, "columns", []):
+                valores.extend(str(v) for v in df["Valor"])
         # Formato pt-BR: R$ 190.000 (ponto de milhar), nunca R$ 190,000.
-        assert "R$ 190.000" in conteudo or "R$ " in conteudo
-        assert "R$ 190,000" not in conteudo
+        assert "R$ 190.000" in valores, f"tabela sem formato pt-BR: {valores}"
+        assert not any("R$ 190,000" in v for v in valores)
 
 
 class TestBuscaGlobal:

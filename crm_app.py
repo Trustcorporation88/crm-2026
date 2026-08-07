@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import date
 from typing import Any
@@ -26,6 +27,8 @@ from crm_ux import (
     account_summary_text,
     build_customer_timeline,
     build_day_agenda,
+    build_kanban_containers,
+    diff_kanban,
     build_task_queue,
     can_advance_to_stage,
     demo_login_enabled,
@@ -57,6 +60,11 @@ from crm_ux import (
     render_stage_header,
     summarize_stage,
 )
+try:
+    from streamlit_sortables import sort_items
+except Exception:  # pragma: no cover - ambiente sem o componente
+    sort_items = None
+
 from crm_ui_extensions import (
     render_ai_insights,
     render_cadences,
@@ -69,6 +77,7 @@ from crm_ui_extensions import (
 )
 from crm_backend import (
     DB_PATH,
+    update_deal_stage,
     add_campaign,
     add_interaction,
     complete_task,
@@ -1140,6 +1149,22 @@ def ingest_message(uploaded_file) -> str:
         return uploaded_file.getvalue().decode("utf-8", errors="ignore")[:4000]
     except Exception:
         return ""
+
+
+# CSS injetado no iframe do kanban (o tema da página não alcança lá dentro).
+KANBAN_STYLE = """
+.sortable-component { display: flex; gap: 10px; align-items: flex-start;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
+.sortable-container { flex: 1 1 0; background: #f4f6f8; border: 1px solid #e3e8ee;
+    border-radius: 10px; padding: 6px; min-height: 140px; }
+.sortable-container-header { font-weight: 700; font-size: 13px; color: #1a1f2b;
+    padding: 8px 8px 4px; letter-spacing: -0.01em; }
+.sortable-container-body { display: flex; flex-direction: column; gap: 6px; padding: 4px; min-height: 90px; }
+.sortable-item { background: #ffffff; border: 1px solid #e3e8ee; border-left: 3px solid #2f6fe4;
+    border-radius: 8px; padding: 10px 12px; font-size: 12.5px; font-weight: 600;
+    color: #1a1f2b; cursor: grab; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06); }
+.sortable-item:hover { border-color: #2f6fe4; box-shadow: 0 3px 8px rgba(47, 111, 228, 0.15); }
+"""
 
 
 def render_page_header(section: str) -> None:
@@ -2343,14 +2368,75 @@ elif section == "Funil Comercial":
     st.markdown(" ")
     with st.container(border=True):
         st.markdown('<div class="section-title">Funil comercial</div>', unsafe_allow_html=True)
-        stage_columns = st.columns(len(ordered_stages))
-        for col, stage in zip(stage_columns, ordered_stages):
-            with col:
-                render_stage_header(summarize_stage(filtered_deals, stage, stale_ids=stale_ids))
-                stage_items = filtered_deals[filtered_deals["stage"] == stage] if not filtered_deals.empty else filtered_deals
-                for item in stage_items.to_dict("records"):
-                    customer = customer_lookup[item["customer_id"]]
-                    render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
+        _erro_kanban = st.session_state.pop("kanban_error", "")
+        if _erro_kanban:
+            st.error(_erro_kanban)
+
+        _pode_arrastar = (
+            can_manage(user["role"], "deal")
+            and sort_items is not None
+            and not filtered_deals.empty
+        )
+        _kanban_ok = False
+        if _pode_arrastar:
+            # Kanban arrastável (padrão Pipedrive): soltar o cartão em outra
+            # coluna muda a etapa na hora — com portão de etapa no drop.
+            try:
+                st.caption(
+                    "Arraste um cartão para outra coluna para mudar a etapa — salva na hora. "
+                    "🔴 = sem contato além do limite da etapa."
+                )
+                _deals_records = filtered_deals.to_dict("records")
+                _nomes = {cid: str(info["name"]) for cid, info in customer_lookup.items()}
+                containers, _header_etapa, _rotulo_deal = build_kanban_containers(
+                    _deals_records, _nomes, ordered_stages, stale_ids=stale_ids
+                )
+                _assinatura = hashlib.md5(
+                    repr(sorted((str(d["deal_id"]), str(d["stage"])) for d in _deals_records)).encode()
+                ).hexdigest()[:10]
+                _nonce = int(st.session_state.get("kanban_nonce", 0))
+                _resultado = sort_items(
+                    containers,
+                    multi_containers=True,
+                    direction="horizontal",
+                    custom_style=KANBAN_STYLE,
+                    key=f"kanban-{_assinatura}-{_nonce}",
+                )
+                _kanban_ok = True
+                for _deal_id, _etapa_de, _etapa_para in diff_kanban(
+                    containers, _resultado, _header_etapa, _rotulo_deal
+                ):
+                    _registro = next(
+                        (d for d in _deals_records if str(d["deal_id"]) == _deal_id), None
+                    )
+                    if _registro is None:
+                        continue
+                    _ok, _motivo = can_advance_to_stage(_registro, _etapa_para)
+                    # Nonce novo remonta o board: ou com o dado salvo, ou de
+                    # volta ao original quando o portão de etapa barrar.
+                    st.session_state["kanban_nonce"] = _nonce + 1
+                    if not _ok:
+                        st.session_state["kanban_error"] = _motivo
+                    else:
+                        update_deal_stage(_deal_id, _etapa_para, actor=user, source="ui-kanban")
+                        queue_toast(
+                            f"«{_registro['name']}» movida: {_etapa_de} → {_etapa_para}.",
+                            icon="✅",
+                        )
+                    st.rerun()
+            except Exception:
+                _kanban_ok = False
+
+        if not _kanban_ok:
+            # Perfis sem edição (ou ambiente sem o componente): visão estática.
+            stage_columns = st.columns(len(ordered_stages))
+            for col, stage in zip(stage_columns, ordered_stages):
+                with col:
+                    render_stage_header(summarize_stage(filtered_deals, stage, stale_ids=stale_ids))
+                    stage_items = filtered_deals[filtered_deals["stage"] == stage] if not filtered_deals.empty else filtered_deals
+                    for item in stage_items.to_dict("records"):
+                        customer = customer_lookup[item["customer_id"]]
+                        render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
 
     st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)

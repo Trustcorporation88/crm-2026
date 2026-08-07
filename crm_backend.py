@@ -2378,6 +2378,54 @@ def add_deal(payload: dict[str, Any], actor: dict[str, str] | None = None, sourc
     return deal_id
 
 
+def update_deal_stage(
+    deal_id: str,
+    new_stage: str,
+    actor: dict[str, str] | None = None,
+    source: str = "ui",
+) -> None:
+    """Move uma oportunidade de etapa (kanban/edição), com trilha completa.
+
+    A mudança vira também uma interação na linha do tempo do cliente — no
+    padrão dos líderes, mover um negócio É um evento do relacionamento.
+    """
+    resolved_actor = _ensure_permission(actor, "deal.update")
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT customer_id, name, stage FROM deals WHERE deal_id = ?",
+            (deal_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Oportunidade {deal_id} não encontrada.")
+        old_stage = str(row["stage"])
+        if old_stage == new_stage:
+            return
+        connection.execute(
+            "UPDATE deals SET stage = ? WHERE deal_id = ?",
+            (new_stage, deal_id),
+        )
+        connection.commit()
+        customer_id = str(row["customer_id"])
+        deal_name = str(row["name"])
+    add_interaction(
+        customer_id,
+        "Mudança de etapa",
+        f"«{deal_name}» movida de {old_stage} para {new_stage}.",
+        "Sales",
+        resolved_actor["full_name"],
+        related_id=deal_id,
+        event_type="deal",
+    )
+    log_audit_event(
+        resolved_actor,
+        "deal.stage_changed",
+        "deal",
+        deal_id,
+        {"from": old_stage, "to": new_stage},
+        source,
+    )
+
+
 def add_campaign(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:
     resolved_actor = _ensure_permission(actor, "campaign.create")
     campaign_name = payload["campaign"].strip()
