@@ -21,6 +21,7 @@ from crm_views import (
     load_views,
     save_view,
 )
+import crm_db
 from crm_ux import (
     build_customer_timeline,
     build_day_agenda,
@@ -2382,4 +2383,12 @@ elif section == "Administração":
 
 
 st.markdown(" ")
-st.caption(f"Build date: {date.today().isoformat()} | Persistencia: SQLite | Auth: ativa | Canais: WhatsApp, Email, Formularios")
+
+# O rodapé anunciava "SQLite" fixo no código, independente do banco em uso.
+# Durante uma migração isso é exatamente a informação que falta: não havia
+# como saber, olhando o sistema, se ele já estava no Postgres.
+_backend_label = "PostgreSQL" if crm_db.is_postgres() else "SQLite (arquivo local)"
+st.caption(
+    f"Build date: {date.today().isoformat()} | Persistência: {_backend_label} "
+    "| Auth: ativa | Canais: WhatsApp, Email, Formularios"
+)

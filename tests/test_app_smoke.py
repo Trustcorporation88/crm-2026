@@ -311,3 +311,27 @@ class TestMarcacaoDosPaineis:
             "Meu Dia está caindo no texto genérico de cabeçalho"
         )
         assert "precisa da sua ação agora" in conteudo
+
+
+class TestRodapeInformaOBancoReal:
+    """O rodapé anunciava SQLite fixo, mesmo rodando em Postgres.
+
+    Durante uma migração é a informação mais importante da tela: sem ela não
+    dá para saber se a troca de banco surtiu efeito.
+    """
+
+    def test_sqlite_e_anunciado_como_sqlite(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        app = _run_section("Meu Dia")
+        rodape = " ".join(c.value for c in app.caption)
+
+        assert "SQLite" in rodape
+        assert "PostgreSQL" not in rodape
+
+    def test_postgres_e_anunciado_como_postgres(self, monkeypatch):
+        # Basta a variável estar setada: o rótulo não abre conexão.
+        monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@host:5432/db")
+        import crm_db
+
+        assert crm_db.is_postgres() is True
+        assert crm_db.backend_name() == "postgres"
