@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import os
-from pathlib import Path
 from datetime import date
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+
+import brand_assets
 
 from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
@@ -154,13 +154,12 @@ def split_nav_sections(allowed: list[str]) -> tuple[list[str], list[str]]:
 
 
 
-# O ícone da aba usa o brasão da Trust (com o emoji como reserva, caso o
-# arquivo não esteja disponível).
-_FAVICON = Path(__file__).parent / "assets" / "trust-favicon.png"
+# Ícone da aba: o brasão da Trust, com o emoji como reserva.
+_FAVICON = brand_assets.favicon_image()
 
 st.set_page_config(
     page_title="TRUST CRM",
-    page_icon=str(_FAVICON) if _FAVICON.exists() else "📈",
+    page_icon=_FAVICON if _FAVICON is not None else "📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -1098,7 +1097,7 @@ def show_login() -> None:
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <div class="login-shell">
   <div class="login-brand">
-    <img class="login-logo" src="{logo_data_uri("trust-logo.png")}" alt="Trust Corporation — Património e Legado">
+    <img class="login-logo" src="{brand_assets.data_uri("logo")}" alt="Trust Corporation — Património e Legado">
     <h1>TRUST CRM</h1>
     <p class="tagline">
       Vendas, atendimento e marketing em um só lugar — pipeline com previsão ponderada,
@@ -1218,21 +1217,6 @@ KANBAN_STYLE = """
     color: #1a1f2b; cursor: grab; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06); }
 .sortable-item:hover { border-color: #2f6fe4; box-shadow: 0 3px 8px rgba(47, 111, 228, 0.15); }
 """
-
-
-@st.cache_data(show_spinner=False)
-def logo_data_uri(nome: str) -> str:
-    """Logo embutida em base64.
-
-    O Streamlit não serve arquivos estáticos por padrão; embutir garante que a
-    marca apareça junto com a página, sem requisição extra e sem depender de
-    caminho público.
-    """
-    caminho = Path(__file__).parent / "assets" / nome
-    try:
-        return "data:image/png;base64," + base64.b64encode(caminho.read_bytes()).decode()
-    except OSError:
-        return ""
 
 
 def render_page_header(section: str) -> None:
@@ -1686,7 +1670,7 @@ with st.sidebar:
     st.markdown(
         f"""
 <div class="side-brand">
-  <img class="side-brand-logo" src="{logo_data_uri("trust-emblema.png")}" alt="" aria-hidden="true">
+  <img class="side-brand-logo" src="{brand_assets.data_uri("emblema")}" alt="" aria-hidden="true">
   <span class="side-brand-name" translate="no">Trust<strong>CRM</strong></span>
 </div>
 """,
