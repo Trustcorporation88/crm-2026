@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
+from pathlib import Path
 from datetime import date
 from typing import Any
 
@@ -152,9 +154,13 @@ def split_nav_sections(allowed: list[str]) -> tuple[list[str], list[str]]:
 
 
 
+# O ícone da aba usa o brasão da Trust (com o emoji como reserva, caso o
+# arquivo não esteja disponível).
+_FAVICON = Path(__file__).parent / "assets" / "trust-favicon.png"
+
 st.set_page_config(
     page_title="TRUST CRM",
-    page_icon="📈",
+    page_icon=str(_FAVICON) if _FAVICON.exists() else "📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -286,9 +292,9 @@ st.markdown(
     [data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.12); margin: 6px 0; }
 
     .side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
-    .side-brand-mark {
-        width: 10px; height: 10px; border-radius: 3px; background: var(--green);
-        box-shadow: 0 0 0 4px rgba(8, 167, 66, 0.22);
+    .side-brand-logo {
+        width: 34px; height: 34px; flex: 0 0 34px; object-fit: contain;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
     }
     .side-brand-name {
         font-size: 1.2rem; letter-spacing: -0.02em; font-weight: 400; color: #f4f6f8 !important;
@@ -418,6 +424,11 @@ st.markdown(
     }
     .login-shell { display: flex; flex-direction: column; gap: 28px; }
     .login-brand { text-align: left; max-width: 36rem; }
+    .login-logo {
+        display: block; width: clamp(150px, 19vw, 205px); height: auto;
+        margin: 0 0 14px -8px;
+        filter: drop-shadow(0 6px 18px rgba(16, 24, 40, 0.16));
+    }
     .login-brand .eyebrow {
         display: inline-block; font-size: 0.72rem; font-weight: 700;
         letter-spacing: 0.14em; text-transform: uppercase;
@@ -1081,13 +1092,13 @@ def maybe_show_onboarding_tour() -> None:
 
 def show_login() -> None:
     st.markdown(
-        """
+        f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <div class="login-shell">
   <div class="login-brand">
-    <div class="eyebrow">Trust Corporation</div>
+    <img class="login-logo" src="{logo_data_uri("trust-logo.png")}" alt="Trust Corporation — Património e Legado">
     <h1>TRUST CRM</h1>
     <p class="tagline">
       Vendas, atendimento e marketing em um só lugar — pipeline com previsão ponderada,
@@ -1207,6 +1218,21 @@ KANBAN_STYLE = """
     color: #1a1f2b; cursor: grab; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06); }
 .sortable-item:hover { border-color: #2f6fe4; box-shadow: 0 3px 8px rgba(47, 111, 228, 0.15); }
 """
+
+
+@st.cache_data(show_spinner=False)
+def logo_data_uri(nome: str) -> str:
+    """Logo embutida em base64.
+
+    O Streamlit não serve arquivos estáticos por padrão; embutir garante que a
+    marca apareça junto com a página, sem requisição extra e sem depender de
+    caminho público.
+    """
+    caminho = Path(__file__).parent / "assets" / nome
+    try:
+        return "data:image/png;base64," + base64.b64encode(caminho.read_bytes()).decode()
+    except OSError:
+        return ""
 
 
 def render_page_header(section: str) -> None:
@@ -1658,9 +1684,9 @@ with st.sidebar:
     # navegação como menu (não formulário) e conta do usuário no rodapé.
     # ------------------------------------------------------------------
     st.markdown(
-        """
+        f"""
 <div class="side-brand">
-  <span class="side-brand-mark"></span>
+  <img class="side-brand-logo" src="{logo_data_uri("trust-emblema.png")}" alt="" aria-hidden="true">
   <span class="side-brand-name" translate="no">Trust<strong>CRM</strong></span>
 </div>
 """,
