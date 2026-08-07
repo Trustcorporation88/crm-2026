@@ -150,3 +150,25 @@ Duas coisas passam a ser possíveis e valem a pena:
 2. **Isolamento por organização** — a camada já suporta schema separado via
    `CRM_PG_SCHEMA`, que é a base para multi-tenant (pendência estrutural nº 3).
    Hoje isso é usado para isolar cada teste da suíte.
+
+---
+
+## Nota operacional: "Redeploy" não é "deploy do commit novo"
+
+No Railway, clicar em **Redeploy** num deployment antigo reimplanta **aquele
+commit**, não o mais recente da branch. O sintoma é enganoso: o container sobe
+sem erro, com carimbo de hora novo, mas servindo o código antigo — e o log não
+mostra nenhuma etapa de build, só a inicialização.
+
+Como distinguir:
+
+- **Redeploy do antigo**: log começa em "Starting Container", sem `pip install`
+- **Deploy do commit novo**: log traz as etapas de build, com `pip install`
+  rodando de verdade
+
+Para publicar o commit mais recente, use o gatilho automático (push na branch
+observada) ou a opção de deploy do último commit — não o Redeploy.
+
+Teste rápido de qual versão está no ar: a tela de login mostra "Acesso restrito"
+na versão com o gate de demonstração, e os cinco botões de perfil na versão
+anterior.
