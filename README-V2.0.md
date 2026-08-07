@@ -22,7 +22,7 @@ This session autonomously implemented **ALL 15 improvements** for Mr.Holmes CRM,
 4. `cache_utils.py` - Smart caching with TTL management
 5. `webhook_utils.py` - Retry logic with exponential backoff
 6. `i18n.py` - 4-language internationalization (EN, PT, ES, FR)
-7. `workflow_engine.py` - Event-triggered automation engine
+7. `automation_rules.py` - Rule-based automation that creates real tasks (Automações screen)
 8. `sso_auth.py` - SSO for Azure AD, Google, Okta
 
 ### Configuration & Database (4)

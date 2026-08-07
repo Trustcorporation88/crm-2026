@@ -62,7 +62,7 @@
   - i18n class with fallbacks
   - Translation helper functions
   
-- ✅ `workflow_engine.py` - 300+ lines
+- ✅ `automation_rules.py` - regras reais de automação (o antigo `workflow_engine.py` era fachada e foi removido em ago/2026)
   - WorkflowTrigger and WorkflowAction enums
   - Rule-based automation engine
   - 3 default workflows

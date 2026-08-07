@@ -84,6 +84,8 @@ from crm_backend import (
     update_deal_stage,
     close_deal,
     update_deal_fields,
+    run_automations,
+    bulk_import_customers,
     add_campaign,
     add_interaction,
     complete_task,
@@ -1194,6 +1196,8 @@ def render_page_header(section: str) -> None:
         "Insights com IA": "Leituras automáticas da operação.",
         "Comparativo de Mercado": "Trust CRM lado a lado com os líderes.",
         "Manual de Serviços": "O que cada serviço faz, entrega e como usar — com exemplos.",
+        "Automações": "Regras que criam tarefas sozinhas a partir do que está parado.",
+        "Importar Dados": "Traga sua base de clientes de outro sistema por planilha.",
     }
     st.markdown(
         f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
@@ -2860,6 +2864,237 @@ elif section == "Marketing":
         st.success(f"Melhor campanha atual: {best['campaign']} com {best['conversion_rate']}% de conversao e {currency(best['revenue'])} em receita atribuida.")
         st.warning("Proximo passo recomendado: conectar campanhas de reativacao aos tickets de churn e abrir handoff automatico para atendimento e vendas.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Automações":
+    from automation_rules import RULES_CATALOG, evaluate_rules, summarize_proposals
+
+    _pode_automatizar = has_permission(user["role"], "automation.run")
+    _ultima_atividade = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
+
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Regras ativas</div>', unsafe_allow_html=True)
+        st.caption(
+            "Estas regras varrem a operação e criam tarefas para quem é responsável. "
+            "Rodar de novo **não duplica**: cada tarefa tem nome único por registro."
+        )
+        _escolhidas = []
+        for _regra in RULES_CATALOG:
+            _ligada = st.checkbox(
+                f"**{_regra['name']}**",
+                value=True,
+                key=f"regra-{_regra['id']}",
+                help=_regra["description"],
+            )
+            st.caption(_regra["description"])
+            if _ligada:
+                _escolhidas.append(_regra["id"])
+
+    _todas = evaluate_rules(
+        deals=filtered_deals,
+        tickets=filtered_tickets,
+        customers=filtered_customers,
+        last_activity=_ultima_atividade,
+        enabled=set(_escolhidas),
+    )
+    # Já viraram tarefa numa execução anterior: mostrar como "cuidando", não
+    # como pendência. Automação que repete o mesmo alerta todo dia vira ruído.
+    _ja_criadas = set(tasks_df["task"]) if not tasks_df.empty else set()
+    _propostas = [p for p in _todas if p.task not in _ja_criadas]
+    _existentes = [p for p in _todas if p.task in _ja_criadas]
+    _nomes_regras = {r["id"]: r["name"] for r in RULES_CATALOG}
+
+    st.markdown(" ")
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Prévia — o que será criado agora</div>', unsafe_allow_html=True)
+        if _existentes:
+            st.caption(
+                f"↻ {len(_existentes)} situação(ões) já tem tarefa aberta — não serão duplicadas."
+            )
+        if not _propostas:
+            st.success("Nada novo: tudo o que as regras encontraram já virou tarefa. 🎉")
+        else:
+            _resumo = summarize_proposals(_propostas)
+            _cols = st.columns(len(_resumo) or 1)
+            for _col, (_rid, _qtd) in zip(_cols, _resumo.items()):
+                _col.metric(_nomes_regras.get(_rid, _rid).split("→")[0].strip(), _qtd)
+
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Tarefa": p.task,
+                            "Responsável": p.owner,
+                            "Prazo": format_date_br(p.due_date),
+                            "Prioridade": p.priority,
+                            "Por quê": p.reason,
+                        }
+                        for p in _propostas
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+            if _pode_automatizar:
+                def _executar_automacoes() -> None:
+                    resultado = run_automations(_propostas, actor=user, source="ui-automacoes")
+                    criadas, puladas = len(resultado["created"]), len(resultado["skipped"])
+                    if criadas:
+                        queue_toast(
+                            f"{criadas} tarefa(s) criada(s)."
+                            + (f" {puladas} já existiam." if puladas else ""),
+                            icon="⚡",
+                        )
+                    else:
+                        queue_toast("Tudo já estava criado — nada duplicado.", icon="✅")
+
+                st.button(
+                    f"⚡ Executar automações ({len(_propostas)})",
+                    key="run_automations",
+                    type="primary",
+                    on_click=_executar_automacoes,
+                )
+            else:
+                st.caption("🔒 Seu perfil não pode executar automações. Fale com um administrador.")
+
+elif section == "Importar Dados":
+    from csv_import import IGNORE, FIELD_SYNONYMS, analyze_import, guess_mapping, sample_csv
+
+    _pode_importar = has_permission(user["role"], "customer.create")
+
+    with st.container(border=True):
+        st.markdown('<div class="section-title">1. Enviar planilha de clientes</div>', unsafe_allow_html=True)
+        st.caption(
+            "Arquivo .csv com uma linha por cliente. A primeira linha deve ser o cabeçalho "
+            "com os nomes das colunas — o sistema reconhece nomes comuns automaticamente."
+        )
+        st.download_button(
+            "⬇️ Baixar planilha modelo",
+            data=sample_csv(),
+            file_name="modelo_importacao_clientes.csv",
+            mime="text/csv",
+        )
+        _arquivo = st.file_uploader("Planilha (.csv)", type=["csv"], key="import_csv")
+
+    if _arquivo is not None:
+        try:
+            _bruto = pd.read_csv(_arquivo, dtype=str, keep_default_na=False)
+        except Exception:
+            _arquivo.seek(0)
+            try:
+                _bruto = pd.read_csv(_arquivo, dtype=str, sep=";", keep_default_na=False)
+            except Exception as exc:  # noqa: BLE001
+                _bruto = pd.DataFrame()
+                st.error(f"Não consegui ler o arquivo: {exc}")
+
+        if not _bruto.empty:
+            st.markdown(" ")
+            with st.container(border=True):
+                st.markdown(
+                    '<div class="section-title">2. Conferir o mapeamento das colunas</div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"{len(_bruto)} linha(s) lida(s). Ajuste se alguma coluna foi para o campo errado.")
+                _sugerido = guess_mapping(list(_bruto.columns))
+                _opcoes = [IGNORE, *list(_bruto.columns)]
+                _mapa: dict[str, str] = {}
+                _map_cols = st.columns(2)
+                for _i, _campo in enumerate(FIELD_SYNONYMS):
+                    _rotulo = _campo.replace("name", "Nome").replace("document", "CPF/CNPJ")
+                    _rotulo = _rotulo.replace("phone", "Telefone").replace("segment", "Segmento")
+                    _rotulo = _rotulo.replace("city", "Cidade").replace("country", "País")
+                    _rotulo = _rotulo.replace("owner", "Responsável").replace("status", "Status")
+                    _atual = _sugerido.get(_campo, IGNORE)
+                    _mapa[_campo] = _map_cols[_i % 2].selectbox(
+                        _rotulo + (" *" if _campo == "name" else ""),
+                        _opcoes,
+                        index=_opcoes.index(_atual) if _atual in _opcoes else 0,
+                        key=f"map-{_campo}",
+                    )
+
+                _resp_padrao = st.selectbox(
+                    "Responsável para linhas sem responsável",
+                    owner_options or [user["full_name"]],
+                    key="import_owner_default",
+                )
+
+            _relatorio = analyze_import(
+                _bruto,
+                {k: v for k, v in _mapa.items() if v != IGNORE},
+                existing_customers=customers_df,
+                defaults={"owner": _resp_padrao, "country": "Brasil", "status": "Novo"},
+            )
+            _sumario = _relatorio.summary()
+
+            st.markdown(" ")
+            with st.container(border=True):
+                st.markdown('<div class="section-title">3. Prévia da importação</div>', unsafe_allow_html=True)
+                _m = st.columns(4)
+                _m[0].metric("Linhas", _sumario["total"])
+                _m[1].metric("Prontas para importar", _sumario["validos"])
+                _m[2].metric("Já existem", _sumario["duplicados"])
+                _m[3].metric("Com erro", _sumario["invalidos"])
+
+                if _relatorio.invalid:
+                    with st.expander(f"❌ {len(_relatorio.invalid)} linha(s) recusada(s) — ver motivos", expanded=True):
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {"Linha": r.line, "Nome": r.data.get("name", ""), "Motivo": "; ".join(r.errors)}
+                                    for r in _relatorio.invalid
+                                ]
+                            ),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                if _relatorio.duplicates:
+                    with st.expander(f"⚠️ {len(_relatorio.duplicates)} já existe(m) na base — serão ignoradas"):
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "Linha": r.line,
+                                        "Nome": r.data.get("name", ""),
+                                        "Cliente existente": r.duplicate_of,
+                                        "Motivo": "; ".join(r.warnings),
+                                    }
+                                    for r in _relatorio.duplicates
+                                ]
+                            ),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                if _relatorio.valid:
+                    st.caption("Estas entram no CRM:")
+                    st.dataframe(
+                        pd.DataFrame([r.data for r in _relatorio.valid]),
+                        width="stretch",
+                        hide_index=True,
+                    )
+
+            if _relatorio.valid and _pode_importar:
+                _linhas_ok = [dict(r.data, _line=r.line) for r in _relatorio.valid]
+
+                def _confirmar_importacao() -> None:
+                    resultado = bulk_import_customers(_linhas_ok, actor=user, source="importacao-csv")
+                    if resultado["created"]:
+                        queue_toast(f"{len(resultado['created'])} cliente(s) importado(s).", icon="📥")
+                    if resultado["failed"]:
+                        st.session_state["import_error"] = " · ".join(
+                            f"linha {f['linha']}: {f['erro']}" for f in resultado["failed"][:5]
+                        )
+
+                st.button(
+                    f"📥 Importar {len(_relatorio.valid)} cliente(s)",
+                    key="confirm_import",
+                    type="primary",
+                    on_click=_confirmar_importacao,
+                )
+            elif _relatorio.valid:
+                st.caption("🔒 Seu perfil não pode criar clientes. Fale com um administrador.")
+
+            if st.session_state.get("import_error"):
+                st.error(st.session_state.pop("import_error"))
 
 elif section == "Manual de Serviços":
     from services_catalog import (

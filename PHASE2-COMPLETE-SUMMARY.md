@@ -19,7 +19,7 @@ In this session, we autonomously implemented **ALL 15 improvements** using your 
 ✅ cache_utils.py             - Caching layer (200 lines)
 ✅ webhook_utils.py           - Retry logic (250 lines)
 ✅ i18n.py                    - 4-language support (200 lines)
-✅ workflow_engine.py         - Automation engine (300 lines)
+✅ automation_rules.py       - Automation rules that create real tasks (replaced the workflow_engine facade)
 ✅ sso_auth.py                - Azure/Google/Okta SSO (300 lines)
 ✅ prometheus.yml             - Metrics config
 ✅ alert_rules.yml            - 12 production alerts

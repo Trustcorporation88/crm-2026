@@ -60,6 +60,7 @@ ACTIONS = [
     "aci.tools.execute",
     "aci.calls.read",
     "aci.policies.manage",
+    "automation.run",
 ]
 
 DEFAULT_ROLE_PERMISSIONS = {
@@ -70,10 +71,11 @@ DEFAULT_ROLE_PERMISSIONS = {
         "ticket.create",
         "ticket.update",
         "channel.intake",
+        "automation.run",
         "aci.tools.read",
         "aci.tools.execute",
     ],
-    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update", "ticket.create", "ticket.update", "channel.intake", "aci.tools.read", "aci.tools.execute"],
+    "vendas": ["customer.create", "customer.update", "deal.create", "deal.update", "ticket.create", "ticket.update", "channel.intake", "automation.run", "aci.tools.read", "aci.tools.execute"],
     "marketing": ["campaign.create", "campaign.update", "aci.tools.read", "aci.tools.execute"],
 }
 
@@ -2045,12 +2047,12 @@ def get_role_sections(role: str) -> list[str]:
         "admin": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Funil Comercial","Previsão de Receita","Produtividade",
             "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado",
-            "Administração","Manual de Serviços"],
+            "Administração","Manual de Serviços","Automações","Importar Dados"],
         "atendimento": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
-            "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado","Manual de Serviços"],
+            "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado","Manual de Serviços","Automações","Importar Dados"],
         "vendas": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
             "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA",
-            "Comparativo de Mercado","Manual de Serviços"],
+            "Comparativo de Mercado","Manual de Serviços","Automações","Importar Dados"],
         "marketing": ["Meu Dia","Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
             "Qualificação de Leads","Segmentação","Comparativo de Mercado","Manual de Serviços"],
     }
@@ -2603,6 +2605,108 @@ def update_deal_fields(
         source,
     )
     return aplicados
+
+
+def run_automations(
+    proposals: list[Any],
+    actor: dict[str, str] | None = None,
+    source: str = "ui-automacoes",
+) -> dict[str, Any]:
+    """Grava as tarefas propostas pelas automações, sem duplicar.
+
+    `task` é chave primária da tabela e o nome proposto é determinístico por
+    regra + entidade: rodar a automação todos os dias reaproveita a mesma
+    tarefa em vez de empilhar fila. Devolve o que foi criado e o que já existia.
+    """
+    resolved_actor = _ensure_permission(actor, "automation.run")
+    criadas: list[str] = []
+    existentes: list[str] = []
+
+    with _connect() as connection:
+        for proposta in proposals:
+            nome = str(getattr(proposta, "task", ""))
+            if not nome:
+                continue
+            ja_existe = connection.execute(
+                "SELECT 1 FROM tasks WHERE task = ?", (nome,)
+            ).fetchone()
+            if ja_existe:
+                existentes.append(nome)
+                continue
+            connection.execute(
+                """
+                INSERT INTO tasks (task, owner, due_date, priority, entity, status)
+                VALUES (?, ?, ?, ?, ?, 'aberta')
+                """,
+                (
+                    nome,
+                    str(getattr(proposta, "owner", "")),
+                    str(getattr(proposta, "due_date", "")),
+                    str(getattr(proposta, "priority", "Media")),
+                    str(getattr(proposta, "entity", "")),
+                ),
+            )
+            criadas.append(nome)
+        connection.commit()
+
+    if criadas:
+        log_audit_event(
+            resolved_actor,
+            "automation.run",
+            "task",
+            f"{len(criadas)} tarefa(s)",
+            {"created": criadas[:20], "skipped": len(existentes)},
+            source,
+        )
+    return {"created": criadas, "skipped": existentes}
+
+
+def bulk_import_customers(
+    rows: list[dict[str, Any]],
+    actor: dict[str, str] | None = None,
+    source: str = "importacao-csv",
+) -> dict[str, Any]:
+    """Cria clientes em lote a partir da importação de planilha.
+
+    Cada linha já veio validada pelo csv_import; aqui a preocupação é não
+    interromper o lote inteiro por causa de uma linha ruim — o que falhar é
+    reportado com o motivo, o resto entra.
+    """
+    resolved_actor = _ensure_permission(actor, "customer.create")
+    criados: list[str] = []
+    falhas: list[dict[str, str]] = []
+
+    for indice, linha in enumerate(rows, start=1):
+        try:
+            customer_id = add_customer(
+                {
+                    "name": linha.get("name", ""),
+                    "segment": linha.get("segment") or "Nao informado",
+                    "city": linha.get("city") or "Nao informado",
+                    "country": linha.get("country") or "Brasil",
+                    "owner": linha.get("owner") or resolved_actor["full_name"],
+                    "status": linha.get("status") or "Novo",
+                    "document": linha.get("document", ""),
+                    "phone": linha.get("phone", ""),
+                    "source": "Importacao CSV",
+                    "channel": linha.get("channel") or "Formulario",
+                },
+                actor=resolved_actor,
+                source=source,
+            )
+            criados.append(customer_id)
+        except Exception as exc:  # noqa: BLE001 - o lote não pode parar
+            falhas.append({"linha": str(linha.get("_line", indice)), "erro": str(exc)})
+
+    log_audit_event(
+        resolved_actor,
+        "customer.bulk_import",
+        "customer",
+        f"{len(criados)} conta(s)",
+        {"created": len(criados), "failed": len(falhas), "ids": criados[:20]},
+        source,
+    )
+    return {"created": criados, "failed": falhas}
 
 
 def add_campaign(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:

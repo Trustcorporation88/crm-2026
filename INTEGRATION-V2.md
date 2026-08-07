@@ -290,26 +290,26 @@ engine = create_engine(
 
 ## 🔄 Workflow Automation
 
-Initialize workflows in your startup:
+Automations live in `automation_rules.py` (pure evaluation) and are persisted
+by `crm_backend.run_automations`. The screen "Automações" shows a preview
+before writing anything.
 
 ```python
-from workflow_engine import init_workflows, get_workflow_engine
+from automation_rules import evaluate_rules
+from crm_backend import run_automations
 
-# On app startup
-@app.on_event("startup")
-async def startup():
-    init_workflows()
-```
-
-Trigger workflows:
-
-```python
-engine = get_workflow_engine()
-results = await engine.execute(
-    WorkflowTrigger.CUSTOMER_CREATED,
-    {"customer_id": 123, "email": "user@example.com"}
+proposals = evaluate_rules(
+    deals=deals_df,
+    tickets=tickets_df,
+    customers=customers_df,
+    last_activity=last_activity_by_customer(interactions_df),
 )
+result = run_automations(proposals, actor=user)   # idempotent: no duplicates
 ```
+
+Note: the previous `workflow_engine.py` was removed in Aug/2026 — every action
+handler only logged and returned a fabricated status, so no automation actually
+ran. `automation_rules.py` writes real tasks and is covered by tests.
 
 ## 🌍 Multi-Language Support
 
