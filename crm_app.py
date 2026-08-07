@@ -149,34 +149,6 @@ def split_nav_sections(allowed: list[str]) -> tuple[list[str], list[str]]:
     return primary, secondary
 
 
-BENCHMARKS = pd.DataFrame(
-    [
-        {
-            "player": "Salesforce",
-            "market": "Estados Unidos",
-            "strength": "Customer 360, sales + service + marketing integrados, IA e plataforma escalavel.",
-            "what_to_absorb": "Visao unica do cliente, handoff entre times e operacao orientada por dados.",
-        },
-        {
-            "player": "HubSpot",
-            "market": "Estados Unidos",
-            "strength": "UX simples, onboarding rapido e distribuicao clara entre times.",
-            "what_to_absorb": "Baixo atrito de adocao e fluxo claro do lead ao atendimento.",
-        },
-        {
-            "player": "RD Station CRM",
-            "market": "Brasil",
-            "strength": "Funil comercial, operacao por WhatsApp e relatorios para produtividade.",
-            "what_to_absorb": "Historico de interacoes, produtividade comercial e leitura de conversao.",
-        },
-        {
-            "player": "Agendor",
-            "market": "Brasil",
-            "strength": "Operacao simples para PMEs e linguagem local de vendas.",
-            "what_to_absorb": "Clareza operacional e menor friccao de uso.",
-        },
-    ]
-)
 
 
 st.set_page_config(
@@ -1349,6 +1321,105 @@ def _render_service_card(
                 )
 
 
+def render_benchmark_comparison(compact: bool = False) -> None:
+    """Comparativo Benchmark: quem disputa o mercado brasileiro e onde estamos.
+
+    Usado no fim do catálogo de Serviços e na tela «Comparativo de Mercado».
+    Mostra também as três frentes em que estamos atrás — comparativo que só
+    elogia a casa não ajuda ninguém a decidir.
+    """
+    from benchmark_market import (
+        CAPABILITY_MATRIX,
+        PRICE_CHECKED_AT,
+        TRUST_POSITION,
+        brazilian_competitors,
+        capability_score,
+        global_competitors,
+    )
+
+    _placar = capability_score()
+
+    with st.container(border=True):
+        st.markdown(
+            '<div class="section-title">Comparativo Benchmark — o mercado brasileiro</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            f"Preços consultados nas páginas oficiais em {PRICE_CHECKED_AT}. "
+            "Valores em dólar estão marcados. Software muda de preço — confira antes de decidir."
+        )
+        _p = st.columns(3)
+        _p[0].metric("Capacidades à frente", _placar["vantagem"])
+        _p[1].metric("Equivalentes", _placar["empate"] + _placar["parcial"])
+        _p[2].metric("Atrás", _placar["atras"], help="E-mail, ecossistema de integrações e multiempresa.")
+
+        for _titulo, _lista in (
+            ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
+            ("🌐 Globais que competem no Brasil", global_competitors()),
+        ):
+            st.markdown(f"**{_titulo}**")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Concorrente": c["name"],
+                            "Origem": c["origin"],
+                            "Preço de entrada": c["price"],
+                            "Nosso diferencial": c["trust_diff"],
+                        }
+                        for c in _lista
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+        if not compact:
+            for _titulo, _lista in (
+                ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
+                ("🌐 Globais", global_competitors()),
+            ):
+                st.markdown(f"**Detalhe — {_titulo}**")
+                for _c in _lista:
+                    with st.expander(f"{_c['name']} · {_c['origin']}"):
+                        st.markdown(f"**Público-alvo:** {_c['audience']}")
+                        st.markdown(f"**Preço:** {_c['price']}  \n*Fonte: {_c['price_source']}*")
+                        st.markdown("**Pontos fortes:**")
+                        for _f in _c["strengths"]:
+                            st.markdown(f"- {_f}")
+                        st.markdown("**Limitações conhecidas:**")
+                        for _l in _c["limitations"]:
+                            st.markdown(f"- {_l}")
+                        st.markdown(f"**Adequação ao Brasil:** {_c['brasil']}")
+                        st.info(f"**Nosso diferencial:** {_c['trust_diff']}")
+
+    st.markdown(" ")
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Capacidade a capacidade</div>', unsafe_allow_html=True)
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"Capacidade": m["capability"], "Trust CRM": m["trust"], "Mercado": m["market"]}
+                    for m in CAPABILITY_MATRIX
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+    st.markdown(" ")
+    _pos = st.columns(2)
+    with _pos[0], st.container(border=True):
+        st.markdown('<div class="section-title">✅ Onde ganhamos</div>', unsafe_allow_html=True)
+        for _item in TRUST_POSITION["ganhamos"]:
+            st.markdown(f"- {_item}")
+    with _pos[1], st.container(border=True):
+        st.markdown('<div class="section-title">⚠️ Onde estamos atrás</div>', unsafe_allow_html=True)
+        for _item in TRUST_POSITION["atras"]:
+            st.markdown(f"- {_item}")
+        st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
+
+
 def render_services_catalog() -> None:
     """Catálogo orientado a objetivo: busca, cards clicáveis e desambiguação.
 
@@ -1423,6 +1494,8 @@ def render_services_catalog() -> None:
                     with col:
                         _render_service_card(service, allowed_sections, live_stats, key_prefix="search")
         st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(" ")
+        render_benchmark_comparison(compact=True)
         return
 
     # 3b) Sem busca: serviços agrupados por objetivo, em grade responsiva
@@ -1456,6 +1529,12 @@ def render_services_catalog() -> None:
         st.info("Nenhum serviço disponível para o seu perfil.")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Comparativo Benchmark fecha o catálogo: depois de ver o que entregamos,
+    # o leitor vê como isso se posiciona contra o mercado.
+    st.markdown(" ")
+    st.divider()
+    render_benchmark_comparison(compact=True)
 
 
 init_database()
@@ -3157,18 +3236,17 @@ elif section == "Manual de Serviços":
                         st.caption("🔒 Disponível para outro perfil de acesso")
 
 elif section == "Comparativo de Mercado":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Comparativo de mercado — Brasil e EUA</div>', unsafe_allow_html=True)
-    st.dataframe(BENCHMARKS, width="stretch", hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    from benchmark_market import benchmark_markdown
+
+    render_benchmark_comparison(compact=False)
     st.markdown(" ")
-    tabs = st.tabs(["Pilares absorvidos", "Ja entregue", "Proxima camada"])
-    with tabs[0]:
-        st.markdown("- customer 360 com historico consolidado\n- atendimento first com SLA e fila operacional\n- pipeline comercial ligado ao contexto do cliente\n- leitura de marketing com origem, conversao e receita")
-    with tabs[1]:
-        st.markdown("- persistencia em PostgreSQL gerenciado (Supabase)\n- login e perfis por area\n- intake de WhatsApp, Email e Formularios\n- criacao persistida de contas, tickets, deals e campanhas")
-    with tabs[2]:
-        st.markdown("- automacoes por evento\n- integrações externas reais com provedores\n- trilha de auditoria e permissoes mais finas\n- IA para resumo, priorizacao e resposta assistida")
+    st.download_button(
+        "⬇️ Baixar comparativo (.md)",
+        data=benchmark_markdown(),
+        file_name="Trust_CRM_Comparativo_Benchmark.md",
+        mime="text/markdown",
+        help="Para levar a uma reunião ou compartilhar com a diretoria",
+    )
 
 elif section == "Administração":
     if not can_manage(user["role"], "admin"):

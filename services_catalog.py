@@ -540,4 +540,12 @@ def services_manual_markdown() -> str:
             if guia.get("exemplo_pratico"):
                 linhas.append(f"**Exemplo prático:** {guia['exemplo_pratico']}")
             linhas.append("")
+
+    # Fecha o manual com o posicionamento contra o mercado.
+    try:
+        from benchmark_market import benchmark_markdown
+
+        linhas += ["", benchmark_markdown()]
+    except Exception:  # pragma: no cover - manual nunca pode quebrar por isso
+        pass
     return "\n".join(linhas)
