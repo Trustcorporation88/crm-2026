@@ -1113,9 +1113,20 @@ def render_page_header(section: str) -> None:
         "Clientes 360": "Conta, histórico e contexto comercial.",
         "Funil Comercial": "Oportunidades e etapas de venda.",
         "Canais": "Entrada WhatsApp, e-mail e formulários.",
+        "Administração": "Governança, usuários, permissões e auditoria.",
+        "Marketing": "Campanhas, conversão por canal e segmentos.",
+        "Cadências": "Sequências de contato para não deixar lead esfriar.",
+        "Saúde da Conta": "Risco de churn e sinais de expansão.",
+        "Modelos de Mensagem": "Textos prontos para WhatsApp e e-mail.",
+        "Previsão de Receita": "Projeção ponderada do funil.",
+        "Produtividade": "Carga e resultado por responsável.",
+        "Qualificação de Leads": "Priorize quem tem mais chance de fechar.",
+        "Segmentação": "Recortes de clientes para ação dirigida.",
+        "Insights com IA": "Leituras automáticas da operação.",
+        "Comparativo de Mercado": "Trust CRM lado a lado com os líderes.",
     }
     st.markdown(
-        f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Use os filtros da barra lateral.")}</p></div>',
+        f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -1702,8 +1713,7 @@ elif section == "Serviços":
 
 elif section == "Visão Executiva":
     left, right = st.columns([1.2, 0.8])
-    with left:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
+    with left, st.container(border=True):
         st.markdown('<div class="section-title">Panorama operacional</div>', unsafe_allow_html=True)
         summary = pd.DataFrame(
             [
@@ -1716,15 +1726,17 @@ elif section == "Visão Executiva":
         st.dataframe(summary, width="stretch", hide_index=True)
         owner_load = filtered_tickets.groupby("owner").size().reset_index(name="tickets") if not filtered_tickets.empty else pd.DataFrame(columns=["owner", "tickets"])
         if not owner_load.empty:
-            st.bar_chart(owner_load.set_index("owner"))
-        st.markdown('</div>', unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
+            st.bar_chart(
+                owner_load.set_index("owner"),
+                horizontal=True,
+                color="#2f6fe4",
+                height=max(160, 56 * len(owner_load)),
+            )
+    with right, st.container(border=True):
         st.markdown('<div class="section-title">Proximas acoes</div>', unsafe_allow_html=True)
         for item in tasks_df.sort_values("due_date").head(6).to_dict("records"):
             st.markdown(f"**{item['task']}**  \nResponsavel: {item['owner']}  \nPrazo: {item['due_date']}  \nVinculo: {item['entity']}")
             st.markdown("---")
-        st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Atendimento":
     if can_manage(user["role"], "ticket"):
@@ -2309,7 +2321,12 @@ elif section == "Marketing":
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Conversao por canal</div>', unsafe_allow_html=True)
         channel_conversion = campaigns_df[["channel", "conversion_rate"]].groupby("channel").mean()
-        st.bar_chart(channel_conversion)
+        st.bar_chart(
+            channel_conversion,
+            horizontal=True,
+            color="#08a742",
+            height=max(160, 56 * len(channel_conversion)),
+        )
         st.markdown('</div>', unsafe_allow_html=True)
     with right:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
