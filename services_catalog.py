@@ -470,3 +470,74 @@ def search_services(query: str, limit: int = 6) -> list[dict[str, Any]]:
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [service for _, service in scored[:limit]]
+
+
+# ---------------------------------------------------------------------------
+# Manual de serviços (fonte única para a tela no CRM, o PDF e o download .md)
+# ---------------------------------------------------------------------------
+
+def services_manual_sections() -> list[dict[str, Any]]:
+    """Catálogo agrupado por categoria, com os campos do guia já resolvidos."""
+    por_categoria: dict[str, list[dict[str, Any]]] = {}
+    for service in SERVICE_CATALOG:
+        por_categoria.setdefault(str(service["category_id"]), []).append(service)
+
+    sections: list[dict[str, Any]] = []
+    for category in CATEGORIES:
+        services = por_categoria.get(str(category["id"]), [])
+        if not services:
+            continue
+        sections.append(
+            {
+                "id": category["id"],
+                "title": category["title"],
+                "icon": category["icon"],
+                "tagline": category.get("tagline", ""),
+                "services": [
+                    {
+                        **service_guide_payload(service),
+                        "section": resolve_service_section(str(service["id"])),
+                        "benchmark": service.get("benchmark", ""),
+                    }
+                    for service in services
+                ],
+            }
+        )
+    return sections
+
+
+def services_manual_markdown() -> str:
+    """Manual completo em Markdown — usado no botão de download e no PDF."""
+    linhas = [
+        "# Trust CRM — Catálogo de Serviços: o que cada um entrega",
+        "",
+        "## Resumo rápido",
+        "",
+        "| Serviço | Onde abre no menu | O que entrega |",
+        "|---|---|---|",
+    ]
+    for service in SERVICE_CATALOG:
+        linhas.append(
+            f"| **{service['title']}** | {resolve_service_section(str(service['id']))} "
+            f"| {service.get('resultado_esperado', '')} |"
+        )
+    for category in services_manual_sections():
+        linhas += ["", f"## {category['icon']} {category['title']}", f"*{category['tagline']}*", ""]
+        for guia in category["services"]:
+            passos = " → ".join(guia.get("como_usar", []) or [])
+            dados = ", ".join(guia.get("dados_input", []) or [])
+            linhas += [
+                f"### {guia['title']}",
+                "",
+                f"**Quando usar:** {guia.get('tagline', '')}",
+                f"**Objetivo:** {guia.get('objetivo', '')}",
+                f"**Como funciona:** {guia.get('resumo_geral', '')}",
+                f"**O que entrega:** {guia.get('resultado_esperado', '')}",
+                f"**Passo a passo:** {passos}",
+                f"**Dados que usa:** {dados}",
+                f"**Referência de mercado:** {guia.get('benchmark', '')}",
+            ]
+            if guia.get("exemplo_pratico"):
+                linhas.append(f"**Exemplo prático:** {guia['exemplo_pratico']}")
+            linhas.append("")
+    return "\n".join(linhas)

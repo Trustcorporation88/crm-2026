@@ -31,6 +31,7 @@ SECTIONS = [
     "Clientes 360",
     "Funil Comercial",
     "Canais",
+    "Manual de Serviços",
 ]
 
 
@@ -415,3 +416,22 @@ class TestWhatsAppNaFicha:
         depois = _run_section("Clientes 360")
         conteudo = " ".join(m.value for m in depois.markdown)
         assert "Mensagem enviada por WhatsApp" in conteudo
+
+
+class TestManualDeServicos:
+    """O manual dentro do CRM precisa refletir o catálogo inteiro."""
+
+    def test_manual_renderiza_com_resumo_e_download(self):
+        app = _run_section("Manual de Serviços")
+        assert not app.exception
+        # tabela-resumo com os 17 serviços
+        tabelas = [el.value for el in app.dataframe]
+        assert any(len(t) == 17 for t in tabelas), "resumo deve listar os 17 serviços"
+
+    def test_markdown_do_download_cobre_todos_os_servicos(self):
+        from services_catalog import SERVICE_CATALOG, services_manual_markdown
+
+        md = services_manual_markdown()
+        for service in SERVICE_CATALOG:
+            assert service["title"] in md, f"{service['title']} ausente do manual"
+        assert "O que entrega" in md

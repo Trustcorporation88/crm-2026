@@ -2040,18 +2040,21 @@ def change_own_password(actor: dict[str, Any], old_password: str, new_password: 
 def get_role_sections(role: str) -> list[str]:
     # "Meu Dia" abre a lista para todo papel: é a superfície de trabalho diário
     # (padrão Sales Workspace do HubSpot / Inbox do Close).
+    # "Manual de Serviços" é documentação: todo papel pode ler.
     mapping = {
         "admin": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Funil Comercial","Previsão de Receita","Produtividade",
-            "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado","Administração"],
+            "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado",
+            "Administração","Manual de Serviços"],
         "atendimento": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
-            "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado"],
+            "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado","Manual de Serviços"],
         "vendas": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
-            "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA","Comparativo de Mercado"],
+            "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA",
+            "Comparativo de Mercado","Manual de Serviços"],
         "marketing": ["Meu Dia","Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
-            "Qualificação de Leads","Segmentação","Comparativo de Mercado"],
+            "Qualificação de Leads","Segmentação","Comparativo de Mercado","Manual de Serviços"],
     }
-    return mapping.get(role, ["Visao Executiva"])
+    return mapping.get(role, ["Visao Executiva", "Manual de Serviços"])
 
 
 def complete_task(task_name: str, actor: dict[str, str] | None = None) -> bool:

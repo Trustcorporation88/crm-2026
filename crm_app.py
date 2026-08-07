@@ -1191,6 +1191,7 @@ def render_page_header(section: str) -> None:
         "Segmentação": "Recortes de clientes para ação dirigida.",
         "Insights com IA": "Leituras automáticas da operação.",
         "Comparativo de Mercado": "Trust CRM lado a lado com os líderes.",
+        "Manual de Serviços": "O que cada serviço faz, entrega e como usar — com exemplos.",
     }
     st.markdown(
         f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
@@ -2697,6 +2698,66 @@ elif section == "Marketing":
         st.success(f"Melhor campanha atual: {best['campaign']} com {best['conversion_rate']}% de conversao e {currency(best['revenue'])} em receita atribuida.")
         st.warning("Proximo passo recomendado: conectar campanhas de reativacao aos tickets de churn e abrir handoff automatico para atendimento e vendas.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+elif section == "Manual de Serviços":
+    from services_catalog import (
+        SERVICE_CATALOG,
+        resolve_service_section as _manual_secao,
+        services_manual_markdown,
+        services_manual_sections,
+    )
+
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Resumo rápido — 17 serviços e suas entregas</div>', unsafe_allow_html=True)
+        _resumo = pd.DataFrame(
+            [
+                {
+                    "Serviço": item["title"],
+                    "Onde abre no menu": _manual_secao(str(item["id"])),
+                    "O que entrega": item.get("resultado_esperado", ""),
+                }
+                for item in SERVICE_CATALOG
+            ]
+        )
+        st.dataframe(_resumo, width="stretch", hide_index=True)
+        st.download_button(
+            "⬇️ Baixar manual completo (.md)",
+            data=services_manual_markdown(),
+            file_name="Trust_CRM_Catalogo_de_Servicos.md",
+            mime="text/markdown",
+            help="Versão em texto para compartilhar com a equipe",
+        )
+
+    for _categoria in services_manual_sections():
+        st.markdown(" ")
+        with st.container(border=True):
+            st.markdown(
+                f'<div class="section-title">{_categoria["icon"]} {_categoria["title"]}</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(_categoria["tagline"])
+            for _guia in _categoria["services"]:
+                with st.expander(f'{_guia["title"]} — {_guia.get("resultado_esperado", "")}'):
+                    st.markdown(f"**Quando usar:** {_guia.get('tagline', '')}")
+                    st.markdown(f"**Objetivo:** {_guia.get('objetivo', '')}")
+                    st.markdown(f"**Como funciona:** {_guia.get('resumo_geral', '')}")
+                    st.success(f"✅ O que entrega: {_guia.get('resultado_esperado', '')}")
+                    _passos = " → ".join(_guia.get("como_usar", []) or [])
+                    _dados = ", ".join(_guia.get("dados_input", []) or [])
+                    st.markdown(f"**Passo a passo:** {_passos}")
+                    st.markdown(f"**Dados que usa:** {_dados}")
+                    st.markdown(f"**Referência de mercado:** {_guia.get('benchmark', '')}")
+                    if _guia.get("exemplo_pratico"):
+                        st.info(f"💡 **Exemplo prático:** {_guia['exemplo_pratico']}")
+                    if str(_guia["section"]) in allowed_sections:
+                        if st.button(
+                            f"Abrir {_guia['section']}",
+                            key=f"manual-abrir-{_guia['id']}",
+                            type="primary",
+                        ):
+                            navigate_to_section(str(_guia["section"]))
+                    else:
+                        st.caption("🔒 Disponível para outro perfil de acesso")
 
 elif section == "Comparativo de Mercado":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
