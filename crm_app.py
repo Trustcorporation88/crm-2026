@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
@@ -159,6 +160,36 @@ st.set_page_config(
 )
 
 
+# A fonte de ícones precisa começar a carregar JUNTO com a página.
+# O Streamlit só a injeta quando monta o primeiro componente com ícone —
+# até lá, qualquer <span> nosso com font-family Material Symbols mostra o
+# NOME do ícone em texto («bolt», «inbox»). Com display=block o texto fica
+# invisível durante o carregamento, então não há flash de nome cru.
+# O Streamlit serve <html lang="en"> fixo. Com a página em português, o Chrome
+# entende que é inglês e traduz sozinho — foi o que transformou a marca
+# «TrustCRM» em «CRM de confiança» e os nomes dos ícones em «PARAFUSO».
+# Declarar o idioma correto elimina o gatilho da tradução automática.
+components.html(
+    """
+<script>
+  const doc = window.parent.document;
+  doc.documentElement.lang = "pt-BR";
+  doc.documentElement.setAttribute("translate", "no");
+</script>
+""",
+    height=0,
+)
+
+st.markdown(
+    """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+""",
+    unsafe_allow_html=True,
+)
+
 st.markdown(
     """
 <style>
@@ -242,6 +273,14 @@ st.markdown(
         -webkit-text-fill-color: rgba(238, 242, 247, 0.55) !important;
     }
 
+    /* O componente que declara o idioma não deve ocupar espaço na página. */
+    .stElementContainer:has(> iframe[title="streamlit.components.v1.html"][height="0"]),
+    div[data-testid="stCustomComponentV1"][height="0"] {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+    }
+
     /* ---- Lateral: marca, navegação e rodapé de usuário ---- */
     [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.55rem; }
     [data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.12); margin: 6px 0; }
@@ -261,6 +300,25 @@ st.markdown(
         text-transform: uppercase; color: rgba(238, 242, 247, 0.5) !important;
         margin: 8px 2px 0;
     }
+
+    /* Os ícones do menu são renderizados pelo Streamlit com o NOME da ligadura
+       como texto do elemento — enquanto a fonte não chega, o nome aparece na
+       tela («support_agent Atendimento»). Zeramos o texto e injetamos o glifo
+       pelo codepoint, então não há nome para vazar. */
+    [data-testid="stSidebar"] span[role="img"][aria-label="today icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="today icon"]::before { content: "\\e8df"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="apps icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="apps icon"]::before { content: "\\e5c3"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="monitoring icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="monitoring icon"]::before { content: "\\f190"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="support_agent icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="support_agent icon"]::before { content: "\\f0e2"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="group icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="group icon"]::before { content: "\\ea21"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="filter_alt icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="filter_alt icon"]::before { content: "\\ef4f"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="forum icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="forum icon"]::before { content: "\\e8af"; font-size: 1.15rem; }
 
     /* Navegação: o st.radio vira um menu — sem círculos, linhas inteiras
        clicáveis, hover suave e item ativo com barra verde (padrão Pipedrive). */
@@ -488,6 +546,7 @@ st.markdown(
 
     /* ---- Cards do catálogo de Serviços ---- */
     .svc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .svc-icon::before, .cat-icon::before, .svc-ready-icon::before { content: var(--ico); }
     .svc-icon {
         font-family: "Material Symbols Rounded";
         font-size: 1.35rem; line-height: 1; font-weight: 400;
@@ -511,7 +570,10 @@ st.markdown(
         background: var(--success-soft); border: 1px solid #bfe6cd;
         border-radius: 999px; padding: 4px 10px;
     }
-    .svc-ready-icon { font-family: "Material Symbols Rounded"; font-size: 1rem; line-height: 1; }
+    .svc-ready-icon {
+        font-family: "Material Symbols Rounded"; font-size: 1rem; line-height: 1;
+        --ico: "\\f0be";
+    }
 
     .cat-head { display: flex; align-items: center; gap: 10px; margin: 14px 0 2px; }
     .cat-icon {
@@ -1181,34 +1243,38 @@ def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
 
 
-# Ícone (ligadura Material Symbols) e tom por serviço — paleta azul/verde/grafite.
+# Ícone e tom por serviço — paleta azul/verde/grafite.
+# Guardamos o CODEPOINT da Material Symbols, não o nome da ligadura: nome é
+# texto legível no DOM, que o navegador mostra enquanto a fonte carrega e que
+# a tradução automática do Chrome chega a traduzir («bolt» virava «PARAFUSO»).
+# Com o codepoint injetado por CSS, não existe texto para vazar nem traduzir.
 SERVICE_CARD_META = {
-    "ticketing-sla": ("support_agent", "#2f6fe4"),
-    "channel-intake": ("inbox", "#2f6fe4"),
-    "tasks-cadences": ("notifications_active", "#2f6fe4"),
-    "customer-360": ("person_search", "#08a742"),
-    "timeline": ("history", "#08a742"),
-    "health-score": ("monitor_heart", "#08a742"),
-    "templates": ("edit_note", "#08a742"),
-    "pipeline": ("filter_alt", "#0a7d44"),
-    "forecast": ("trending_up", "#0a7d44"),
-    "productivity": ("leaderboard", "#0a7d44"),
-    "marketing-campaigns": ("campaign", "#2159c4"),
-    "lead-scoring": ("hotel_class", "#2159c4"),
-    "segmentation": ("category", "#2159c4"),
-    "executive-view": ("monitoring", "#334155"),
-    "ai-insights": ("auto_awesome", "#334155"),
-    "rbac-admin": ("admin_panel_settings", "#334155"),
-    "benchmark": ("compare_arrows", "#334155"),
+    "ticketing-sla": ("\\f0e2", "#2f6fe4"),
+    "channel-intake": ("\\e156", "#2f6fe4"),
+    "tasks-cadences": ("\\e7f7", "#2f6fe4"),
+    "customer-360": ("\\f106", "#08a742"),
+    "timeline": ("\\e8b3", "#08a742"),
+    "health-score": ("\\eaa2", "#08a742"),
+    "templates": ("\\e745", "#08a742"),
+    "pipeline": ("\\ef4f", "#0a7d44"),
+    "forecast": ("\\e8e5", "#0a7d44"),
+    "productivity": ("\\f20c", "#0a7d44"),
+    "marketing-campaigns": ("\\ef49", "#2159c4"),
+    "lead-scoring": ("\\e743", "#2159c4"),
+    "segmentation": ("\\e72c", "#2159c4"),
+    "executive-view": ("\\f190", "#334155"),
+    "ai-insights": ("\\e65f", "#334155"),
+    "rbac-admin": ("\\ef3d", "#334155"),
+    "benchmark": ("\\e915", "#334155"),
 }
 
 
 CATEGORY_HEAD_META = {
-    "operacao": ("bolt", "#2f6fe4"),
-    "relacionamento": ("group", "#08a742"),
-    "comercial": ("payments", "#0a7d44"),
-    "growth": ("campaign", "#2159c4"),
-    "governanca": ("settings", "#334155"),
+    "operacao": ("\\ea0b", "#2f6fe4"),
+    "relacionamento": ("\\ea21", "#08a742"),
+    "comercial": ("\\ef63", "#0a7d44"),
+    "growth": ("\\ef49", "#2159c4"),
+    "governanca": ("\\e8b8", "#334155"),
 }
 
 
@@ -1265,7 +1331,8 @@ def _render_service_card(
         st.markdown(
             f"""
 <div class="svc-head">
-  <span class="svc-icon" style="color:{tone};background:{tone}1a;">{icon}</span>
+  <span class="svc-icon" translate="no" aria-hidden="true"
+        style="color:{tone};background:{tone}1a;--ico:'{icon}';"></span>
   <div class="svc-title">{service['title']}</div>
 </div>
 <div class="svc-when">{service['tagline']}</div>
@@ -1282,7 +1349,7 @@ def _render_service_card(
         else:
             st.markdown(
                 '<div class="svc-stat"><span class="svc-ready">'
-                '<span class="svc-ready-icon">check_circle</span> Pronto para usar</span></div>',
+                '<span class="svc-ready-icon" translate="no" aria-hidden="true"></span> Pronto para usar</span></div>',
                 unsafe_allow_html=True,
             )
         target_section = resolve_service_section(str(service["id"]))
@@ -1512,8 +1579,8 @@ def render_services_catalog() -> None:
         )
         cat_icon, cat_tone = CATEGORY_HEAD_META.get(str(category["id"]), ("widgets", "#334155"))
         st.markdown(
-            f'<div class="cat-head"><span class="cat-icon" style="color:{cat_tone};'
-            f'background:{cat_tone}1a;">{cat_icon}</span><span class="cat-title">{titulo}</span></div>',
+            f'<div class="cat-head"><span class="cat-icon" translate="no" aria-hidden="true" style="color:{cat_tone};'
+            f'background:{cat_tone}1a;--ico:\'{cat_icon}\';"></span><span class="cat-title">{titulo}</span></div>',
             unsafe_allow_html=True,
         )
         st.caption(subtitulo)
@@ -1594,7 +1661,7 @@ with st.sidebar:
         """
 <div class="side-brand">
   <span class="side-brand-mark"></span>
-  <span class="side-brand-name">Trust<strong>CRM</strong></span>
+  <span class="side-brand-name" translate="no">Trust<strong>CRM</strong></span>
 </div>
 """,
         unsafe_allow_html=True,
