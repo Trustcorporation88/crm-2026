@@ -585,10 +585,10 @@ def onboarding_progress(steps: Sequence[dict[str, Any]]) -> tuple[int, int]:
 # ===========================================================================
 
 _HEALTH_STYLE = {
-    # cor da borda, rótulo curto
-    "parado": ("#ef4444", "🔴"),
-    "atencao": ("#f59e0b", "🟡"),
-    "ok": ("#22c55e", "🟢"),
+    # cor da borda/texto (tons escuros: precisam de contraste em fundo branco)
+    "parado": ("#dc2626", "🔴"),
+    "atencao": ("#b45309", "🟡"),
+    "ok": ("#15803d", "🟢"),
     "fechado": ("#64748b", "⚪"),
 }
 
@@ -1044,9 +1044,9 @@ def next_best_action(
 
 
 _URGENCY_STYLE = {
-    "critica": ("#ef4444", "🔴"),
-    "alta": ("#f59e0b", "🟡"),
-    "normal": ("#22c55e", "🟢"),
+    "critica": ("#dc2626", "🔴"),
+    "alta": ("#b45309", "🟡"),
+    "normal": ("#15803d", "🟢"),
 }
 
 
@@ -1057,7 +1057,7 @@ def render_next_action(action: NextAction) -> None:
     color, icon = _URGENCY_STYLE.get(action.urgency, _URGENCY_STYLE["normal"])
     st.markdown(
         f"""
-        <div style='border-left:3px solid {color};background:rgba(255,255,255,0.03);
+        <div style='border-left:3px solid {color};background:#f8fafc;
                     padding:0.85rem 1.1rem;border-radius:4px;margin-bottom:0.75rem;'>
             <div style='font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;
                         opacity:0.65;margin-bottom:0.2rem;'>Próxima ação</div>
@@ -1097,7 +1097,7 @@ def render_activity_timeline(
             st.markdown(
                 f"""
                 <div style='display:flex;gap:0.7rem;padding:0.55rem 0;
-                            border-bottom:1px solid rgba(255,255,255,0.06);'>
+                            border-bottom:1px solid #eceff3;'>
                     <div style='font-size:1.05rem;line-height:1.4;'>{entry.icon}</div>
                     <div style='flex:1;'>
                         <div style='font-weight:600;font-size:0.95rem;'>{entry.title}</div>
@@ -1129,7 +1129,7 @@ def render_related_records(
         for row in deals.to_dict("records"):
             marca = "🔴 " if row.get("deal_id") in stale else ""
             st.markdown(
-                f"<div style='padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06);'>"
+                f"<div style='padding:0.4rem 0;border-bottom:1px solid #eceff3;'>"
                 f"{marca}<strong>{row.get('name','')}</strong><br>"
                 f"<span style='opacity:0.65;font-size:0.85rem;'>"
                 f"{format_brl(row.get('value'))} · {row.get('stage','')}</span></div>",
@@ -1151,7 +1151,7 @@ def render_related_records(
         estourado = sla > 0 and age > sla
         marca = "🔴 " if estourado else ""
         st.markdown(
-            f"<div style='padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06);'>"
+            f"<div style='padding:0.4rem 0;border-bottom:1px solid #eceff3;'>"
             f"{marca}<strong>{row.get('subject','')}</strong><br>"
             f"<span style='opacity:0.65;font-size:0.85rem;'>"
             f"{row.get('status','')} · {row.get('channel','')}</span></div>",
