@@ -2522,6 +2522,89 @@ def close_deal(
     )
 
 
+# Campos que a edição inline pode alterar. Etapa fica de fora de propósito:
+# mudança de etapa passa pelo kanban/fechamento, que aplicam portão e desfecho.
+ALLOWED_DEAL_EDIT_FIELDS = {"name", "value", "probability", "owner", "close_date"}
+
+
+def update_deal_fields(
+    deal_id: str,
+    changes: dict[str, Any],
+    actor: dict[str, str] | None = None,
+    source: str = "ui",
+) -> dict[str, Any]:
+    """Edição inline de oportunidade (estilo Attio/HubSpot), com validação.
+
+    Aplica apenas campos da whitelist, valida valores e grava UM evento de
+    auditoria com o antes/depois de cada campo. Devolve o que foi de fato
+    alterado — vazio significa no-op.
+    """
+    resolved_actor = _ensure_permission(actor, "deal.update")
+
+    limpos: dict[str, Any] = {}
+    for field, value in (changes or {}).items():
+        if field not in ALLOWED_DEAL_EDIT_FIELDS:
+            continue
+        if field == "value":
+            value = float(value)
+            if value < 0:
+                raise ValueError("Valor não pode ser negativo.")
+        elif field == "probability":
+            value = int(value)
+            if not 0 <= value <= 100:
+                raise ValueError("Probabilidade deve estar entre 0 e 100.")
+        elif field in ("name", "owner"):
+            value = str(value or "").strip()
+            if not value:
+                raise ValueError(f"Campo «{field}» não pode ficar vazio.")
+        elif field == "close_date":
+            value = str(value or "").strip()[:10]
+            if len(value) != 10:
+                raise ValueError("Data de fechamento inválida.")
+        limpos[field] = value
+
+    if not limpos:
+        return {}
+
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT name, value, probability, owner, close_date FROM deals WHERE deal_id = ?",
+            (deal_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Oportunidade {deal_id} não encontrada.")
+
+        aplicados: dict[str, Any] = {}
+        for field, novo_valor in limpos.items():
+            atual = row[field]
+            if field == "value":
+                mudou = float(atual or 0) != novo_valor
+            elif field == "probability":
+                mudou = int(atual or 0) != novo_valor
+            else:
+                mudou = str(atual or "") != str(novo_valor)
+            if mudou:
+                aplicados[field] = {"from": atual, "to": novo_valor}
+
+        if not aplicados:
+            return {}
+
+        sets = ", ".join(f"{field} = ?" for field in aplicados)
+        params = [aplicados[field]["to"] for field in aplicados] + [deal_id]
+        connection.execute(f"UPDATE deals SET {sets} WHERE deal_id = ?", params)
+        connection.commit()
+
+    log_audit_event(
+        resolved_actor,
+        "deal.update",
+        "deal",
+        deal_id,
+        aplicados,
+        source,
+    )
+    return aplicados
+
+
 def add_campaign(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:
     resolved_actor = _ensure_permission(actor, "campaign.create")
     campaign_name = payload["campaign"].strip()

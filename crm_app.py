@@ -31,6 +31,7 @@ from crm_ux import (
     diff_kanban,
     open_deals_for_closing,
     deal_closing_label,
+    loss_analysis,
     LOSS_REASONS,
     build_task_queue,
     can_advance_to_stage,
@@ -82,6 +83,7 @@ from crm_backend import (
     DB_PATH,
     update_deal_stage,
     close_deal,
+    update_deal_fields,
     add_campaign,
     add_interaction,
     complete_task,
@@ -2555,6 +2557,166 @@ elif section == "Funil Comercial":
 
             if st.session_state.get("close_deal_error"):
                 st.error(st.session_state.pop("close_deal_error"))
+
+    # Análise de perdas: agrega os motivos que o fechamento coleta.
+    _perdas = loss_analysis(filtered_deals)
+    if _perdas["lost_count"] > 0:
+        st.markdown(" ")
+        with st.container(border=True):
+            st.markdown('<div class="section-title">Análise de perdas</div>', unsafe_allow_html=True)
+            _m = st.columns(3)
+            _m[0].metric("Negócios perdidos", _perdas["lost_count"])
+            _m[1].metric("Valor perdido", format_compact_brl(_perdas["lost_value"]))
+            _m[2].metric(
+                "Taxa de perda",
+                f"{_perdas['loss_rate']:.0f}%".replace(".", ","),
+                help="Perdidos ÷ (ganhos + perdidos). Quanto menor, melhor.",
+            )
+            if _perdas["by_reason"]:
+                st.caption("Por que perdemos — motivo × quantidade (o custo de cada motivo ao lado)")
+                _mot_df = pd.DataFrame(_perdas["by_reason"]).set_index("reason")
+                st.bar_chart(
+                    _mot_df[["count"]].rename(columns={"count": "negócios"}),
+                    horizontal=True,
+                    color="#dc2626",
+                    height=max(140, 52 * len(_mot_df)),
+                )
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Motivo": item["reason"],
+                                "Negócios": item["count"],
+                                "Valor perdido": format_brl(item["value"]),
+                                "% das perdas": f"{item['pct']:.0f}%".replace(".", ","),
+                            }
+                            for item in _perdas["by_reason"]
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+    # Edição inline + ações em massa (estilo Attio/HubSpot)
+    if can_manage(user["role"], "deal") and not filtered_deals.empty:
+        st.markdown(" ")
+        with st.container(border=True):
+            st.markdown('<div class="section-title">Edição rápida e ações em massa</div>', unsafe_allow_html=True)
+            st.caption(
+                "Edite direto na célula — salva sozinho. Marque a coluna ✓ para agir em massa nos selecionados."
+            )
+            _grade_base = filtered_deals[
+                ["deal_id", "name", "value", "probability", "owner", "close_date"]
+            ].copy()
+            _grade_base["close_date"] = pd.to_datetime(_grade_base["close_date"], errors="coerce").dt.date
+            _grade_base.insert(0, "✓", False)
+
+            _grade = st.data_editor(
+                _grade_base,
+                key="deals_editor",
+                hide_index=True,
+                width="stretch",
+                disabled=["deal_id"],
+                column_config={
+                    "✓": st.column_config.CheckboxColumn("✓", help="Selecionar para ação em massa", width="small"),
+                    "deal_id": st.column_config.TextColumn("Código", width="small"),
+                    "name": st.column_config.TextColumn("Oportunidade", required=True),
+                    "value": st.column_config.NumberColumn("Valor (R$)", min_value=0.0, step=1000.0, format="%.0f"),
+                    "probability": st.column_config.NumberColumn("Prob. (%)", min_value=0, max_value=100, step=5),
+                    "owner": st.column_config.SelectboxColumn("Responsável", options=owner_options, required=True),
+                    "close_date": st.column_config.DateColumn("Fechamento", format="DD/MM/YYYY"),
+                },
+            )
+
+            # Autosave: compara a grade editada com o banco e aplica a diferença.
+            _erros_edicao: list[str] = []
+            _salvos = 0
+            for _orig, _novo in zip(_grade_base.to_dict("records"), _grade.to_dict("records")):
+                _mudancas: dict[str, Any] = {}
+                if str(_novo.get("name", "")) != str(_orig.get("name", "")):
+                    _mudancas["name"] = _novo.get("name")
+                if float(_novo.get("value") or 0) != float(_orig.get("value") or 0):
+                    _mudancas["value"] = _novo.get("value")
+                if int(_novo.get("probability") or 0) != int(_orig.get("probability") or 0):
+                    _mudancas["probability"] = _novo.get("probability")
+                if str(_novo.get("owner", "")) != str(_orig.get("owner", "")):
+                    _mudancas["owner"] = _novo.get("owner")
+                if _novo.get("close_date") != _orig.get("close_date") and _novo.get("close_date"):
+                    _mudancas["close_date"] = _novo["close_date"].isoformat()
+                if not _mudancas:
+                    continue
+                try:
+                    if update_deal_fields(str(_orig["deal_id"]), _mudancas, actor=user, source="ui-inline"):
+                        _salvos += 1
+                except (ValueError, PermissionError) as exc:
+                    _erros_edicao.append(f"{_orig['deal_id']}: {exc}")
+            if _erros_edicao:
+                st.error(" · ".join(_erros_edicao))
+            if _salvos:
+                queue_toast(
+                    f"{_salvos} oportunidade(s) atualizada(s)." if _salvos > 1 else "Oportunidade atualizada.",
+                    icon="💾",
+                )
+                st.rerun()
+
+            # Barra de ações em massa
+            _selecionados = [str(r["deal_id"]) for r in _grade.to_dict("records") if r.get("✓")]
+            if _selecionados:
+                st.markdown(f"**{len(_selecionados)} selecionada(s)** — aplicar em massa:")
+                _b1, _b2, _b3 = st.columns([1.4, 1.4, 0.9])
+                _acao_massa = _b1.selectbox(
+                    "Ação",
+                    ["Mudar responsável", "Mudar etapa"],
+                    key="bulk_action",
+                    label_visibility="collapsed",
+                )
+                if _acao_massa == "Mudar responsável":
+                    _alvo_massa = _b2.selectbox(
+                        "Novo responsável", owner_options, key="bulk_owner", label_visibility="collapsed"
+                    )
+                else:
+                    _alvo_massa = _b2.selectbox(
+                        "Nova etapa", open_stages, key="bulk_stage", label_visibility="collapsed"
+                    )
+
+                def _aplicar_massa() -> None:
+                    ids = list(_selecionados)
+                    acao = st.session_state.get("bulk_action")
+                    ok, barradas = 0, []
+                    registros = {str(d["deal_id"]): d for d in filtered_deals.to_dict("records")}
+                    for did in ids:
+                        try:
+                            if acao == "Mudar responsável":
+                                update_deal_fields(
+                                    did, {"owner": st.session_state.get("bulk_owner")},
+                                    actor=user, source="ui-massa",
+                                )
+                                ok += 1
+                            else:
+                                destino = st.session_state.get("bulk_stage")
+                                registro = registros.get(did, {})
+                                pode, motivo = can_advance_to_stage(registro, str(destino))
+                                if not pode:
+                                    barradas.append(f"{did}: {motivo}")
+                                    continue
+                                update_deal_stage(did, str(destino), actor=user, source="ui-massa")
+                                ok += 1
+                        except (ValueError, PermissionError) as exc:
+                            barradas.append(f"{did}: {exc}")
+                    if ok:
+                        queue_toast(f"Ação aplicada a {ok} oportunidade(s).", icon="⚡")
+                    if barradas:
+                        st.session_state["bulk_error"] = " · ".join(barradas)
+
+                _b3.button(
+                    f"Aplicar ({len(_selecionados)})",
+                    key="bulk_apply",
+                    type="primary",
+                    use_container_width=True,
+                    on_click=_aplicar_massa,
+                )
+            if st.session_state.get("bulk_error"):
+                st.error(st.session_state.pop("bulk_error"))
 
     st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)

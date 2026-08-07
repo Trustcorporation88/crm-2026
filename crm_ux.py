@@ -211,6 +211,62 @@ LOSS_REASONS = [
 ]
 
 
+def loss_analysis(deals: Any) -> dict[str, Any]:
+    """Agrega os desfechos do funil: quanto perdemos, quanto ganhamos e por quê.
+
+    O motivo é agrupado pelo catálogo LOSS_REASONS: «Preço acima do orçamento
+    — detalhe» conta no balde «Preço acima do orçamento»; texto livre (fluxo
+    «Outro») cai em «Outro». O objetivo é responder em uma tela: qual motivo
+    mais mata negócio e quanto ele custou.
+    """
+    vazio = {
+        "lost_count": 0, "lost_value": 0.0,
+        "won_count": 0, "won_value": 0.0,
+        "loss_rate": 0.0, "by_reason": [],
+    }
+    if deals is None:
+        return vazio
+    registros = deals.to_dict("records") if hasattr(deals, "to_dict") else list(deals)
+    if not registros:
+        return vazio
+
+    perdidos = [d for d in registros if str(d.get("stage")) == LOST_STAGE]
+    ganhos = [d for d in registros if str(d.get("stage")) == WON_STAGE]
+
+    def _valor(d: dict[str, Any]) -> float:
+        try:
+            return float(d.get("value") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _balde(reason: str) -> str:
+        base = (reason or "").split(" — ")[0].strip()
+        return base if base in LOSS_REASONS else "Outro"
+
+    por_motivo: dict[str, dict[str, Any]] = {}
+    for d in perdidos:
+        balde = _balde(str(d.get("loss_reason", "")))
+        item = por_motivo.setdefault(balde, {"reason": balde, "count": 0, "value": 0.0})
+        item["count"] += 1
+        item["value"] += _valor(d)
+
+    lost_count = len(perdidos)
+    won_count = len(ganhos)
+    fechados = lost_count + won_count
+    by_reason = sorted(por_motivo.values(), key=lambda i: (-i["count"], -i["value"]))
+    for item in by_reason:
+        item["pct"] = round(100.0 * item["count"] / lost_count, 1) if lost_count else 0.0
+
+    return {
+        "lost_count": lost_count,
+        "lost_value": sum(_valor(d) for d in perdidos),
+        "won_count": won_count,
+        "won_value": sum(_valor(d) for d in ganhos),
+        "loss_rate": round(100.0 * lost_count / fechados, 1) if fechados else 0.0,
+        "by_reason": by_reason,
+    }
+
+
 def open_deals_for_closing(deals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Negócios ainda abertos — os únicos que podem receber Ganho/Perdido.
 
