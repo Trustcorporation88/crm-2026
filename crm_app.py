@@ -32,6 +32,7 @@ from crm_ux import (
     deal_health,
     find_duplicates,
     format_brl,
+    format_compact_brl,
     format_date_br,
     global_search,
     format_cpf_cnpj,
@@ -495,6 +496,43 @@ st.markdown(
     }
     .mini-value { font-size: 1.7rem; font-weight: 700; color: var(--ink); margin: 0.2rem 0 0.3rem; }
     .mini-caption { color: var(--muted); font-size: 0.9rem; }
+
+    /* ---- Cards do catálogo de Serviços ---- */
+    .svc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .svc-icon {
+        font-family: "Material Symbols Rounded";
+        font-size: 1.35rem; line-height: 1; font-weight: 400;
+        width: 38px; height: 38px; border-radius: 10px; flex: 0 0 38px;
+        display: flex; align-items: center; justify-content: center;
+        user-select: none;
+    }
+    .svc-title {
+        font-weight: 700; color: var(--ink); font-size: 1rem;
+        line-height: 1.3; letter-spacing: -0.01em;
+    }
+    .svc-when { color: var(--muted); font-size: 0.85rem; line-height: 1.45; min-height: 2.5em; }
+    .svc-stat { display: flex; align-items: baseline; gap: 8px; padding: 6px 0 2px; }
+    .svc-stat-num {
+        font-size: 1.45rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em;
+    }
+    .svc-stat-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+    .svc-ready {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 0.78rem; font-weight: 700; color: var(--success);
+        background: var(--success-soft); border: 1px solid #bfe6cd;
+        border-radius: 999px; padding: 4px 10px;
+    }
+    .svc-ready-icon { font-family: "Material Symbols Rounded"; font-size: 1rem; line-height: 1; }
+
+    .cat-head { display: flex; align-items: center; gap: 10px; margin: 14px 0 2px; }
+    .cat-icon {
+        font-family: "Material Symbols Rounded";
+        font-size: 1.15rem; line-height: 1;
+        width: 32px; height: 32px; border-radius: 9px; flex: 0 0 32px;
+        display: flex; align-items: center; justify-content: center;
+        user-select: none;
+    }
+    .cat-title { font-size: 1.18rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }
 
     /* ---- Pílulas de status ---- */
     .status-pill {
@@ -1135,12 +1173,110 @@ def render_empty_state(message: str) -> None:
     st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
 
 
-def _render_service_card(service: dict[str, Any], allowed_sections: list[str], key_prefix: str = "svc") -> None:
-    """Card de serviço com botões Abrir/Guia (usado no catálogo e na busca)."""
+# Ícone (ligadura Material Symbols) e tom por serviço — paleta azul/verde/grafite.
+SERVICE_CARD_META = {
+    "ticketing-sla": ("support_agent", "#2f6fe4"),
+    "channel-intake": ("inbox", "#2f6fe4"),
+    "tasks-cadences": ("notifications_active", "#2f6fe4"),
+    "customer-360": ("person_search", "#08a742"),
+    "timeline": ("history", "#08a742"),
+    "health-score": ("monitor_heart", "#08a742"),
+    "templates": ("edit_note", "#08a742"),
+    "pipeline": ("filter_alt", "#0a7d44"),
+    "forecast": ("trending_up", "#0a7d44"),
+    "productivity": ("leaderboard", "#0a7d44"),
+    "marketing-campaigns": ("campaign", "#2159c4"),
+    "lead-scoring": ("hotel_class", "#2159c4"),
+    "segmentation": ("category", "#2159c4"),
+    "executive-view": ("monitoring", "#334155"),
+    "ai-insights": ("auto_awesome", "#334155"),
+    "rbac-admin": ("admin_panel_settings", "#334155"),
+    "benchmark": ("compare_arrows", "#334155"),
+}
+
+
+CATEGORY_HEAD_META = {
+    "operacao": ("bolt", "#2f6fe4"),
+    "relacionamento": ("group", "#08a742"),
+    "comercial": ("payments", "#0a7d44"),
+    "growth": ("campaign", "#2159c4"),
+    "governanca": ("settings", "#334155"),
+}
+
+
+def build_service_live_stats() -> dict[str, tuple[str, str]]:
+    """Contador ao vivo por serviço: (valor, rótulo).
+
+    Lê os mesmos dataframes das telas — o número do card é o número
+    que o usuário encontra ao abrir o serviço.
+    """
+    stats: dict[str, tuple[str, str]] = {}
+
+    def _n(count: int, singular: str, plural: str) -> tuple[str, str]:
+        return (str(count), singular if count == 1 else plural)
+
+    try:
+        abertos = tickets_df[tickets_df["status"] != "Resolvido"]
+        stats["ticketing-sla"] = _n(len(abertos), "ticket aberto", "tickets abertos")
+        stats["channel-intake"] = _n(len(tickets_df), "atendimento registrado", "atendimentos registrados")
+        pendentes = tasks_df[tasks_df.get("status", "aberta") != "concluida"] if not tasks_df.empty else tasks_df
+        stats["tasks-cadences"] = _n(len(pendentes), "tarefa pendente", "tarefas pendentes")
+        stats["customer-360"] = _n(len(customers_df), "conta na base", "contas na base")
+        stats["timeline"] = _n(len(interactions_df), "interação registrada", "interações registradas")
+        em_risco = customers_df[customers_df["health_score"] < 60] if not customers_df.empty else customers_df
+        stats["health-score"] = _n(len(em_risco), "conta em risco", "contas em risco")
+        deals_abertos = deals_df[deals_df["stage"] != "Fechado ganho"] if not deals_df.empty else deals_df
+        stats["pipeline"] = _n(len(deals_abertos), "negócio em aberto", "negócios em aberto")
+        if not deals_abertos.empty:
+            ponderada = float((deals_abertos["value"] * deals_abertos["probability"] / 100).sum())
+            stats["forecast"] = (format_compact_brl(ponderada), "previsão ponderada")
+        ativos = users_df[users_df["is_active"] == 1] if not users_df.empty else users_df
+        stats["productivity"] = _n(len(ativos), "pessoa no time", "pessoas no time")
+        stats["rbac-admin"] = _n(len(ativos), "usuário ativo", "usuários ativos")
+        stats["marketing-campaigns"] = _n(len(campaigns_df), "campanha ativa", "campanhas ativas")
+        if not campaigns_df.empty and "qualified" in campaigns_df.columns:
+            _q = int(campaigns_df["qualified"].sum())
+            stats["lead-scoring"] = _n(_q, "lead qualificado", "leads qualificados")
+        if not customers_df.empty:
+            stats["executive-view"] = (f"{int(customers_df['health_score'].mean())}/100", "saúde média da carteira")
+    except Exception:
+        # Contador é decoração informativa: nunca pode derrubar o catálogo.
+        pass
+    return stats
+
+
+def _render_service_card(
+    service: dict[str, Any],
+    allowed_sections: list[str],
+    live_stats: dict[str, tuple[str, str]] | None = None,
+    key_prefix: str = "svc",
+) -> None:
+    """Card de serviço: ícone, quando usar, contador ao vivo e ações."""
+    icon, tone = SERVICE_CARD_META.get(str(service["id"]), ("widgets", "#334155"))
     with st.container(border=True):
-        st.markdown(f"**{service['title']}**")
-        st.caption(f"🔹 Use quando: {service['tagline']}")
-        st.caption(f"✅ Resultado: {service.get('resultado_esperado', '')}")
+        st.markdown(
+            f"""
+<div class="svc-head">
+  <span class="svc-icon" style="color:{tone};background:{tone}1a;">{icon}</span>
+  <div class="svc-title">{service['title']}</div>
+</div>
+<div class="svc-when">{service['tagline']}</div>
+""",
+            unsafe_allow_html=True,
+        )
+        stat = (live_stats or {}).get(str(service["id"]))
+        if stat:
+            st.markdown(
+                f'<div class="svc-stat"><span class="svc-stat-num">{stat[0]}</span>'
+                f'<span class="svc-stat-label">{stat[1]}</span></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="svc-stat"><span class="svc-ready">'
+                '<span class="svc-ready-icon">check_circle</span> Pronto para usar</span></div>',
+                unsafe_allow_html=True,
+            )
         target_section = resolve_service_section(str(service["id"]))
         has_access = target_section in allowed_sections
         if not has_access:
@@ -1165,7 +1301,7 @@ def _render_service_card(service: dict[str, Any], allowed_sections: list[str], k
                 )
         with b_guide:
             if st.button(
-                "ℹ️ Guia",
+                "Guia",
                 key=f"{key_prefix}-guide-{service['id']}",
                 use_container_width=True,
                 help="Objetivo, exemplo prático, passo a passo e chat IA",
@@ -1186,6 +1322,7 @@ def render_services_catalog() -> None:
     from services_catalog import CATEGORIES, get_services_by_category, search_services
 
     allowed_sections = _allowed_sections_for_user()
+    live_stats = build_service_live_stats()
 
     # Rótulos orientados a objetivo (só exibição; não altera services_catalog.py).
     OBJETIVOS = {
@@ -1207,8 +1344,8 @@ def render_services_catalog() -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Escolha pelo objetivo. Cada serviço mostra **quando usar** e **o que entrega**. "
-        "Toque em **ℹ️ Guia** para objetivo, resultado, dados e chat com IA."
+        "Escolha pelo objetivo. Cada card mostra **quando usar** e um **número ao vivo** da sua operação. "
+        "Toque em **Guia** para objetivo, resultado, dados e chat com IA."
     )
 
     # 1) Assistente de busca: entenda o que o usuário precisa em linguagem natural
@@ -1240,14 +1377,15 @@ def render_services_catalog() -> None:
                 "ou navegue pelas categorias apagando a busca."
             )
         else:
-            st.markdown(f"#### 🎯 Encontrei {len(results)} serviço(s) para você")
+            s_label = "serviço" if len(results) == 1 else "serviços"
+            st.markdown(f"#### Encontrei {len(results)} {s_label} para você")
             st.caption("Ordenados do mais indicado para o menos. Apague a busca para ver o catálogo completo.")
             for chunk_start in range(0, len(results), 3):
                 chunk = results[chunk_start: chunk_start + 3]
                 cols = st.columns(len(chunk))
                 for col, service in zip(cols, chunk):
                     with col:
-                        _render_service_card(service, allowed_sections, key_prefix="search")
+                        _render_service_card(service, allowed_sections, live_stats, key_prefix="search")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -1263,7 +1401,12 @@ def render_services_catalog() -> None:
             str(category["id"]),
             (str(category["title"]), str(category.get("tagline", ""))),
         )
-        st.markdown(f"#### {category['icon']} {titulo}")
+        cat_icon, cat_tone = CATEGORY_HEAD_META.get(str(category["id"]), ("widgets", "#334155"))
+        st.markdown(
+            f'<div class="cat-head"><span class="cat-icon" style="color:{cat_tone};'
+            f'background:{cat_tone}1a;">{cat_icon}</span><span class="cat-title">{titulo}</span></div>',
+            unsafe_allow_html=True,
+        )
         st.caption(subtitulo)
 
         for chunk_start in range(0, len(services), 3):
@@ -1271,7 +1414,7 @@ def render_services_catalog() -> None:
             cols = st.columns(len(chunk))
             for col, service in zip(cols, chunk):
                 with col:
-                    _render_service_card(service, allowed_sections, key_prefix="svc")
+                    _render_service_card(service, allowed_sections, live_stats, key_prefix="svc")
 
     if total_shown == 0:
         st.info("Nenhum serviço disponível para o seu perfil.")
