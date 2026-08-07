@@ -409,18 +409,37 @@ st.markdown(
 
     .top-nav-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 2px 0 14px; }
     .top-nav-pill {
-        display: inline-flex; align-items: center; gap: 7px; border-radius: 999px;
-        padding: 6px 12px; background: var(--surface); border: 1px solid var(--line);
-        color: #333d4d; font-size: 11px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.07em;
+        display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+        padding: 3px 10px; background: #e8effc; border: 1px solid #c4d5f5;
+        color: var(--blue-dark); font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
     }
-    .top-nav-bar {
-        background: var(--surface); border: 1px solid var(--line);
-        border-radius: 10px; padding: 8px 12px; margin-bottom: 16px;
-        box-shadow: var(--shadow);
+    /* Barra superior: breadcrumb fino + ações discretas (padrão dos líderes) */
+    .section-crumb {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        color: var(--muted); font-size: 0.88rem; padding: 4px 0;
     }
-    .top-nav-bar .section-crumb { color: var(--muted); font-size: 0.9rem; padding-top: 8px; }
-    .top-nav-bar .section-crumb strong { color: var(--ink); }
+    .section-crumb .crumb-root { color: var(--muted); font-weight: 500; }
+    .section-crumb .crumb-sep { color: #b6bfca; font-size: 1rem; line-height: 1; }
+    .section-crumb strong { color: var(--ink); font-weight: 700; font-size: 0.98rem; }
+    .top-rule { height: 1px; background: var(--line); margin: 0 0 16px; }
+    .stButton button[kind="tertiary"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: var(--muted) !important;
+        min-height: 34px !important;
+        padding: 4px 8px !important;
+        border-radius: 8px !important;
+    }
+    .stButton button[kind="tertiary"]:hover {
+        color: var(--blue-dark) !important;
+        background: #eef3fb !important;
+    }
+    .stButton button[kind="tertiary"]:disabled {
+        color: #c9d0d9 !important;
+        background: transparent !important;
+    }
     .nav-secondary-hint { font-size: 0.78rem; color: var(--muted); margin: 4px 0 8px; }
 
     /* ---- Hero (Visão Executiva) ---- */
@@ -441,7 +460,7 @@ st.markdown(
     }
 
     /* ---- Painéis e cartões ---- */
-    .panel:empty, .top-nav-bar:empty { display: none; }
+    .panel:empty { display: none; }
     .panel {
         background: var(--surface);
         border: 1px solid var(--line);
@@ -710,19 +729,17 @@ def go_back() -> None:
 
 
 def render_top_bar(active_section: str) -> None:
-    st.markdown('<div class="top-nav-bar">', unsafe_allow_html=True)
-    col_home, col_back, col_crumb = st.columns([1.1, 1.1, 4.8])
-    with col_home:
-        if st.button("Início", key="nav-top-home", use_container_width=True, help="Voltar ao catálogo de serviços"):
-            navigate_to_section("Serviços")
+    # Barra superior no padrão dos líderes: breadcrumb como elemento principal,
+    # ações discretas (tertiary, só ícone) — nada de botões-caixa antes do conteúdo.
+    col_back, col_crumb, col_home = st.columns([0.5, 6.2, 0.5], vertical_alignment="center")
     with col_back:
         can_back = active_section != "Serviços"
         if st.button(
-            "Voltar",
+            ":material/arrow_back:",
             key="nav-top-back",
-            use_container_width=True,
+            type="tertiary",
             disabled=not can_back,
-            help="Retorna à tela anterior",
+            help="Voltar à tela anterior",
         ):
             go_back()
     with col_crumb:
@@ -732,13 +749,22 @@ def render_top_bar(active_section: str) -> None:
         if st.session_state.get("filter_owner", "Todos") != "Todos":
             filter_bits.append(f"Responsável: {st.session_state['filter_owner']}")
         filters_html = (
-            f' <span class="top-nav-pill">🔎 {" · ".join(filter_bits)}</span>' if filter_bits else ""
+            f' <span class="top-nav-pill">{" · ".join(filter_bits)}</span>' if filter_bits else ""
         )
         st.markdown(
-            f'<div class="section-crumb">Você está em: <strong>{active_section}</strong>{filters_html}</div>',
+            f'<div class="section-crumb"><span class="crumb-root">Trust CRM</span>'
+            f'<span class="crumb-sep">›</span><strong>{active_section}</strong>{filters_html}</div>',
             unsafe_allow_html=True,
         )
-    st.markdown("</div>", unsafe_allow_html=True)
+    with col_home:
+        if st.button(
+            ":material/home:",
+            key="nav-top-home",
+            type="tertiary",
+            help="Ir ao catálogo de serviços",
+        ):
+            navigate_to_section("Serviços")
+    st.markdown('<div class="top-rule"></div>', unsafe_allow_html=True)
 
 
 def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
