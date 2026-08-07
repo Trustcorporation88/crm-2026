@@ -172,3 +172,6 @@ observada) ou a opção de deploy do último commit — não o Redeploy.
 Teste rápido de qual versão está no ar: a tela de login mostra "Acesso restrito"
 na versão com o gate de demonstração, e os cinco botões de perfil na versão
 anterior.
+
+
+<!-- deploy: gatilho pós-ajuste do Wait for CI, 2026-08-07 -->
