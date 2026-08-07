@@ -1241,6 +1241,7 @@ def ingest_message(uploaded_file) -> str:
 
 def render_page_header(section: str) -> None:
     hints = {
+        "Meu Dia": "O que precisa da sua ação agora: tarefas, negociações paradas e SLA.",
         "Serviços": "Escolha um módulo abaixo ou use o menu à esquerda.",
         "Visão Executiva": "KPIs e leitura rápida da operação.",
         "Atendimento": "Fila de tickets e SLA.",
@@ -1712,22 +1713,25 @@ if section == "Meu Dia":
     # obrigar o usuário a varrer módulo por módulo.
     agenda_owner = None if selected_owner == "Todos" else selected_owner
 
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    if agenda_owner:
-        st.caption(f"Pendências de **{agenda_owner}**. Troque o responsável nos filtros globais.")
-    else:
-        st.caption("Pendências de **toda a equipe**. Escolha um responsável nos filtros globais para ver só as suas.")
+    # st.container em vez de <div> aberta num bloco e fechada em outro: o
+    # Streamlit sanitiza cada bloco de markdown isoladamente, então a div
+    # ficava desbalanceada e o React perdia a referência do nó ao redesenhar
+    # (NotFoundError em removeChild). Com colunas e métricas no meio, quebra.
+    with st.container(border=True):
+        if agenda_owner:
+            st.caption(f"Pendências de **{agenda_owner}**. Troque o responsável nos filtros globais.")
+        else:
+            st.caption("Pendências de **toda a equipe**. Escolha um responsável nos filtros globais para ver só as suas.")
 
-    render_day_agenda(
-        build_day_agenda(
-            tasks_df,
-            filtered_deals,
-            filtered_tickets,
-            interactions_df,
-            owner=agenda_owner,
+        render_day_agenda(
+            build_day_agenda(
+                tasks_df,
+                filtered_deals,
+                filtered_tickets,
+                interactions_df,
+                owner=agenda_owner,
+            )
         )
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(" ")
     render_onboarding_checklist(
@@ -2020,8 +2024,7 @@ elif section == "Clientes 360":
         # Linha do tempo como conteúdo principal; cadastro em painel lateral.
         left, right = st.columns([1.35, 0.65])
 
-        with left:
-            st.markdown('<div class="panel">', unsafe_allow_html=True)
+        with left, st.container(border=True):
             st.markdown('<div class="section-title">Linha do tempo</div>', unsafe_allow_html=True)
 
             if can_manage(user["role"], "customer"):
@@ -2059,13 +2062,11 @@ elif section == "Clientes 360":
                     "o histórico desta conta."
                 ),
             )
-            st.markdown('</div>', unsafe_allow_html=True)
 
         with right:
-            st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">Relacionados</div>', unsafe_allow_html=True)
-            render_related_records(account_deals, account_tickets, stale_ids=account_stale)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown('<div class="section-title">Relacionados</div>', unsafe_allow_html=True)
+                render_related_records(account_deals, account_tickets, stale_ids=account_stale)
 
             st.markdown(" ")
             st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -2144,28 +2145,26 @@ elif section == "Funil Comercial":
     } if not filtered_deals.empty else {}
     stale_ids = {deal_id for deal_id, health in health_by_deal.items() if health.is_stale}
 
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Resumo do funil</div>', unsafe_allow_html=True)
-    render_pipeline_summary(pipeline_totals(filtered_deals, open_stages=open_stages))
-    if stale_ids:
-        st.warning(
-            f"{len(stale_ids)} negociação(ões) sem contato além do limite da etapa. "
-            "Elas aparecem com marca vermelha no funil."
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Resumo do funil</div>', unsafe_allow_html=True)
+        render_pipeline_summary(pipeline_totals(filtered_deals, open_stages=open_stages))
+        if stale_ids:
+            st.warning(
+                f"{len(stale_ids)} negociação(ões) sem contato além do limite da etapa. "
+                "Elas aparecem com marca vermelha no funil."
+            )
 
     st.markdown(" ")
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Funil comercial</div>', unsafe_allow_html=True)
-    stage_columns = st.columns(len(ordered_stages))
-    for col, stage in zip(stage_columns, ordered_stages):
-        with col:
-            render_stage_header(summarize_stage(filtered_deals, stage, stale_ids=stale_ids))
-            stage_items = filtered_deals[filtered_deals["stage"] == stage] if not filtered_deals.empty else filtered_deals
-            for item in stage_items.to_dict("records"):
-                customer = customer_lookup[item["customer_id"]]
-                render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Funil comercial</div>', unsafe_allow_html=True)
+        stage_columns = st.columns(len(ordered_stages))
+        for col, stage in zip(stage_columns, ordered_stages):
+            with col:
+                render_stage_header(summarize_stage(filtered_deals, stage, stale_ids=stale_ids))
+                stage_items = filtered_deals[filtered_deals["stage"] == stage] if not filtered_deals.empty else filtered_deals
+                for item in stage_items.to_dict("records"):
+                    customer = customer_lookup[item["customer_id"]]
+                    render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
 
     st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)

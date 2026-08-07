@@ -278,3 +278,36 @@ class TestFichaOrientadaALinhaDoTempo:
         assert not any("," in str(v) and "R$" in str(v) and "." not in str(v) for v in valores), (
             f"valor em formato americano: {valores}"
         )
+
+
+class TestMarcacaoDosPaineis:
+    """Painéis não podem abrir uma <div> num bloco e fechar em outro.
+
+    O Streamlit sanitiza cada bloco de markdown isoladamente: a div aberta é
+    fechada automaticamente e o `</div>` seguinte vira órfão. Com colunas ou
+    métricas entre os dois, o React perde a referência do nó e o navegador
+    lança NotFoundError em removeChild. Estas seções usam st.container.
+    """
+
+    def _fonte(self) -> str:
+        from pathlib import Path
+
+        return Path(APP_PATH).read_text(encoding="utf-8")
+
+    def test_meu_dia_usa_container(self):
+        fonte = self._fonte()
+        trecho = fonte[fonte.index('if section == "Meu Dia":'):]
+        trecho = trecho[:trecho.index('elif section == "Serviços":')]
+
+        assert "st.container(border=True)" in trecho
+        assert "'<div class=\"panel\">'" not in trecho, (
+            "Meu Dia voltou a abrir <div> num bloco de markdown separado"
+        )
+
+    def test_cabecalho_do_meu_dia_tem_descricao_propria(self):
+        app = _run_section("Meu Dia")
+        conteudo = " ".join(m.value for m in app.markdown)
+        assert "Use os filtros da barra lateral" not in conteudo, (
+            "Meu Dia está caindo no texto genérico de cabeçalho"
+        )
+        assert "precisa da sua ação agora" in conteudo
