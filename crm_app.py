@@ -2384,10 +2384,22 @@ elif section == "Administração":
 
 st.markdown(" ")
 
-# O rodapé anunciava "SQLite" fixo no código, independente do banco em uso.
-# Durante uma migração isso é exatamente a informação que falta: não havia
-# como saber, olhando o sistema, se ele já estava no Postgres.
-_backend_label = "PostgreSQL" if crm_db.is_postgres() else "SQLite (arquivo local)"
+# O rodapé é o termômetro da migração: diz qual banco o processo REALMENTE
+# enxerga. Os três estados cobrem os três diagnósticos possíveis:
+#   - PostgreSQL............. DATABASE_URL chegou e é válida
+#   - "definida, mas inválida" a variável chega ao processo com valor errado
+#   - "arquivo local"........ a variável NEM CHEGA ao processo (serviço ou
+#                              ambiente errado no painel)
+_db_url = crm_db.database_url()
+if crm_db.is_postgres():
+    _backend_label = "PostgreSQL"
+elif _db_url:
+    _backend_label = (
+        "SQLite — DATABASE_URL definida, mas inválida "
+        "(o VALOR deve começar com postgresql://)"
+    )
+else:
+    _backend_label = "SQLite (arquivo local — DATABASE_URL não chega ao app)"
 st.caption(
     f"Build date: {date.today().isoformat()} | Persistência: {_backend_label} "
     "| Auth: ativa | Canais: WhatsApp, Email, Formularios"

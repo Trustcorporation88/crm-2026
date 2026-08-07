@@ -181,3 +181,32 @@ class TestDependenciaDeDeploy:
 
     def test_driver_tambem_no_requirements_de_producao(self):
         assert "psycopg2" in self._leia("requirements-prod.txt")
+
+
+class TestNormalizacaoDaUrl:
+    """Erros clássicos de colagem no painel de variáveis não podem ser fatais.
+
+    Em produção a variável foi colada com o próprio prefixo "DATABASE_URL="
+    dentro do campo de valor. O app ignorava em silêncio e seguia no SQLite,
+    sem nenhuma pista. Estes testes fixam a tolerância.
+    """
+
+    def test_prefixo_colado_no_valor(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "DATABASE_URL=postgresql://u:p@h:5432/db")
+        assert is_postgres() is True
+
+    def test_valor_entre_aspas(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", '"postgresql://u:p@h:5432/db"')
+        assert is_postgres() is True
+
+    def test_espacos_nas_pontas(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "  postgresql://u:p@h:5432/db  ")
+        assert is_postgres() is True
+
+    def test_prefixo_com_aspas_e_espacos(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", ' DATABASE_URL="postgresql://u:p@h:5432/db" ')
+        assert is_postgres() is True
+
+    def test_valor_realmente_invalido_continua_invalido(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "mysql://u:p@h/db")
+        assert is_postgres() is False

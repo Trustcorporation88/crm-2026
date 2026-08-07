@@ -37,7 +37,17 @@ POSTGRES_SCHEMES = ("postgres://", "postgresql://", "postgresql+psycopg2://")
 
 
 def database_url() -> str:
-    return os.getenv("DATABASE_URL", "").strip()
+    """Valor efetivo de DATABASE_URL, tolerante aos erros clássicos de colagem.
+
+    Em painéis de variável (Railway etc.) é comum o valor chegar com aspas,
+    espaços, ou com o próprio prefixo "DATABASE_URL=" colado junto — quando a
+    pessoa copia a linha inteira de um exemplo. Sem esta normalização, o app
+    ignora a variável em silêncio e continua no SQLite, sem dar nenhuma pista.
+    """
+    value = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'").strip()
+    if value.upper().startswith("DATABASE_URL="):
+        value = value.split("=", 1)[1].strip().strip('"').strip("'").strip()
+    return value
 
 
 def is_postgres() -> bool:
