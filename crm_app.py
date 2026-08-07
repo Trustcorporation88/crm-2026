@@ -204,13 +204,18 @@ st.markdown(
     [data-testid="stSidebarContent"] div {
         color: #eef2f7 !important;
     }
-    [data-testid="stSidebar"] .stButton > button {
+    [data-testid="stSidebar"] .stButton button {
         background: rgba(255, 255, 255, 0.06) !important;
         border: 1px solid rgba(255, 255, 255, 0.18) !important;
         color: #f4f6f8 !important;
         box-shadow: none !important;
     }
-    [data-testid="stSidebar"] .stButton > button:hover {
+    [data-testid="stSidebar"] .stButton button:disabled {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border-color: rgba(255, 255, 255, 0.10) !important;
+        color: rgba(244, 246, 248, 0.4) !important;
+    }
+    [data-testid="stSidebar"] .stButton button:hover {
         background: rgba(255, 255, 255, 0.12) !important;
         border-color: rgba(255, 255, 255, 0.32) !important;
     }
@@ -321,6 +326,7 @@ st.markdown(
     }
 
     /* ---- Painéis e cartões ---- */
+    .panel:empty, .top-nav-bar:empty { display: none; }
     .panel {
         background: var(--surface);
         border: 1px solid var(--line);
@@ -404,26 +410,26 @@ st.markdown(
     /* ---- Botões ----
        Primário = VERDE (padrão Pipedrive: a ação principal é verde).
        Secundário = branco com borda. Links/ações leves = AZUL. */
-    .stButton > button, .stFormSubmitButton > button {
+    .stButton button, .stFormSubmitButton button {
         border-radius: 8px !important;
         font-weight: 600 !important;
         min-height: 40px !important;
         transition: background 0.15s ease, border-color 0.15s ease !important;
     }
-    .stButton > button {
+    .stButton button {
         background: var(--surface) !important;
         border: 1px solid var(--line-strong) !important;
         color: var(--ink) !important;
         box-shadow: var(--shadow);
     }
-    .stButton > button:hover {
+    .stButton button:hover {
         border-color: var(--blue) !important;
         color: var(--blue-dark) !important;
         background: #f6f9ff !important;
     }
-    .stButton > button[kind="primary"],
+    .stButton button[kind="primary"],
     button[data-testid="stBaseButton-primary"],
-    .stFormSubmitButton > button,
+    .stFormSubmitButton button,
     button[kind="primaryFormSubmit"],
     button[data-testid="stBaseButton-primaryFormSubmit"] {
         background: var(--green) !important;
@@ -431,27 +437,27 @@ st.markdown(
         color: #ffffff !important;
         box-shadow: 0 1px 2px rgba(7, 140, 56, 0.35) !important;
     }
-    .stButton > button[kind="primary"]:hover,
-    .stFormSubmitButton > button:hover {
+    .stButton button[kind="primary"]:hover,
+    .stFormSubmitButton button:hover {
         background: var(--green-dark) !important;
         color: #ffffff !important;
     }
-    .stLinkButton > a {
+    .stLinkButton a {
         background: var(--blue) !important;
         border: 1px solid var(--blue-dark) !important;
         color: #ffffff !important;
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
-    .stLinkButton > a:hover { background: var(--blue-dark) !important; }
-    .stDownloadButton > button {
+    .stLinkButton a:hover { background: var(--blue-dark) !important; }
+    .stDownloadButton button {
         background: var(--surface) !important;
         border: 1px solid var(--line-strong) !important;
         color: var(--ink) !important;
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
-    .stDownloadButton > button:hover { border-color: var(--blue) !important; color: var(--blue-dark) !important; }
+    .stDownloadButton button:hover { border-color: var(--blue) !important; color: var(--blue-dark) !important; }
 
     /* ---- Métricas ---- */
     div[data-testid="stMetric"] {
@@ -495,7 +501,7 @@ st.markdown(
         .mini-card { min-height: auto; padding: 12px 14px; }
         .mini-value { font-size: 1.4rem; }
         .page-head h2 { font-size: 1.3rem; }
-        .stButton > button { min-height: 46px !important; }
+        .stButton button { min-height: 46px !important; }
         .top-nav-bar .section-crumb { padding-top: 0; font-size: 0.82rem; }
         div[data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
         div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
@@ -854,13 +860,13 @@ def show_login() -> None:
     <div class="eyebrow">Trust Corporation</div>
     <h1>TRUST CRM</h1>
     <p class="tagline">
-      Persistência, perfis e intake multicanal — operação real com SQLite, acesso por papel
-      e canais para WhatsApp, e-mail e formulários.
+      Vendas, atendimento e marketing em um só lugar — pipeline com previsão ponderada,
+      cliente 360 e execução guiada do dia.
     </p>
     <ul class="login-signals">
-      <li>SQLite local</li>
-      <li>Auth e roles</li>
-      <li>Canais</li>
+      <li>PostgreSQL gerenciado</li>
+      <li>Acesso por papéis</li>
+      <li>WhatsApp, e-mail e formulários</li>
     </ul>
   </div>
 </div>
@@ -2168,7 +2174,7 @@ elif section == "Comparativo de Mercado":
     with tabs[0]:
         st.markdown("- customer 360 com historico consolidado\n- atendimento first com SLA e fila operacional\n- pipeline comercial ligado ao contexto do cliente\n- leitura de marketing com origem, conversao e receita")
     with tabs[1]:
-        st.markdown("- persistencia em SQLite local\n- login e perfis por area\n- intake de WhatsApp, Email e Formularios\n- criacao persistida de contas, tickets, deals e campanhas")
+        st.markdown("- persistencia em PostgreSQL gerenciado (Supabase)\n- login e perfis por area\n- intake de WhatsApp, Email e Formularios\n- criacao persistida de contas, tickets, deals e campanhas")
     with tabs[2]:
         st.markdown("- automacoes por evento\n- integrações externas reais com provedores\n- trilha de auditoria e permissoes mais finas\n- IA para resumo, priorizacao e resposta assistida")
 
