@@ -985,16 +985,29 @@ def _migrate_refresh_tokens_schema(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_customers_schema(connection: sqlite3.Connection) -> None:
-    """Adiciona o CPF/CNPJ da conta.
+    """Adiciona CPF/CNPJ e telefone da conta.
 
-    Documento é campo esperado em qualquer CRM B2B brasileiro e serve de chave
-    natural para detectar cadastro duplicado.
+    Documento é chave natural contra duplicado; telefone habilita o fluxo de
+    WhatsApp por link (wa.me), que dispensa credenciais da Meta.
     """
     columns = _table_columns(connection, "customers")
     if not columns:
         return
     if "document" not in columns:
         connection.execute("ALTER TABLE customers ADD COLUMN document TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+    if "phone" not in columns:
+        connection.execute("ALTER TABLE customers ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+
+
+def _migrate_tasks_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona status à tarefa — a fila de execução precisa marcar conclusão."""
+    columns = _table_columns(connection, "tasks")
+    if not columns:
+        return
+    if "status" not in columns:
+        connection.execute("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'aberta'")
         connection.commit()
 
 
@@ -1048,6 +1061,7 @@ def init_database() -> str:
             _migrate_refresh_tokens_schema(connection)
             _migrate_auth_throttle_schema(connection)
             _migrate_customers_schema(connection)
+            _migrate_tasks_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -2022,6 +2036,27 @@ def get_role_sections(role: str) -> list[str]:
     return mapping.get(role, ["Visao Executiva"])
 
 
+def complete_task(task_name: str, actor: dict[str, str] | None = None) -> bool:
+    """Marca uma tarefa como concluída. Retorna False se ela não existir."""
+    with _connect() as connection:
+        result = connection.execute(
+            "UPDATE tasks SET status = 'concluida' WHERE task = ?",
+            (task_name,),
+        )
+        connection.commit()
+        changed = int(result.rowcount or 0) > 0
+    if changed:
+        log_audit_event(
+            actor,
+            action="task.complete",
+            entity_type="task",
+            entity_id=task_name,
+            payload={"status": "concluida"},
+            source="ui-fila",
+        )
+    return changed
+
+
 def add_interaction(
     customer_id: str,
     title: str,
@@ -2196,8 +2231,8 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
             INSERT INTO customers (
                 customer_id, name, segment, city, country, owner, status,
                 health_score, lifetime_value, last_purchase, channel, next_action, source,
-                document
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                document, phone
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
@@ -2214,6 +2249,7 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
                 payload.get("next_action", "Qualificar e registrar a proxima acao"),
                 payload.get("source", "Manual"),
                 payload.get("document", ""),
+                payload.get("phone", ""),
             ),
         )
         connection.commit()

@@ -335,3 +335,77 @@ class TestRodapeInformaOBancoReal:
 
         assert crm_db.is_postgres() is True
         assert crm_db.backend_name() == "postgres"
+
+
+class TestFilaDeExecucaoNaTela:
+    """Modo 'trabalhar a fila' no Meu Dia."""
+
+    def test_botao_de_entrar_na_fila_existe(self):
+        app = _run_section("Meu Dia")
+        assert not app.exception
+        chaves = [b.key for b in app.button]
+        assert "fila_entrar" in chaves, f"botões: {chaves}"
+
+    def test_entrar_na_fila_mostra_a_primeira_tarefa(self):
+        app = _run_section("Meu Dia")
+        app.button(key="fila_entrar").click().run()
+        assert not app.exception
+
+        texto = " ".join(c.value for c in app.caption)
+        assert "Tarefa 1 de" in texto, f"legendas: {texto[:300]}"
+
+        chaves = [b.key for b in app.button]
+        assert "fila_concluir" in chaves and "fila_pular" in chaves
+
+    def test_concluir_remove_a_tarefa_da_fila(self):
+        app = _run_section("Meu Dia")
+        app.button(key="fila_entrar").click().run()
+
+        total_antes = next(
+            c.value for c in app.caption if "Tarefa 1 de" in c.value
+        )
+        app.button(key="fila_concluir").click().run()
+        assert not app.exception
+
+        legendas = " ".join(c.value for c in app.caption)
+        # O total precisa ter diminuído em 1 (ou a fila esvaziou).
+        import re
+        antes = int(re.search(r"de (\d+)", total_antes).group(1))
+        depois_match = re.search(r"de (\d+)", legendas)
+        if depois_match:
+            assert int(depois_match.group(1)) == antes - 1
+        else:
+            assert antes == 1  # fila esvaziou
+
+    def test_sair_da_fila_volta_ao_estado_normal(self):
+        app = _run_section("Meu Dia")
+        app.button(key="fila_entrar").click().run()
+        app.button(key="fila_sair").click().run()
+        assert not app.exception
+        chaves = [b.key for b in app.button]
+        assert "fila_entrar" in chaves
+
+
+class TestWhatsAppNaFicha:
+    """Painel de WhatsApp por link na ficha do cliente."""
+
+    def test_painel_renderiza_com_mensagem_e_download(self):
+        app = _run_section("Clientes 360")
+        assert not app.exception
+
+        conteudo = " ".join(m.value for m in app.markdown)
+        assert "WhatsApp" in conteudo
+
+        # A mensagem vem pré-preenchida com o nome do cliente.
+        areas = [t.value for t in app.text_area if t.value]
+        assert any("Olá," in v for v in areas), f"text_areas: {areas}"
+
+    def test_registrar_envio_grava_na_linha_do_tempo(self):
+        app = _run_section("Clientes 360")
+        botao = next(b for b in app.button if str(b.key).startswith("wa_log_"))
+        botao.click().run()
+        assert not app.exception
+
+        depois = _run_section("Clientes 360")
+        conteudo = " ".join(m.value for m in depois.markdown)
+        assert "Mensagem enviada por WhatsApp" in conteudo

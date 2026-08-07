@@ -28,6 +28,7 @@ from error_handlers import (
     AuthenticationError,
     AuthorizationError,
     InternalServerError,
+    NotFoundError,
 )
 from cache_utils import clear_cache_pattern, init_redis as init_cache_redis
 from prometheus_metrics import add_metrics_middleware, record_login_attempt, record_cache_hit, record_cache_miss
@@ -239,6 +240,25 @@ async def get_pagination(skip: int = Query(0, ge=0), limit: int = Query(50, ge=1
     """Get pagination parameters"""
     return PaginationParams(skip=skip, limit=limit)
 
+# ====== DATA ACCESS ======
+# Os endpoints consultam o crm_backend — a mesma camada que serve o app
+# Streamlit, com o mesmo banco (SQLite ou Postgres). Antes, todos devolviam
+# listas vazias: a API parecia existir, mas não era integrável.
+
+def _records(df, skip: int = 0, limit: int = 50) -> tuple[list, int]:
+    """Fatia um DataFrame em registros JSON-áveis + total."""
+    total = int(len(df))
+    page = df.iloc[skip: skip + limit].to_dict("records") if total else []
+    return page, total
+
+
+def _crm_data():
+    import crm_backend
+
+    crm_backend.init_database()
+    return crm_backend.get_data()
+
+
 # ====== ROUTES: HEALTH & METRICS ======
 @app.get("/health")
 async def health_check():
@@ -402,14 +422,15 @@ async def list_customers(
             return json.loads(cached)
         
         record_cache_miss("customers")
-        
-        # Placeholder - would query database
+
+        customers = _crm_data()["customers"]
+        page, total = _records(customers, pagination.skip, pagination.limit)
         result = {
-            "data": [],
+            "data": page,
             "pagination": {
                 "skip": pagination.skip,
                 "limit": pagination.limit,
-                "total": 0
+                "total": total
             },
             "correlation_id": get_correlation_id()
         }
@@ -448,9 +469,13 @@ async def get_customer(
             return json.loads(cached)
         
         record_cache_miss("customer")
-        
-        # Placeholder
-        result = {"customer_id": customer_id, "message": "Placeholder", "correlation_id": get_correlation_id()}
+
+        customers = _crm_data()["customers"]
+        match = customers[customers["customer_id"] == customer_id]
+        if match.empty:
+            raise NotFoundError("Cliente", customer_id)
+
+        result = {**match.iloc[0].to_dict(), "correlation_id": get_correlation_id()}
         redis_client.setex(cache_key, 3600, json.dumps(result))
         return result
     
@@ -471,14 +496,25 @@ async def create_customer(
 ):
     """Create new customer"""
     try:
-        logger.info(f"New customer created by {user.get('username')}: {customer.customer_id}")
-        
+        import crm_backend
+
+        # Garante o schema antes de escrever — mesmo contrato dos GETs, que
+        # passam por _crm_data(). Sem isto, a primeira escrita num banco novo
+        # (ou num schema de teste isolado) falha com "relation does not exist".
+        crm_backend.init_database()
+        created_id = crm_backend.add_customer(
+            customer.model_dump(),
+            actor={"username": user.get("username", "api"), "role": user.get("role", "admin")},
+            source="api",
+        )
+        logger.info(f"New customer created by {user.get('username')}: {created_id}")
+
         # Invalidate cache
         clear_cache_pattern("customers:*")
-        
+
         return {
             "status": "created",
-            "customer_id": customer.customer_id,
+            "customer_id": created_id,
             "correlation_id": get_correlation_id()
         }
     
@@ -565,13 +601,17 @@ async def list_tickets(
     """List tickets with pagination and optional status filter"""
     try:
         logger.info(f"Tickets requested by {user.get('username')}", status=status_filter, skip=pagination.skip, limit=pagination.limit)
-        
+
+        tickets = _crm_data()["tickets"]
+        if status_filter:
+            tickets = tickets[tickets["status"] == status_filter]
+        page, total = _records(tickets, pagination.skip, pagination.limit)
         return {
-            "data": [],
+            "data": page,
             "pagination": {
                 "skip": pagination.skip,
                 "limit": pagination.limit,
-                "total": 0
+                "total": total
             },
             "correlation_id": get_correlation_id()
         }
@@ -594,12 +634,13 @@ async def get_ticket(
     """Get ticket details"""
     try:
         logger.info(f"Ticket {ticket_id} requested by {user.get('username')}")
-        
-        return {
-            "ticket_id": ticket_id,
-            "message": "Placeholder",
-            "correlation_id": get_correlation_id()
-        }
+
+        tickets = _crm_data()["tickets"]
+        match = tickets[tickets["ticket_id"] == ticket_id]
+        if match.empty:
+            raise NotFoundError("Chamado", ticket_id)
+
+        return {**match.iloc[0].to_dict(), "correlation_id": get_correlation_id()}
     
     except CRMException:
         # Domain errors already carry the right status code.
@@ -618,11 +659,22 @@ async def create_ticket(
 ):
     """Create new ticket"""
     try:
-        logger.info(f"New ticket created by {user.get('username')}: {ticket.ticket_id}")
-        
+        import crm_backend
+
+        # Garante o schema antes de escrever — mesmo contrato dos GETs, que
+        # passam por _crm_data(). Sem isto, a primeira escrita num banco novo
+        # (ou num schema de teste isolado) falha com "relation does not exist".
+        crm_backend.init_database()
+        created_id = crm_backend.add_ticket(
+            ticket.model_dump(),
+            actor={"username": user.get("username", "api"), "role": user.get("role", "admin")},
+            source="api",
+        )
+        logger.info(f"New ticket created by {user.get('username')}: {created_id}")
+
         return {
             "status": "created",
-            "ticket_id": ticket.ticket_id,
+            "ticket_id": created_id,
             "correlation_id": get_correlation_id()
         }
     
@@ -646,13 +698,17 @@ async def list_deals(
     """List deals with pagination and optional stage filter"""
     try:
         logger.info(f"Deals requested by {user.get('username')}", stage=stage, skip=pagination.skip, limit=pagination.limit)
-        
+
+        deals = _crm_data()["deals"]
+        if stage:
+            deals = deals[deals["stage"] == stage]
+        page, total = _records(deals, pagination.skip, pagination.limit)
         return {
-            "data": [],
+            "data": page,
             "pagination": {
                 "skip": pagination.skip,
                 "limit": pagination.limit,
-                "total": 0
+                "total": total
             },
             "correlation_id": get_correlation_id()
         }
@@ -675,12 +731,13 @@ async def get_deal(
     """Get deal details"""
     try:
         logger.info(f"Deal {deal_id} requested by {user.get('username')}")
-        
-        return {
-            "deal_id": deal_id,
-            "message": "Placeholder",
-            "correlation_id": get_correlation_id()
-        }
+
+        deals = _crm_data()["deals"]
+        match = deals[deals["deal_id"] == deal_id]
+        if match.empty:
+            raise NotFoundError("Negociação", deal_id)
+
+        return {**match.iloc[0].to_dict(), "correlation_id": get_correlation_id()}
     
     except CRMException:
         # Domain errors already carry the right status code.
@@ -699,11 +756,22 @@ async def create_deal(
 ):
     """Create new deal"""
     try:
-        logger.info(f"New deal created by {user.get('username')}: {deal.deal_id}")
-        
+        import crm_backend
+
+        # Garante o schema antes de escrever — mesmo contrato dos GETs, que
+        # passam por _crm_data(). Sem isto, a primeira escrita num banco novo
+        # (ou num schema de teste isolado) falha com "relation does not exist".
+        crm_backend.init_database()
+        created_id = crm_backend.add_deal(
+            deal.model_dump(),
+            actor={"username": user.get("username", "api"), "role": user.get("role", "admin")},
+            source="api",
+        )
+        logger.info(f"New deal created by {user.get('username')}: {created_id}")
+
         return {
             "status": "created",
-            "deal_id": deal.deal_id,
+            "deal_id": created_id,
             "correlation_id": get_correlation_id()
         }
     
@@ -845,12 +913,17 @@ async def dashboard_report(
     """Get dashboard metrics"""
     try:
         logger.info(f"Dashboard report requested for period: {period}")
-        
+
+        data = _crm_data()
+        customers, tickets, deals = data["customers"], data["tickets"], data["deals"]
+        open_tickets = tickets[tickets["status"] != "Resolvido"] if not tickets.empty else tickets
+        open_deals = deals[deals["stage"] != "Fechado ganho"] if not deals.empty else deals
+
         return {
-            "customers_total": 5,
-            "tickets_open": 4,
-            "pipeline_value": 244000,
-            "health_score": 77,
+            "customers_total": int(len(customers)),
+            "tickets_open": int(len(open_tickets)),
+            "pipeline_value": float(open_deals["value"].sum()) if not open_deals.empty else 0.0,
+            "health_score": int(customers["health_score"].mean()) if not customers.empty else 0,
             "correlation_id": get_correlation_id()
         }
     
@@ -901,9 +974,12 @@ async def list_users(
             raise AuthorizationError("Admin access required")
         
         logger.info("Users list requested by admin")
-        
+
+        users = _crm_data()["users"]
+        # get_data() já projeta apenas username/full_name/role/is_active —
+        # nunca o hash de senha.
         return {
-            "users": [],
+            "users": users.to_dict("records"),
             "correlation_id": get_correlation_id()
         }
     

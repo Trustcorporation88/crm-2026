@@ -445,6 +445,9 @@ def build_day_agenda(
         for row in tasks.to_dict("records"):
             if not belongs_to_owner(row.get("owner")):
                 continue
+            # Concluída não é pendência — sem este filtro a fila nunca esvazia.
+            if str(row.get("status", "")).strip().lower() == "concluida":
+                continue
             due = parse_date(row.get("due_date"))
             if due is None:
                 continue
@@ -1154,3 +1157,142 @@ def render_related_records(
             f"{row.get('status','')} · {row.get('channel','')}</span></div>",
             unsafe_allow_html=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp por link (wa.me) — sem credenciais da Meta
+#
+# O fluxo pedido pela operação: preparar a mensagem no CRM, abrir o WhatsApp
+# com ela pronta e anexar manualmente o documento baixado. O link wa.me faz
+# exatamente isso e funciona no WhatsApp Web e no aplicativo.
+# ---------------------------------------------------------------------------
+
+def normalize_phone_br(value: Any) -> str:
+    """Normaliza telefone brasileiro para o formato do wa.me (DDI+DDD+número).
+
+    Aceita "(11) 98765-4321", "11987654321", "+55 11 98765-4321" e devolve
+    "5511987654321". Retorna string vazia quando não dá para normalizar com
+    segurança — número errado abriria conversa com um desconhecido.
+    """
+    digits = only_digits(value)
+    if not digits:
+        return ""
+    # Remove zeros de discagem à esquerda ("011..." -> "11...").
+    digits = digits.lstrip("0")
+
+    if digits.startswith("55") and len(digits) in (12, 13):
+        return digits
+    if len(digits) in (10, 11):  # DDD + fixo (8) ou celular (9)
+        return f"55{digits}"
+    return ""
+
+
+def whatsapp_link(phone: Any, message: str = "") -> str:
+    """Monta o link wa.me. Vazio quando o telefone não é utilizável."""
+    normalized = normalize_phone_br(phone)
+    if not normalized:
+        return ""
+    if not message:
+        return f"https://wa.me/{normalized}"
+    from urllib.parse import quote
+
+    return f"https://wa.me/{normalized}?text={quote(message)}"
+
+
+def fill_message_template(template: str, customer: dict[str, Any], sender: str = "") -> str:
+    """Preenche {nome}, {responsavel}, {empresa} num modelo de mensagem."""
+    mapping = {
+        "nome": str(customer.get("name", "")),
+        "empresa": str(customer.get("name", "")),
+        "responsavel": sender or str(customer.get("owner", "")),
+        "cidade": str(customer.get("city", "")),
+    }
+    text = template
+    for key, value in mapping.items():
+        text = text.replace("{" + key + "}", value)
+    return text
+
+
+def account_summary_text(
+    customer: dict[str, Any],
+    deals: pd.DataFrame | None = None,
+    tickets: pd.DataFrame | None = None,
+    entries: Sequence[TimelineEntry] = (),
+    today: date | None = None,
+) -> str:
+    """Resumo da conta em texto puro, pronto para baixar e enviar no WhatsApp.
+
+    Texto puro por decisão: abre em qualquer lugar, não depende de biblioteca
+    de PDF e cola direto na conversa se a pessoa preferir.
+    """
+    today = today or date.today()
+    lines: list[str] = []
+    lines.append(f"RESUMO DA CONTA — {customer.get('name', '')}")
+    lines.append(f"Gerado em {today.strftime('%d/%m/%Y')} pelo TRUST CRM")
+    lines.append("")
+    lines.append(f"Segmento: {customer.get('segment', '—')}")
+    lines.append(f"Cidade: {customer.get('city', '—')} ({customer.get('country', '—')})")
+    documento = format_cpf_cnpj(customer.get("document", ""))
+    if documento:
+        lines.append(f"CPF/CNPJ: {documento}")
+    lines.append(f"Responsável: {customer.get('owner', '—')}")
+    lines.append(f"Saúde da conta: {customer.get('health_score', '—')}/100")
+    lines.append("")
+
+    lines.append("NEGOCIAÇÕES")
+    if deals is None or deals.empty:
+        lines.append("  Nenhuma negociação aberta.")
+    else:
+        for row in deals.to_dict("records"):
+            lines.append(
+                f"  • {row.get('name','')} — {format_brl(row.get('value'))} "
+                f"· {row.get('stage','')} · fecha em {format_date_br(row.get('close_date'))}"
+            )
+    lines.append("")
+
+    lines.append("ATENDIMENTOS")
+    if tickets is None or tickets.empty:
+        lines.append("  Nenhum chamado registrado.")
+    else:
+        for row in tickets.to_dict("records"):
+            lines.append(f"  • {row.get('subject','')} — {row.get('status','')}")
+    lines.append("")
+
+    lines.append("ÚLTIMAS INTERAÇÕES")
+    if not entries:
+        lines.append("  Nenhuma interação registrada.")
+    else:
+        for entry in list(entries)[:5]:
+            quando = entry.when.strftime("%d/%m/%Y") if entry.when else "—"
+            lines.append(f"  • {quando} — {entry.title}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Fila de execução de tarefas (padrão HubSpot Task Queue / Close)
+#
+# Modo "trabalhar a fila": carrega o contexto de uma pendência, age, registra
+# e avança — sem voltar à lista entre cada item.
+# ---------------------------------------------------------------------------
+
+def build_task_queue(agenda: DayAgenda) -> list[dict[str, Any]]:
+    """Monta a fila do dia: atrasadas primeiro (mais antiga antes), depois as de hoje."""
+    queue: list[dict[str, Any]] = []
+    for task in agenda.overdue_tasks:
+        item = dict(task)
+        item["_origem"] = "atrasada"
+        queue.append(item)
+    for task in agenda.today_tasks:
+        item = dict(task)
+        item["_origem"] = "hoje"
+        queue.append(item)
+    return queue
+
+
+def queue_position_label(index: int, total: int) -> str:
+    """Rótulo de progresso da fila, 1-based e à prova de estouro."""
+    if total <= 0:
+        return "Fila vazia"
+    current = min(max(index + 1, 1), total)
+    return f"Tarefa {current} de {total}"
