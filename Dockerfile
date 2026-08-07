@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir -r requirements-docker.txt
 COPY *.py ./
 COPY .streamlit/ ./.streamlit/
 COPY templates/ ./templates/
+# Marca (logo, brasão, favicon) — sem isto o contêiner sobe sem a identidade visual.
+COPY assets/ ./assets/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN useradd -m -u 1000 streamlit \
