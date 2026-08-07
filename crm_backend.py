@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hmac
 import hashlib
 import json
@@ -16,6 +17,8 @@ from typing import Any
 import bcrypt
 import jwt
 import pandas as pd
+
+import crm_db
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -554,10 +557,14 @@ def _password_matches(stored_hash: str, password: str) -> bool:
     return stored_hash == _legacy_sha256(password)
 
 
-def _connect() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+def _connect() -> crm_db.Connection:
+    """Abre conexão com o banco configurado (SQLite ou Postgres).
+
+    O backend em si não sabe qual dos dois está em uso: a camada crm_db
+    traduz placeholders, upserts e DDL, e devolve linhas acessíveis por nome
+    nos dois casos.
+    """
+    return crm_db.connect(DB_PATH)
 
 
 def get_user_preference(username: str, pref_key: str, default: str = "") -> str:
@@ -2814,6 +2821,26 @@ def execute_aci_tool_call(
     }
 
 
+def _encode_aci_cursor(created_at: str, call_id: str) -> str:
+    """Cursor opaco de paginação das chamadas ACI."""
+    raw = f"{created_at}|{call_id}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_aci_cursor(cursor: str | None) -> tuple[str | None, str | None]:
+    """Lê o cursor. Valor inválido reinicia a listagem em vez de quebrar."""
+    if not cursor:
+        return None, None
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None, None
+    created_at, separator, call_id = raw.partition("|")
+    if not separator:
+        return None, None
+    return created_at, call_id
+
+
 def get_aci_tool_calls(
     actor: dict[str, str] | None,
     limit: int = 50,
@@ -2823,13 +2850,20 @@ def get_aci_tool_calls(
 ) -> dict[str, Any]:
     _ensure_permission(actor, "aci.calls.read")
     resolved_limit = max(1, min(limit, 200))
-    last_id = int(cursor) if cursor and cursor.isdigit() else None
+
+    # Paginação por chave composta (created_at, call_id).
+    #
+    # A versão anterior paginava pelo `rowid`, coluna implícita que existe
+    # apenas no SQLite — no Postgres a consulta falha. O par created_at +
+    # call_id é portável e determinístico: o call_id desempata timestamps
+    # iguais.
     where = []
     params: list[Any] = []
 
-    if last_id is not None:
-        where.append("rowid < ?")
-        params.append(last_id)
+    last_created_at, last_call_id = _decode_aci_cursor(cursor)
+    if last_created_at is not None:
+        where.append("(created_at, call_id) < (?, ?)")
+        params.extend([last_created_at, last_call_id])
     if status_filter:
         where.append("status = ?")
         params.append(status_filter.strip().lower())
@@ -2839,11 +2873,11 @@ def get_aci_tool_calls(
 
     where_clause = f"WHERE {' AND '.join(where)}" if where else ""
     query = f"""
-        SELECT rowid AS _rowid, call_id, tenant_id, user_id, provider, tool_name, action_name,
+        SELECT call_id, tenant_id, user_id, provider, tool_name, action_name,
                status, latency_ms, error_code, error_message, correlation_id, created_at
         FROM aci_tool_calls
         {where_clause}
-        ORDER BY rowid DESC
+        ORDER BY created_at DESC, call_id DESC
         LIMIT ?
     """
     params.append(resolved_limit)
@@ -2852,9 +2886,9 @@ def get_aci_tool_calls(
         rows = connection.execute(query, tuple(params)).fetchall()
 
     items = [dict(row) for row in rows]
-    next_cursor = str(items[-1]["_rowid"]) if items else None
-    for item in items:
-        item.pop("_rowid", None)
+    next_cursor = (
+        _encode_aci_cursor(items[-1]["created_at"], items[-1]["call_id"]) if items else None
+    )
     return {
         "rows": items,
         "next_cursor": next_cursor,

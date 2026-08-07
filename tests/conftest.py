@@ -2,6 +2,7 @@
 Pytest configuration and fixtures
 """
 
+import itertools
 import os
 import pathlib
 import tempfile
@@ -62,6 +63,50 @@ def engine():
     yield engine
 
     engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Isolamento por teste quando a suíte roda contra Postgres.
+#
+# Com SQLite cada teste recebe um arquivo próprio via CRM_DB_PATH. No Postgres
+# esse caminho é ignorado e todos os testes compartilhariam a mesma base —
+# estado de um teste vazaria para o seguinte (contadores de throttle, por
+# exemplo). Aqui cada teste ganha um schema próprio, descartado ao fim.
+# ---------------------------------------------------------------------------
+_PG_SCHEMA_COUNTER = itertools.count()
+
+
+def _running_against_postgres() -> bool:
+    return os.getenv("DATABASE_URL", "").startswith(("postgres://", "postgresql://"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_pg_schema(request):
+    """Dá a cada teste um schema Postgres limpo."""
+    if not _running_against_postgres():
+        yield
+        return
+
+    schema = f"t{next(_PG_SCHEMA_COUNTER)}_{os.getpid()}"
+    previous = os.environ.get("CRM_PG_SCHEMA")
+    os.environ["CRM_PG_SCHEMA"] = schema
+
+    yield
+
+    if previous is None:
+        os.environ.pop("CRM_PG_SCHEMA", None)
+    else:
+        os.environ["CRM_PG_SCHEMA"] = previous
+
+    try:
+        import psycopg2
+
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            conn.commit()
+    except Exception:  # pragma: no cover - limpeza é best-effort
+        pass
 
 @pytest.fixture(scope="session")
 def db_session(engine):
