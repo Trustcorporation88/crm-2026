@@ -29,6 +29,9 @@ from crm_ux import (
     build_day_agenda,
     build_kanban_containers,
     diff_kanban,
+    open_deals_for_closing,
+    deal_closing_label,
+    LOSS_REASONS,
     build_task_queue,
     can_advance_to_stage,
     demo_login_enabled,
@@ -78,6 +81,7 @@ from crm_ui_extensions import (
 from crm_backend import (
     DB_PATH,
     update_deal_stage,
+    close_deal,
     add_campaign,
     add_interaction,
     complete_task,
@@ -1731,7 +1735,7 @@ open_tickets = filtered_tickets[filtered_tickets["status"] != "Resolvido"]
 sla_breached = open_tickets[open_tickets["age_hours"] > open_tickets["sla_hours"]]
 avg_health = int(filtered_customers["health_score"].mean()) if not filtered_customers.empty else 0
 avg_csat = round(filtered_tickets[filtered_tickets["csat"] > 0]["csat"].mean(), 1) if not filtered_tickets[filtered_tickets["csat"] > 0].empty else 0
-pipeline_open = filtered_deals[filtered_deals["stage"] != "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
+pipeline_open = filtered_deals[~filtered_deals["stage"].isin(["Fechado ganho", "Fechado perdido"])]["value"].sum() if not filtered_deals.empty else 0
 won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 
 render_top_bar(section)
@@ -2345,8 +2349,8 @@ elif section == "Funil Comercial":
                 queue_toast(f"Oportunidade «{name}» criada na etapa {stage}.")
                 st.rerun()
 
-    ordered_stages = ["Descoberta", "Proposta", "Negociacao", "Fechado ganho"]
-    open_stages = [stage for stage in ordered_stages if stage != "Fechado ganho"]
+    ordered_stages = ["Descoberta", "Proposta", "Negociacao", "Fechado ganho", "Fechado perdido"]
+    open_stages = ["Descoberta", "Proposta", "Negociacao"]
 
     # Última interação por cliente alimenta o indicador de estagnação.
     last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
@@ -2438,6 +2442,119 @@ elif section == "Funil Comercial":
                         customer = customer_lookup[item["customer_id"]]
                         render_deal_card(item, customer["name"], health_by_deal[item["deal_id"]])
 
+    # Ganho/Perdido em um clique (padrão Pipedrive). O «perdido» exige o motivo
+    # — é o dado que ensina por que os negócios morrem.
+    if can_manage(user["role"], "deal"):
+        _abertos = (
+            open_deals_for_closing(filtered_deals.to_dict("records"))
+            if not filtered_deals.empty
+            else []
+        )
+        st.markdown(" ")
+        with st.container(border=True):
+            st.markdown('<div class="section-title">Fechar negócio</div>', unsafe_allow_html=True)
+            if not _abertos:
+                st.caption("Nenhuma negociação aberta — tudo já foi ganho ou perdido.")
+            else:
+                _rotulos = {
+                    deal_closing_label(d, customer_lookup[d["customer_id"]]["name"]): str(d["deal_id"])
+                    for d in _abertos
+                }
+                st.session_state["_close_labels"] = _rotulos
+                _escolha = st.selectbox(
+                    "Negociação",
+                    list(_rotulos.keys()),
+                    key="close_deal_pick",
+                )
+                _deal_sel = _rotulos.get(_escolha)
+
+                def _fechar_ganho() -> None:
+                    did = st.session_state.get("_close_labels", {}).get(
+                        st.session_state.get("close_deal_pick")
+                    )
+                    if not did:
+                        return
+                    try:
+                        close_deal(did, "ganho", actor=user, source="ui-funil")
+                        st.session_state.pop("closing_lost", None)
+                        queue_toast("Negócio marcado como GANHO! 🎉", icon="✅")
+                    except Exception as exc:  # noqa: BLE001
+                        st.session_state["close_deal_error"] = str(exc)
+
+                def _abrir_perdido() -> None:
+                    st.session_state["closing_lost"] = st.session_state.get("_close_labels", {}).get(
+                        st.session_state.get("close_deal_pick")
+                    )
+
+                _acoes = st.columns(2)
+                _acoes[0].button(
+                    "✅ Marcar ganho",
+                    key="btn_ganho",
+                    type="primary",
+                    use_container_width=True,
+                    on_click=_fechar_ganho,
+                )
+                _acoes[1].button(
+                    "❌ Marcar perdido",
+                    key="btn_perdido",
+                    use_container_width=True,
+                    on_click=_abrir_perdido,
+                )
+
+                # Fluxo do «perdido»: só aparece após pedir para marcar perda,
+                # e exige um motivo antes de confirmar.
+                if st.session_state.get("closing_lost") == _deal_sel and _deal_sel:
+                    st.markdown("---")
+                    st.caption("Por que perdemos? O motivo alimenta a análise de perdas.")
+                    st.selectbox("Motivo da perda", LOSS_REASONS, key="loss_reason_pick")
+                    st.text_input(
+                        "Detalhe (opcional — obrigatório se «Outro»)",
+                        key="loss_reason_detail",
+                        placeholder="Ex.: perdeu para a Concorrente X por prazo de entrega",
+                    )
+
+                    def _confirmar_perdido() -> None:
+                        did = st.session_state.get("closing_lost")
+                        motivo = st.session_state.get("loss_reason_pick", "")
+                        detalhe = (st.session_state.get("loss_reason_detail") or "").strip()
+                        if motivo == "Outro":
+                            motivo_final = detalhe
+                        elif detalhe:
+                            motivo_final = f"{motivo} — {detalhe}"
+                        else:
+                            motivo_final = motivo
+                        if not motivo_final:
+                            st.session_state["close_deal_error"] = "Descreva o motivo da perda."
+                            return
+                        try:
+                            close_deal(did, "perdido", reason=motivo_final, actor=user, source="ui-funil")
+                            st.session_state.pop("closing_lost", None)
+                            st.session_state["loss_reason_detail"] = ""
+                            queue_toast("Negócio marcado como perdido. Motivo registrado.", icon="📝")
+                        except Exception as exc:  # noqa: BLE001
+                            st.session_state["close_deal_error"] = str(exc)
+
+                    def _cancelar_perdido() -> None:
+                        st.session_state.pop("closing_lost", None)
+
+                    _conf = st.columns(2)
+                    _conf[0].button(
+                        "Confirmar perda",
+                        key="btn_confirma_perdido",
+                        type="primary",
+                        use_container_width=True,
+                        on_click=_confirmar_perdido,
+                    )
+                    _conf[1].button(
+                        "Cancelar",
+                        key="btn_cancela_perdido",
+                        use_container_width=True,
+                        on_click=_cancelar_perdido,
+                    )
+
+            if st.session_state.get("close_deal_error"):
+                st.error(st.session_state.pop("close_deal_error"))
+
     st.markdown(" ")
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Tabela de oportunidades</div>', unsafe_allow_html=True)
@@ -2451,6 +2568,9 @@ elif section == "Funil Comercial":
         deals_table["Valor"] = deals_table["value"].map(format_brl)
         deals_table["Fechamento"] = deals_table["close_date"].map(format_date_br)
         deals_table["Probabilidade"] = deals_table["probability"].map(lambda p: f"{p}%")
+        deals_table["Motivo da perda"] = (
+            deals_table["loss_reason"] if "loss_reason" in deals_table.columns else ""
+        )
         st.dataframe(
             deals_table.rename(columns={
                 "deal_id": "Código",
@@ -2460,6 +2580,7 @@ elif section == "Funil Comercial":
             })[[
                 "Código", "Cliente", "Oportunidade", "Etapa",
                 "Valor", "Probabilidade", "Fechamento", "Responsável", "Situação",
+                "Motivo da perda",
             ]],
             width="stretch",
             hide_index=True,

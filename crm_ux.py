@@ -193,7 +193,39 @@ STAGE_ROT_DAYS: dict[str, int] = {
 DEFAULT_ROT_DAYS = 14
 
 # Etapas terminais não estagnam.
-CLOSED_STAGES = {"Fechado ganho", "Fechado perdido"}
+WON_STAGE = "Fechado ganho"
+LOST_STAGE = "Fechado perdido"
+CLOSED_STAGES = {WON_STAGE, LOST_STAGE}
+
+# Motivos de perda mais comuns em B2B — viram catálogo para análise depois.
+# «Outro» libera texto livre; a UI exige que algo seja informado.
+LOSS_REASONS = [
+    "Preço acima do orçamento",
+    "Escolheu concorrente",
+    "Sem orçamento / verba cortada",
+    "Sem resposta / sumiu",
+    "Timing errado (adiado)",
+    "Faltou fit com a necessidade",
+    "Comprou solução interna",
+    "Outro",
+]
+
+
+def open_deals_for_closing(deals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Negócios ainda abertos — os únicos que podem receber Ganho/Perdido.
+
+    Já fechados (ganho ou perdido) ficam de fora: refechar apagaria o desfecho
+    e o motivo já registrados.
+    """
+    return [d for d in deals if str(d.get("stage", "")) not in CLOSED_STAGES]
+
+
+def deal_closing_label(deal: dict[str, Any], customer_name: str) -> str:
+    """Rótulo do seletor de fechamento: id, cliente, negócio e valor compacto."""
+    return (
+        f"{deal.get('deal_id')} · {customer_name} — "
+        f"{deal.get('name', '')} ({format_compact_brl(deal.get('value'))})"
+    )
 
 
 @dataclass(frozen=True)

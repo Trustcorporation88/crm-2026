@@ -1011,6 +1011,23 @@ def _migrate_tasks_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def _migrate_deals_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona desfecho da negociação: motivo da perda e data de fechamento.
+
+    Fechar como «perdido» sem registrar o porquê joga fora o aprendizado mais
+    valioso do funil — por que os negócios morrem. O motivo é obrigatório na UI.
+    """
+    columns = _table_columns(connection, "deals")
+    if not columns:
+        return
+    if "loss_reason" not in columns:
+        connection.execute("ALTER TABLE deals ADD COLUMN loss_reason TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+    if "closed_at" not in columns:
+        connection.execute("ALTER TABLE deals ADD COLUMN closed_at TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+
+
 def _migrate_auth_throttle_schema(connection: sqlite3.Connection) -> None:
     columns = _table_columns(connection, "auth_throttle")
     if not columns:
@@ -1062,6 +1079,7 @@ def init_database() -> str:
             _migrate_auth_throttle_schema(connection)
             _migrate_customers_schema(connection)
             _migrate_tasks_schema(connection)
+            _migrate_deals_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -2422,6 +2440,81 @@ def update_deal_stage(
         "deal",
         deal_id,
         {"from": old_stage, "to": new_stage},
+        source,
+    )
+
+
+WON_STAGE = "Fechado ganho"
+LOST_STAGE = "Fechado perdido"
+
+
+def close_deal(
+    deal_id: str,
+    outcome: str,
+    reason: str = "",
+    actor: dict[str, str] | None = None,
+    source: str = "ui",
+) -> None:
+    """Marca o desfecho de uma negociação: ganho ou perdido (padrão Pipedrive).
+
+    Ganho move para «Fechado ganho» e crava 100% de probabilidade. Perdido move
+    para «Fechado perdido», zera a probabilidade e EXIGE o motivo — o porquê da
+    perda é o dado de aprendizado do funil. Grava data de fechamento, evento de
+    auditoria e uma interação na linha do tempo do cliente.
+    """
+    if outcome not in ("ganho", "perdido"):
+        raise ValueError("Desfecho deve ser 'ganho' ou 'perdido'.")
+    reason = (reason or "").strip()
+    if outcome == "perdido" and not reason:
+        raise ValueError("Informe o motivo da perda para fechar como perdido.")
+
+    resolved_actor = _ensure_permission(actor, "deal.update")
+    new_stage = WON_STAGE if outcome == "ganho" else LOST_STAGE
+    new_probability = 100 if outcome == "ganho" else 0
+    stored_reason = "" if outcome == "ganho" else reason
+    closed_at = datetime.now(timezone.utc).isoformat()
+
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT customer_id, name, stage FROM deals WHERE deal_id = ?",
+            (deal_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Oportunidade {deal_id} não encontrada.")
+        old_stage = str(row["stage"])
+        connection.execute(
+            """
+            UPDATE deals
+            SET stage = ?, probability = ?, loss_reason = ?, closed_at = ?
+            WHERE deal_id = ?
+            """,
+            (new_stage, new_probability, stored_reason, closed_at, deal_id),
+        )
+        connection.commit()
+        customer_id = str(row["customer_id"])
+        deal_name = str(row["name"])
+
+    if outcome == "ganho":
+        titulo = "Negócio ganho"
+        corpo = f"«{deal_name}» marcada como GANHA (era {old_stage})."
+    else:
+        titulo = "Negócio perdido"
+        corpo = f"«{deal_name}» marcada como PERDIDA (era {old_stage}). Motivo: {reason}."
+    add_interaction(
+        customer_id,
+        titulo,
+        corpo,
+        "Sales",
+        resolved_actor["full_name"],
+        related_id=deal_id,
+        event_type="deal",
+    )
+    log_audit_event(
+        resolved_actor,
+        "deal.closed",
+        "deal",
+        deal_id,
+        {"outcome": outcome, "from": old_stage, "to": new_stage, "reason": stored_reason},
         source,
     )
 
