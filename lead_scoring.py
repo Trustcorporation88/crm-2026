@@ -2,7 +2,6 @@
 from __future__ import annotations
 import json, sqlite3
 from datetime import datetime, timedelta
-from typing import Any
 from crm_backend import _connect, log_audit_event
 
 DEFAULT_RULES = {

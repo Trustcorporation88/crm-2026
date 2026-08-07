@@ -1,7 +1,6 @@
 """Message templates with variable substitution."""
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
 from crm_backend import _connect, log_audit_event
 
 DEFAULTS = [

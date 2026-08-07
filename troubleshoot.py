@@ -4,11 +4,9 @@ Mr.Holmes CRM - Troubleshooting Assistant
 Diagnóstico automático de problemas comuns
 """
 
-import os
 import subprocess
-import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 class Colors:
     GREEN = '\033[92m'

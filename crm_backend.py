@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hmac
 import hashlib
 import json
@@ -16,6 +17,8 @@ from typing import Any
 import bcrypt
 import jwt
 import pandas as pd
+
+import crm_db
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -554,10 +557,14 @@ def _password_matches(stored_hash: str, password: str) -> bool:
     return stored_hash == _legacy_sha256(password)
 
 
-def _connect() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+def _connect() -> crm_db.Connection:
+    """Abre conexão com o banco configurado (SQLite ou Postgres).
+
+    O backend em si não sabe qual dos dois está em uso: a camada crm_db
+    traduz placeholders, upserts e DDL, e devolve linhas acessíveis por nome
+    nos dois casos.
+    """
+    return crm_db.connect(DB_PATH)
 
 
 def get_user_preference(username: str, pref_key: str, default: str = "") -> str:
@@ -584,16 +591,52 @@ def set_user_preference(username: str, pref_key: str, pref_value: str) -> None:
         connection.commit()
 
 
+DEFAULT_SEED_PASSWORDS = {
+    "admin": "admin123",
+    "atendimento": "atend123",
+    "vendas": "vendas123",
+    "marketing": "mkt123",
+    "cs": "cs123",
+}
+
+
+def seed_password_for(username: str) -> str:
+    """Senha inicial do usuário, sobrescrevível por variável de ambiente.
+
+    Ex.: CRM_SEED_PASSWORD_ADMIN permite subir uma instância nova já sem a
+    senha padrão pública.
+    """
+    override = os.getenv(f"CRM_SEED_PASSWORD_{username.upper()}")
+    return override or DEFAULT_SEED_PASSWORDS[username]
+
+
 def _seed_passwords() -> None:
-    passwords = {
-        "admin": "admin123",
-        "atendimento": "atend123",
-        "vendas": "vendas123",
-        "marketing": "mkt123",
-        "cs": "cs123",
-    }
     for user in DEFAULT_USERS:
-        user["password_hash"] = hash_password(passwords[user["username"]])
+        user["password_hash"] = hash_password(seed_password_for(user["username"]))
+
+
+def uses_default_password(username: str) -> bool:
+    """Indica se a conta ainda usa a senha padrão pública do projeto.
+
+    Serve para alertar o administrador dentro do produto — senha padrão em
+    ambiente exposto é acesso aberto, não um detalhe de configuração.
+    """
+    default = DEFAULT_SEED_PASSWORDS.get(username)
+    if not default:
+        return False
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT password_hash FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+    if row is None:
+        return False
+    return _password_matches(row["password_hash"] or "", default)
+
+
+def accounts_with_default_password() -> list[str]:
+    """Lista das contas que ainda estão com a senha padrão."""
+    return [name for name in DEFAULT_SEED_PASSWORDS if uses_default_password(name)]
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
@@ -779,8 +822,22 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
+def _safe_identifier(name: str) -> str:
+    """Validate a SQL identifier that has to be interpolated.
+
+    Table names cannot be passed as bound parameters, so they are formatted
+    into the statement. Every current caller passes an internal literal, but
+    this guard stops a future caller from turning that into an injection point.
+    """
+    if not name.isidentifier():
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name
+
+
 def _table_has_rows(connection: sqlite3.Connection, table_name: str) -> bool:
-    row = connection.execute(f"SELECT COUNT(*) AS total FROM {table_name}").fetchone()
+    row = connection.execute(
+        f"SELECT COUNT(*) AS total FROM {_safe_identifier(table_name)}"
+    ).fetchone()
     return bool(row["total"])
 
 
@@ -912,7 +969,9 @@ def _migrate_role_permissions(connection: sqlite3.Connection) -> None:
 
 
 def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
-    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    rows = connection.execute(
+        f"PRAGMA table_info({_safe_identifier(table_name)})"
+    ).fetchall()
     return {row["name"] for row in rows}
 
 
@@ -922,6 +981,20 @@ def _migrate_refresh_tokens_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE refresh_tokens ADD COLUMN client_fingerprint_hash TEXT"
         )
+        connection.commit()
+
+
+def _migrate_customers_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona o CPF/CNPJ da conta.
+
+    Documento é campo esperado em qualquer CRM B2B brasileiro e serve de chave
+    natural para detectar cadastro duplicado.
+    """
+    columns = _table_columns(connection, "customers")
+    if not columns:
+        return
+    if "document" not in columns:
+        connection.execute("ALTER TABLE customers ADD COLUMN document TEXT NOT NULL DEFAULT ''")
         connection.commit()
 
 
@@ -974,6 +1047,7 @@ def init_database() -> str:
             _migrate_role_permissions(connection)
             _migrate_refresh_tokens_schema(connection)
             _migrate_auth_throttle_schema(connection)
+            _migrate_customers_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -1932,15 +2006,17 @@ def change_own_password(actor: dict[str, Any], old_password: str, new_password: 
 
 
 def get_role_sections(role: str) -> list[str]:
+    # "Meu Dia" abre a lista para todo papel: é a superfície de trabalho diário
+    # (padrão Sales Workspace do HubSpot / Inbox do Close).
     mapping = {
-        "admin": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+        "admin": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Funil Comercial","Previsão de Receita","Produtividade",
             "Marketing","Qualificação de Leads","Segmentação","Insights com IA","Comparativo de Mercado","Administração"],
-        "atendimento": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
+        "atendimento": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360",
             "Saúde da Conta","Modelos de Mensagem","Insights com IA","Comparativo de Mercado"],
-        "vendas": ["Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
+        "vendas": ["Meu Dia","Visão Executiva","Atendimento","Canais","Cadências","Clientes 360","Modelos de Mensagem",
             "Funil Comercial","Previsão de Receita","Produtividade","Qualificação de Leads","Insights com IA","Comparativo de Mercado"],
-        "marketing": ["Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
+        "marketing": ["Meu Dia","Visão Executiva","Clientes 360","Modelos de Mensagem","Marketing",
             "Qualificação de Leads","Segmentação","Comparativo de Mercado"],
     }
     return mapping.get(role, ["Visao Executiva"])
@@ -2119,8 +2195,9 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
             """
             INSERT INTO customers (
                 customer_id, name, segment, city, country, owner, status,
-                health_score, lifetime_value, last_purchase, channel, next_action, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                health_score, lifetime_value, last_purchase, channel, next_action, source,
+                document
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
@@ -2136,6 +2213,7 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
                 payload.get("channel", "Formulario"),
                 payload.get("next_action", "Qualificar e registrar a proxima acao"),
                 payload.get("source", "Manual"),
+                payload.get("document", ""),
             ),
         )
         connection.commit()
@@ -2743,6 +2821,26 @@ def execute_aci_tool_call(
     }
 
 
+def _encode_aci_cursor(created_at: str, call_id: str) -> str:
+    """Cursor opaco de paginação das chamadas ACI."""
+    raw = f"{created_at}|{call_id}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_aci_cursor(cursor: str | None) -> tuple[str | None, str | None]:
+    """Lê o cursor. Valor inválido reinicia a listagem em vez de quebrar."""
+    if not cursor:
+        return None, None
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None, None
+    created_at, separator, call_id = raw.partition("|")
+    if not separator:
+        return None, None
+    return created_at, call_id
+
+
 def get_aci_tool_calls(
     actor: dict[str, str] | None,
     limit: int = 50,
@@ -2752,13 +2850,20 @@ def get_aci_tool_calls(
 ) -> dict[str, Any]:
     _ensure_permission(actor, "aci.calls.read")
     resolved_limit = max(1, min(limit, 200))
-    last_id = int(cursor) if cursor and cursor.isdigit() else None
+
+    # Paginação por chave composta (created_at, call_id).
+    #
+    # A versão anterior paginava pelo `rowid`, coluna implícita que existe
+    # apenas no SQLite — no Postgres a consulta falha. O par created_at +
+    # call_id é portável e determinístico: o call_id desempata timestamps
+    # iguais.
     where = []
     params: list[Any] = []
 
-    if last_id is not None:
-        where.append("rowid < ?")
-        params.append(last_id)
+    last_created_at, last_call_id = _decode_aci_cursor(cursor)
+    if last_created_at is not None:
+        where.append("(created_at, call_id) < (?, ?)")
+        params.extend([last_created_at, last_call_id])
     if status_filter:
         where.append("status = ?")
         params.append(status_filter.strip().lower())
@@ -2768,11 +2873,11 @@ def get_aci_tool_calls(
 
     where_clause = f"WHERE {' AND '.join(where)}" if where else ""
     query = f"""
-        SELECT rowid AS _rowid, call_id, tenant_id, user_id, provider, tool_name, action_name,
+        SELECT call_id, tenant_id, user_id, provider, tool_name, action_name,
                status, latency_ms, error_code, error_message, correlation_id, created_at
         FROM aci_tool_calls
         {where_clause}
-        ORDER BY rowid DESC
+        ORDER BY created_at DESC, call_id DESC
         LIMIT ?
     """
     params.append(resolved_limit)
@@ -2781,9 +2886,9 @@ def get_aci_tool_calls(
         rows = connection.execute(query, tuple(params)).fetchall()
 
     items = [dict(row) for row in rows]
-    next_cursor = str(items[-1]["_rowid"]) if items else None
-    for item in items:
-        item.pop("_rowid", None)
+    next_cursor = (
+        _encode_aci_cursor(items[-1]["created_at"], items[-1]["call_id"]) if items else None
+    )
     return {
         "rows": items,
         "next_cursor": next_cursor,

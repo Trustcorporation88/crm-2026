@@ -1,7 +1,6 @@
 """Revenue forecast."""
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Any
 from crm_backend import _connect
 
 STAGE_PROB = {"Descoberta":20,"Proposta":50,"Negociacao":70,"Fechado ganho":100,"Perdido":0}

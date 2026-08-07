@@ -1,5 +1,9 @@
 """
 Basic tests for Mr.Holmes CRM API
+
+Note on status codes: a request with no Authorization header is *unauthenticated*,
+so FastAPI's HTTPBearer answers 401 Unauthorized. 403 Forbidden is reserved for an
+authenticated caller lacking permission (see the admin/role checks).
 """
 
 import pytest
@@ -44,7 +48,7 @@ class TestAuth:
     def test_logout_requires_auth(self):
         """Test logout requires valid token"""
         response = client.post("/auth/logout")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 class TestCustomers:
     """Customer endpoint tests"""
@@ -52,7 +56,7 @@ class TestCustomers:
     def test_list_customers_requires_auth(self):
         """Test customers endpoint requires authentication"""
         response = client.get("/api/customers")
-        assert response.status_code == 403
+        assert response.status_code == 401
     
     def test_create_customer_requires_auth(self):
         """Test creating customer requires authentication"""
@@ -74,7 +78,7 @@ class TestCustomers:
                 "source": "Inbound"
             }
         )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 class TestTickets:
     """Ticket endpoint tests"""
@@ -82,7 +86,7 @@ class TestTickets:
     def test_list_tickets_requires_auth(self):
         """Test tickets endpoint requires authentication"""
         response = client.get("/api/tickets")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 class TestDeals:
     """Deal endpoint tests"""
@@ -90,7 +94,7 @@ class TestDeals:
     def test_list_deals_requires_auth(self):
         """Test deals endpoint requires authentication"""
         response = client.get("/api/deals")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 class TestWebhooks:
     """Webhook endpoint tests"""
@@ -127,7 +131,7 @@ class TestIntegrations:
     def test_list_integrations_requires_auth(self):
         """Test integrations list requires authentication"""
         response = client.get("/api/integrations")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 class TestReports:
     """Report endpoint tests"""
@@ -135,7 +139,7 @@ class TestReports:
     def test_dashboard_report_requires_auth(self):
         """Test dashboard report requires authentication"""
         response = client.get("/api/reports/dashboard")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

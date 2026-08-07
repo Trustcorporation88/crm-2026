@@ -3,9 +3,9 @@ import asyncio
 import httpx
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Optional
 from structured_logging import get_logger
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import declarative_base, Session
 
 logger = get_logger("webhook_utils")
@@ -73,7 +73,7 @@ async def send_webhook_with_retry(
                 response.raise_for_status()
             
             logger.info(
-                f"Webhook delivered successfully",
+                "Webhook delivered successfully",
                 webhook_url=webhook_url,
                 event_type=event_type,
                 attempt=attempt + 1

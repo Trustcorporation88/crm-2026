@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from structured_logging import get_logger
 
 logger = get_logger("error_handlers")
@@ -107,7 +107,7 @@ def register_error_handlers(app: FastAPI):
         logger.error(
             "CRM Exception occurred",
             code=exc.code,
-            message=exc.message,
+            error_message=exc.message,
             path=request.url.path,
             method=request.method,
             details=exc.details
@@ -120,7 +120,7 @@ def register_error_handlers(app: FastAPI):
                     "code": exc.code,
                     "message": exc.message,
                     "details": exc.details,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             }
         )
@@ -130,7 +130,7 @@ def register_error_handlers(app: FastAPI):
         logger.error(
             "Unhandled exception",
             exception_type=type(exc).__name__,
-            message=str(exc),
+            error_message=str(exc),
             path=request.url.path,
             method=request.method
         )
@@ -141,7 +141,7 @@ def register_error_handlers(app: FastAPI):
                 "error": {
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "An unexpected error occurred",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             }
         )

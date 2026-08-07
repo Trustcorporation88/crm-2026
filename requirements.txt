@@ -11,3 +11,6 @@ email-validator>=2.0.0
 python-dotenv>=1.0.0
 sqlalchemy>=2.0.0
 httpx>=0.25.0
+# Driver do Postgres. A imagem do Railway instala este arquivo — sem ele,
+# definir DATABASE_URL derruba o app no primeiro acesso ao banco.
+psycopg2-binary>=2.9.9

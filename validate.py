@@ -6,11 +6,10 @@ Valida .env, dependências, Docker, segurança antes de deploy
 
 import os
 import sys
-import json
 import subprocess
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Tuple, Dict
 
 IS_WINDOWS = os.name == "nt"
 LOCAL_MODE = os.getenv("CRM_LOCAL_MODE", "").lower() in {"1", "true", "yes", "on"}
@@ -115,7 +114,7 @@ class EnvValidator:
         
         # Check file exists
         if not Path(self.env_file).exists():
-            check_fail(f".env file not found")
+            check_fail(".env file not found")
             check_info("Create with: cp .env.example .env")
             return False
         
@@ -154,7 +153,7 @@ class EnvValidator:
             check_warn(f"JWT_SECRET_KEY too short ({len(jwt_secret)}/32 chars)")
             self.warnings.append("JWT secret should be >= 32 characters")
         else:
-            check_ok(f"JWT_SECRET_KEY strength adequate")
+            check_ok("JWT_SECRET_KEY strength adequate")
         
         # Validate DATABASE_URL format
         db_url = self.env_vars.get('DATABASE_URL', '')
@@ -468,10 +467,10 @@ def main():
             print("  2. Open http://localhost:8512 (Streamlit)")
             print("  3. Open http://localhost:8000/docs (API)")
         else:
-            print(f"  1. docker-compose up -d")
-            print(f"  2. Wait for services to start")
-            print(f"  3. Open http://localhost:8512 (Streamlit)")
-            print(f"  4. Open http://localhost:8000/docs (API)")
+            print("  1. docker-compose up -d")
+            print("  2. Wait for services to start")
+            print("  3. Open http://localhost:8512 (Streamlit)")
+            print("  4. Open http://localhost:8000/docs (API)")
         sys.exit(0)
     else:
         print(f"{Colors.RED}{Colors.BOLD}")

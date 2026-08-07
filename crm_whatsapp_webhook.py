@@ -15,7 +15,6 @@ from crm_backend import (
     create_refresh_token,
     get_auth_throttle_page,
     get_auth_throttle_metrics,
-    get_auth_throttle_snapshot,
     get_user_by_username,
     get_rbac_matrix,
     get_webhook_hmac_secret,
