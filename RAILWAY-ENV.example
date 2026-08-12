@@ -4,14 +4,19 @@
 
 # --- Banco de dados -------------------------------------------------------
 # Connection string do Supabase. Pegue em: Supabase → Project Settings →
-# Database → Connection string → URI, e prefira o modo "Session pooler"
-# (porta 6543): o app abre e fecha conexão a cada operação, e o pooler evita
-# esgotar o limite de conexões do Postgres.
+# Database → Connection string.
+#
+# Use o pooler em MODO SESSÃO: host aws-<região>.pooler.supabase.com, porta
+# 5432. A conexão direta (db.<ref>.supabase.co) é IPv6 sem o add-on de IPv4, e
+# o Railway sai por IPv4 — não conecta.
+#
+# Não confunda as portas do pooler: 5432 é sessão (este caso), 6543 é
+# transação, para serverless.
 #
 # Definir esta variável é o que faz o app usar Postgres. Sem ela, ele cai no
 # SQLite local — que no contêiner do Railway some a cada deploy, a menos que
 # haja um volume montado.
-DATABASE_URL=postgresql://postgres.SEU-REF:SUA-SENHA@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://postgres.SEU-REF:SUA-SENHA@aws-0-us-west-1.pooler.supabase.com:5432/postgres
 
 # --- Segredos -------------------------------------------------------------
 # Assinatura dos tokens de acesso. Se ficar vazia, o app gera uma e grava em

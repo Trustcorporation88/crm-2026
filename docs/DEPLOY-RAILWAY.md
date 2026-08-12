@@ -24,9 +24,20 @@ Uma instância sem banco passa na verificação e falha na primeira tela.
 
 No Supabase: **Project Settings → Database → Connection string → URI**.
 
-Use o **Session pooler** (porta 6543), não a conexão direta. O app abre e
-fecha uma conexão por operação; sem o pooler, o limite de conexões do Postgres
-se esgota rápido.
+Use o **pooler em modo sessão**, no host `aws-<região>.pooler.supabase.com`,
+**porta 5432**. Não use a conexão direta (`db.<ref>.supabase.co`): ela é IPv6
+nos planos sem o add-on de IPv4, e o Railway sai por IPv4 — a conexão
+simplesmente não se estabelece.
+
+Cuidado para não confundir as portas do pooler, que é fácil:
+
+| Porta | Modo | Para quê |
+|---|---|---|
+| **5432** | sessão | **este caso** — back-end persistente em rede IPv4 |
+| 6543 | transação | funções serverless e edge |
+
+O modo transação não mantém estado de sessão entre comandos, o que quebra
+recursos que o driver usa por padrão. Para esta aplicação, sessão na 5432.
 
 Copie a URI para `DATABASE_URL` nas variáveis do Railway. É a presença dessa
 variável que faz o app usar Postgres — sem ela, ele silenciosamente cai no
