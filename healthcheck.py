@@ -150,7 +150,7 @@ class HealthChecker:
                         if name == "Streamlit":
                             print("    Try: streamlit run crm_app.py --server.port=8512")
                         elif name == "FastAPI":
-                            print("    Try: uvicorn crm_api:app --host 0.0.0.0 --port 8000")
+                            print("    Try: uvicorn crm_whatsapp_webhook:app --host 0.0.0.0 --port 8000")
                         elif name == "PostgreSQL":
                             print("    Try: docker-compose up -d postgres")
                         elif name == "Redis":

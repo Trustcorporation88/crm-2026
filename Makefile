@@ -161,9 +161,9 @@ run-streamlit:
 	@echo "📊 Starting Streamlit (development)..."
 	@streamlit run crm_app.py --server.port=8512
 
-run-api:
-	@echo "🔌 Starting FastAPI (development)..."
-	@uvicorn crm_api:app --host 0.0.0.0 --port 8000 --reload
+run-servico:
+	@echo "🔌 Starting serviço oficial (webhook + API de entidades)..."
+	@uvicorn crm_whatsapp_webhook:app --host 0.0.0.0 --port 8000 --reload
 
 install-deps:
 	@echo "📦 Installing dependencies..."

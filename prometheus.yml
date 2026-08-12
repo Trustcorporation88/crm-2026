@@ -4,10 +4,15 @@
 # 'localhost' é ele mesmo: as cinco coletas falhavam com conexão recusada. Na
 # rede do Docker Compose os serviços se resolvem pelo nome do contêiner.
 #
-# Vale registrar o limite maior: as métricas só são instrumentadas no
-# crm_api.py, e nem Render nem Railway sobem esse serviço — ambos rodam apenas
-# o Streamlit. Nesses ambientes não há métrica alguma sendo exportada,
-# independentemente destes alvos.
+# ATENÇÃO — nenhuma métrica de aplicação é exportada hoje.
+#
+# A instrumentação Prometheus vivia no crm_api.py, que foi aposentado. O
+# serviço oficial (crm_whatsapp_webhook.py) e o app Streamlit não expõem
+# /metrics. Este arquivo, o alert_rules.yml e o grafana/ ficaram como
+# infraestrutura pronta, mas sem nada de aplicação para coletar.
+#
+# Os alvos de banco e cache continuam válidos, desde que os respectivos
+# exporters sejam de fato executados — hoje eles não estão no compose.
 # prometheus.yml - Prometheus configuration
 global:
   scrape_interval: 15s
@@ -33,7 +38,7 @@ scrape_configs:
   # FastAPI application metrics
   - job_name: 'crm-api'
     static_configs:
-      - targets: ['crm-api:8000']  # nome do contêiner, não localhost
+      - targets: ['crm-servico:8000']  # nome do contêiner, não localhost
     metrics_path: '/metrics'
     scrape_interval: 5s
 
