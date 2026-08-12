@@ -18,24 +18,35 @@ peças executáveis:
 | Componente | Arquivo | O que é |
 |---|---|---|
 | Aplicação | `crm_app.py` | Interface Streamlit — é o que os usuários acessam |
-| Serviço de webhook e API de entidades | `crm_whatsapp_webhook.py` | FastAPI; recebe WhatsApp e expõe CRUD com RBAC |
-| API REST "v2.0" | `crm_api.py` | FastAPI; **ver a ressalva abaixo** |
+| Serviço oficial | `crm_whatsapp_webhook.py` | FastAPI; recebe o webhook do WhatsApp e expõe CRUD de entidades com RBAC |
 
-A lógica de domínio vive em `crm_backend.py`, compartilhada pelos três.
+A lógica de domínio vive em `crm_backend.py`, compartilhada pelos dois.
 
-### Ressalva importante: existem duas APIs
+### Decisão registrada: existia uma segunda API, e ela foi aposentada
 
-`crm_api.py` e `crm_whatsapp_webhook.py` mantêm **pilhas de autenticação
-incompatíveis** — um token emitido por uma não vale na outra, e não há sessão
-compartilhada. Nenhum dos dois deploys em nuvem (Render, Railway) sobe
-`crm_api.py`; ambos rodam apenas o Streamlit.
+Havia dois serviços FastAPI com **pilhas de autenticação incompatíveis** — um
+token emitido por um não valia no outro. O `crm_api.py` foi removido, por três
+razões verificadas antes da decisão:
 
-Depois da correção dos endpoints que respondiam sucesso sem gravar, **6 dos 26
-endpoints de `crm_api.py` respondem 501** por não terem implementação:
-`/auth/login`, `/api/admin/backup`, `/api/reports/export/{tipo}`,
-`/api/integrations/{nome}/connect` e os webhooks de e-mail e formulário.
+1. **Não tinha consumidor.** A interface Streamlit chama `crm_backend`
+   diretamente, e nenhum sistema externo apontava para ele.
+2. **Não subia em lugar nenhum.** Render e Railway executam apenas o Streamlit.
+3. **Seis dos seus 26 endpoints não tinham implementação** e respondiam 501.
 
-Decidir qual serviço é o oficial é uma pendência aberta.
+O serviço que ficou é o que tem amarras externas reais: o provedor de WhatsApp
+posta em `/webhook/whatsapp`, e o callback OAuth do ACI aponta para ele. São
+URLs configuradas fora do repositório, e trocá-las exigiria janela de
+indisponibilidade nas integrações.
+
+**O que se perdeu junto:** endpoints REST de leitura e criação de clientes,
+tickets e negócios (`GET`/`POST /api/customers` e similares), além do
+`/metrics` do Prometheus e do log estruturado. Nada disso estava em uso. Se um
+aplicativo ou parceiro precisar de API REST no futuro, o lugar é o serviço
+oficial — e o histórico do git tem a implementação anterior como referência.
+
+Saíram também os quatro módulos que existiam só para servir ao `crm_api.py`:
+`error_handlers.py`, `prometheus_metrics.py`, `structured_logging.py` e
+`cache_utils.py`. Com o último, o sistema deixou de depender de Redis.
 
 ## Persistência
 
@@ -77,7 +88,7 @@ Os dados existentes não foram convertidos. `crm_backend.normalize_timestamp()`
 | Reenvio de webhook com backoff | Código em `nao_integrado/`, nunca importado. Não há reenvio |
 | Backup automático | Não existe rotina. As variáveis `BACKUP_*` do `.env.example` não são lidas por nada |
 | Sentry, Datadog, envio para S3 | Documentados no `.env.example`, sem nenhuma linha de código correspondente |
-| Métricas em produção | Só `crm_api.py` instrumenta métricas, e ele não sobe em Render nem Railway. Nesses ambientes **nada** é exportado |
+| Métricas em produção | **Nada** é exportado. A instrumentação vivia no `crm_api.py`, que foi aposentado. O `prometheus.yml`, o `alert_rules.yml` e o `grafana/` continuam no repositório como infraestrutura pronta, sem nada de aplicação para coletar |
 
 ## Configuração
 

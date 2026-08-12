@@ -8,19 +8,16 @@ import pathlib
 import tempfile
 
 import pytest
-import redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Test environment bootstrap.
 #
-# This block MUST run before any test module imports crm_api: that module reads
-# DATABASE_URL / REDIS_URL / JWT_SECRET_KEY at import time and calls
-# redis.from_url() eagerly. conftest is imported first by pytest, so this is the
-# hook point. Previously the suite required a live Postgres and Redis, which is
-# why tests/test_api.py could never run.
+# Precisa rodar antes de qualquer módulo de teste importar o backend: as
+# variáveis DATABASE_URL / REDIS_URL / JWT_SECRET_KEY são lidas na importação.
+# O conftest é carregado primeiro pelo pytest, então este é o ponto de gancho.
+# Antes, a suíte exigia Postgres e Redis de verdade rodando.
 # ---------------------------------------------------------------------------
 _TMP_DIR = pathlib.Path(tempfile.mkdtemp(prefix="crm-tests-"))
 
@@ -30,29 +27,13 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-# Matches the token signed in tests/test_api.py::valid_token.
 os.environ.setdefault("JWT_SECRET_KEY", "change-me-in-production")
 os.environ.setdefault("CRM_DB_PATH", str(_TMP_DIR / "crm.sqlite3"))
 
-# Swap the Redis driver for an in-memory double so the suite has no external
-# service dependency. Patching the factory covers every module that calls
-# redis.from_url(), including cache_utils at import time.
-try:
-    import fakeredis
-
-    # A single shared server, so every module that calls from_url() sees the
-    # same keyspace — as they would against one real Redis. Handing out
-    # independent instances would hide cross-module cache bugs.
-    _FAKE_SERVER = fakeredis.FakeServer()
-
-    def _fake_from_url(url, *args, **kwargs):
-        kwargs.pop("decode_responses", None)
-        return fakeredis.FakeRedis(server=_FAKE_SERVER, decode_responses=True)
-
-    redis.from_url = _fake_from_url
-except ImportError:  # pragma: no cover - fakeredis is a test-only dependency
-    pass
+# O duplo de Redis em memória (fakeredis) foi removido junto com o crm_api.py.
+# Ele existia porque aquele serviço abria conexão com o Redis na importação do
+# módulo, o que fazia a suíte exigir um Redis de verdade. Nenhum módulo do
+# sistema usa Redis hoje, então não há mais o que substituir.
 
 
 @pytest.fixture(scope="session")
@@ -122,11 +103,8 @@ def db_session(engine):
     transaction.rollback()
     connection.close()
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    from crm_api import app
-    return TestClient(app)
+# A fixture `client` foi removida junto com o crm_api.py. O serviço oficial
+# (crm_whatsapp_webhook.py) monta seu próprio TestClient nos testes que o usam.
 
 @pytest.fixture
 def test_user():

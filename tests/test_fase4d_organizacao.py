@@ -76,19 +76,25 @@ class TestCodigoNaoIntegrado:
         # O aviso de segurança do SSO é o motivo principal deste README existir.
         assert "state" in conteudo and "id_token" in conteudo
 
-    def test_cache_utils_permanece_na_raiz(self):
-        """Guarda contra uma remoção equivocada.
+    def test_modulos_de_apoio_do_servico_aposentado_sairam(self):
+        """cache_utils e companhia saíram junto com o crm_api.py.
 
-        Uma análise anterior classificou cache_utils como código morto. Não é:
-        crm_api.py importa init_redis e clear_cache_pattern dele. Só a classe
-        CacheStrategy está sem uso.
+        Vale registrar a história, porque ela quase produziu um erro: uma
+        análise inicial classificou cache_utils como código morto, e ele NÃO
+        era — o crm_api.py o importava. Ele só virou órfão de fato quando o
+        crm_api foi aposentado, e aí saiu junto, com os outros três módulos
+        que existiam apenas para servi-lo.
         """
-        assert (RAIZ / "cache_utils.py").exists()
+        for nome in ("cache_utils", "error_handlers", "prometheus_metrics", "structured_logging"):
+            assert not (RAIZ / f"{nome}.py").exists(), (
+                f"{nome}.py voltou, mas seu único consumidor (crm_api.py) não existe mais"
+            )
 
-        usado = any(
-            "cache_utils" in _imports_de(caminho) for caminho in _modulos_python_ativos()
-        )
-        assert usado, "cache_utils deixou de ser importado — reavalie antes de removê-lo"
+    def test_nada_importa_o_servico_aposentado(self):
+        for caminho in _modulos_python_ativos():
+            assert "crm_api" not in _imports_de(caminho), (
+                f"{caminho.name} importa crm_api, que foi removido"
+            )
 
 
 class TestDocumentacao:
@@ -128,16 +134,22 @@ class TestDocumentacao:
             assert tema in conteudo, f"ESTADO-ATUAL.md não menciona {tema}"
 
 
-class TestCacheSemOperacaoBloqueante:
-    def test_invalidacao_usa_scan_e_nao_keys(self):
-        """KEYS bloqueia o Redis inteiro enquanto percorre o keyspace."""
-        conteudo = (RAIZ / "cache_utils.py").read_text(encoding="utf-8")
-        ativas = [
-            linha.split("#", 1)[0]
-            for linha in conteudo.splitlines()
-            if linha.split("#", 1)[0].strip()
-        ]
-        assert not any("redis_client.keys(" in linha for linha in ativas), (
-            "clear_cache_pattern voltou a usar KEYS"
-        )
-        assert any("scan_iter" in linha for linha in ativas)
+class TestSemRedis:
+    """O sistema deixou de depender de Redis quando o crm_api foi aposentado.
+
+    Se o cache voltar um dia, que volte com SCAN: a implementação anterior
+    usava KEYS, que bloqueia o Redis inteiro enquanto percorre o keyspace, e
+    era chamada em toda invalidação.
+    """
+
+    def test_nenhum_modulo_ativo_usa_keys_do_redis(self):
+        for caminho in _modulos_python_ativos():
+            texto = caminho.read_text(encoding="utf-8")
+            ativas = [
+                linha.split("#", 1)[0]
+                for linha in texto.splitlines()
+                if linha.split("#", 1)[0].strip()
+            ]
+            assert not any("redis_client.keys(" in linha for linha in ativas), (
+                f"{caminho.name} usa KEYS, comando bloqueante — prefira SCAN"
+            )

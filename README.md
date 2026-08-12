@@ -50,8 +50,7 @@ descrição do sistema — cada um traz um aviso no topo.
 crm_app.py               interface Streamlit (aplicação principal)
 crm_backend.py           lógica de domínio, autenticação, RBAC, auditoria
 crm_db.py                camada SQLite/Postgres
-crm_whatsapp_webhook.py  serviço de webhook e API de entidades
-crm_api.py               API REST v2.0 (ver ressalva em ESTADO-ATUAL.md)
+crm_whatsapp_webhook.py  serviço oficial (webhook + API de entidades)
 tests/                   suíte de testes
 docs/                    documentação
 nao_integrado/           código escrito mas nunca ligado ao produto
