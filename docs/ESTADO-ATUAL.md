@@ -74,6 +74,8 @@ Os dados existentes não foram convertidos. `crm_backend.normalize_timestamp()`
 - Funil comercial com kanban e previsão ponderada
 - Linha do tempo por cliente e registro de auditoria de toda escrita
 - Papéis e permissões (RBAC), com bloqueio progressivo de tentativas de login
+- Visibilidade por login: administrador vê a base inteira, os demais papéis
+  veem apenas os registros sob sua responsabilidade
 - Recebimento de webhook do WhatsApp com validação HMAC
 - Lead score, health score, previsão de receita, produtividade e cadências
 - Catálogo de serviços e comparativo de mercado
@@ -89,6 +91,38 @@ Os dados existentes não foram convertidos. `crm_backend.normalize_timestamp()`
 | Backup automático | Não existe rotina. As variáveis `BACKUP_*` do `.env.example` não são lidas por nada |
 | Sentry, Datadog, envio para S3 | Documentados no `.env.example`, sem nenhuma linha de código correspondente |
 | Métricas em produção | **Nada** é exportado. A instrumentação vivia no `crm_api.py`, que foi aposentado. O `prometheus.yml`, o `alert_rules.yml` e o `grafana/` continuam no repositório como infraestrutura pronta, sem nada de aplicação para coletar |
+
+### Decisão registrada: quem enxerga o quê
+
+Até esta versão, qualquer pessoa autenticada lia qualquer cliente, ticket ou
+negócio. A regra passou a ser:
+
+| Papel | Enxerga |
+|---|---|
+| `admin` | A base inteira |
+| Demais papéis | Apenas os registros onde é o responsável |
+| Chamada interna (automação, webhook, migração) | A base inteira — não tem dono |
+
+A restrição vale para **leitura e escrita**. Alterar ou apagar registro de
+outra pessoa devolve `PermissionError`, que a API traduz em HTTP 403. Esconder
+na tela e liberar na API seria controle de fachada: a permissão do RBAC diz que
+o papel pode editar aquele *tipo* de registro, não aquele registro específico.
+
+Duas coisas precisaram ser arrumadas antes de ligar a regra:
+
+1. **44% dos registros pertenciam a nomes sem conta** — "Leandro Martins",
+   "Bruna Melo", "Daniel Freitas", "Igor Lima". Com a restrição ativa, eles
+   ficariam invisíveis para todos. As quatro pessoas viraram contas de verdade.
+2. **A lista de responsáveis da interface se alimentava dos donos já
+   gravados**, então um nome sem conta virava opção selecionável e novos
+   registros nasciam órfãos. Agora ela sai apenas de contas existentes.
+
+A interface avisa, com uma legenda no topo, quando está mostrando um recorte —
+filtro silencioso é indistinguível de perda de dados para quem usa.
+
+Não há noção de território ou equipe no schema, então não existe nível
+intermediário entre "vê tudo" e "vê o próprio". Se um gerente precisar ver a
+carteira do time, isso vira um papel novo e uma regra nova.
 
 ## Configuração
 
@@ -125,8 +159,10 @@ Registrada aqui para não virar surpresa:
   `st.session_state`
 - `crm_backend.py` tem 101 funções num arquivo só, ainda que com fronteiras
   semânticas razoavelmente limpas
-- Leituras da API não verificam posse: qualquer usuário autenticado lê
-  qualquer registro por ID
+- A posse é ligada pelo **nome completo**, não pelo login. Renomear o
+  `full_name` de alguém desliga a pessoa dos próprios registros. A correção
+  definitiva é a coluna `owner` passar a guardar `username`, o que exige mexer
+  nas telas que exibem e selecionam responsável
 - Valores monetários são `REAL` (ponto flutuante), não decimal
 - `brand_assets.py` guarda 171 KB de PNG em base64, contornando o `COPY *.py`
   do Dockerfile

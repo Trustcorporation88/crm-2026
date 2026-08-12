@@ -117,6 +117,8 @@ from crm_backend import (
     accounts_with_default_password,
     consume_auth_attempt,
     data_version,
+    aplicar_visibilidade,
+    ve_tudo,
     register_auth_failure,
     register_auth_success,
     seed_password_for,
@@ -1669,7 +1671,11 @@ def _dados_da_versao(versao: str) -> dict:
 
 
 user = st.session_state["crm_user"]
-data = _dados_da_versao(data_version())
+
+# O cache é da base inteira, por versão dos dados; o recorte por usuário é
+# aplicado depois. Fazer o contrário — cachear já filtrado — geraria uma cópia
+# do banco por pessoa logada, multiplicando memória sem necessidade.
+data = aplicar_visibilidade(_dados_da_versao(data_version()), user)
 customers_df = data["customers"]
 tickets_df = data["tickets"]
 deals_df = data["deals"]
@@ -1683,12 +1689,30 @@ webhook_df = data["webhook_events"]
 timeline = get_timeline(interactions_df)
 customer_lookup = build_customer_lookup(customers_df)
 
+
+def aviso_de_visibilidade() -> None:
+    """Deixa explícito quando a tela mostra um recorte, não a base inteira.
+
+    Sem este aviso, quem não é administrador abre o CRM, vê menos clientes do
+    que esperava e conclui que houve perda de dados. Filtro silencioso é
+    indistinguível de defeito para quem está do outro lado da tela.
+    """
+    if ve_tudo(user):
+        return
+    st.caption(
+        f"Exibindo apenas os registros sob responsabilidade de {user['full_name']}. "
+        "Para ver a base completa, fale com um administrador."
+    )
+
+# Responsáveis possíveis vêm apenas de contas existentes.
+#
+# Antes esta lista somava os donos já gravados nos registros, o que
+# perpetuava o problema: um nome sem conta aparecia como opção e podia ser
+# atribuído a novos registros para sempre. Com visibilidade por login, um
+# registro assim ficaria invisível para todo mundo.
 owner_options = sorted(
     {
         *users_df["full_name"].dropna().tolist(),
-        *customers_df["owner"].dropna().tolist(),
-        *tickets_df["owner"].dropna().tolist(),
-        *deals_df["owner"].dropna().tolist(),
     }
 )
 
@@ -1961,6 +1985,10 @@ if user.get("role") == "admin":
             "com o endereço do sistema consegue entrar.",
             icon="🔓",
         )
+
+# Avisa uma vez, antes de qualquer seção desenhar, que a tela pode estar
+# mostrando um recorte da base.
+aviso_de_visibilidade()
 
 if section == "Visão Executiva":
     st.markdown(

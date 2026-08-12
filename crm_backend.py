@@ -137,6 +137,42 @@ DEFAULT_USERS = [
         "password_hash": "",
         "is_active": 1,
     },
+    # As quatro contas abaixo foram criadas para fechar um buraco no modelo de
+    # dados: os registros de exemplo tinham donos ("Leandro Martins", "Bruna
+    # Melo", "Daniel Freitas", "Igor Lima") que não existiam como usuários.
+    # Eram 44% dos registros pertencendo a gente sem conta.
+    #
+    # Isso não incomodava enquanto todo mundo via tudo. Com a visibilidade por
+    # login, um registro sem dono identificável ficaria invisível para todos —
+    # então a posse precisa apontar para alguém que exista.
+    {
+        "username": "leandro",
+        "full_name": "Leandro Martins",
+        "role": "vendas",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "bruna",
+        "full_name": "Bruna Melo",
+        "role": "vendas",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "daniel",
+        "full_name": "Daniel Freitas",
+        "role": "atendimento",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "igor",
+        "full_name": "Igor Lima",
+        "role": "atendimento",
+        "password_hash": "",
+        "is_active": 1,
+    },
 ]
 
 
@@ -1199,6 +1235,74 @@ def _next_code(connection: sqlite3.Connection, table_name: str, column_name: str
         digits = "".join(char for char in row["code"] if char.isdigit())
         number = int(digits or "0") + 1
     return f"{prefix}{number:03d}"
+
+
+# Papéis que enxergam a base inteira, independentemente de quem é o dono.
+PAPEIS_COM_VISAO_TOTAL = frozenset({"admin"})
+
+# Tabelas que têm dono e, portanto, são filtradas por visibilidade.
+_TABELAS_COM_DONO = ("customers", "tickets", "deals", "tasks")
+
+
+def ve_tudo(actor: dict[str, Any] | None) -> bool:
+    """Indica se o ator enxerga registros de outras pessoas."""
+    if not actor:
+        # Chamada interna (automação, webhook, migração) não tem dono e
+        # precisa da base inteira para funcionar.
+        return True
+    return str(actor.get("role", "")) in PAPEIS_COM_VISAO_TOTAL
+
+
+def pode_ver_registro(actor: dict[str, Any] | None, owner: Any) -> bool:
+    """Diz se o ator pode ver um registro pertencente a ``owner``."""
+    if ve_tudo(actor):
+        return True
+    return str(owner or "").strip() == str(actor.get("full_name", "")).strip()
+
+
+def aplicar_visibilidade(data: dict[str, Any], actor: dict[str, Any] | None) -> dict[str, Any]:
+    """Restringe o conjunto de dados ao que o ator tem direito de ver.
+
+    A regra é simples de propósito: administrador vê tudo; qualquer outro papel
+    vê apenas os registros dos quais é responsável. Não há noção de território
+    ou equipe no schema, então inventar hierarquia aqui seria fabricar uma
+    regra que o negócio não pediu.
+
+    O vínculo é feito pelo nome completo, que é o que a coluna ``owner``
+    guarda. É o ponto fraco conhecido desta implementação: renomear o
+    ``full_name`` de alguém desliga essa pessoa dos próprios registros. A
+    correção definitiva é a coluna passar a guardar o ``username``, o que exige
+    mexer nas telas que exibem e selecionam responsável — trabalho para quando
+    a estrutura de papéis amadurecer.
+
+    ``interactions`` acompanha a visibilidade dos clientes: mostrar a linha do
+    tempo de um cliente que a pessoa não pode ver vazaria justamente o
+    conteúdo mais sensível.
+    """
+    if ve_tudo(actor):
+        return data
+
+    nome = str(actor.get("full_name", "")).strip()
+    filtrado = dict(data)
+
+    for tabela in _TABELAS_COM_DONO:
+        df = filtrado.get(tabela)
+        if df is None or df.empty or "owner" not in df.columns:
+            continue
+        filtrado[tabela] = df[df["owner"].fillna("").str.strip() == nome]
+
+    clientes = filtrado.get("customers")
+    interacoes = filtrado.get("interactions")
+    if (
+        clientes is not None
+        and interacoes is not None
+        and not interacoes.empty
+        and "customer_id" in interacoes.columns
+    ):
+        visiveis = set(clientes["customer_id"]) if not clientes.empty else set()
+        filtrado["interactions"] = interacoes[interacoes["customer_id"].isin(visiveis)]
+
+    return filtrado
 
 
 def get_data() -> dict[str, Any]:
@@ -2335,6 +2439,14 @@ def update_entity(
         before = _get_entity_row(connection, entity_type, entity_id)
         if before is None:
             raise ValueError(f"{entity_type} {entity_id} not found")
+        # A permissão do RBAC diz que o papel pode editar este TIPO de
+        # registro. Não diz que pode editar ESTE registro. Sem a checagem
+        # abaixo, um vendedor com "customer.update" alteraria a carteira de
+        # qualquer colega — a leitura estaria restrita e a escrita, não.
+        if not pode_ver_registro(resolved_actor, before.get("owner")):
+            raise PermissionError(
+                f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
+            )
         valid_columns = set(before.keys()) - {pk}
         filtered_updates = {key: value for key, value in normalized.items() if key in valid_columns}
         if not filtered_updates:
@@ -2381,6 +2493,10 @@ def delete_entity(
         before = _get_entity_row(connection, entity_type, entity_id)
         if before is None:
             raise ValueError(f"{entity_type} {entity_id} not found")
+        if not pode_ver_registro(resolved_actor, before.get("owner")):
+            raise PermissionError(
+                f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
+            )
         connection.execute(
             f"DELETE FROM {table_name} WHERE {pk} = ?",
             (entity_id,),
