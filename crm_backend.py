@@ -137,6 +137,42 @@ DEFAULT_USERS = [
         "password_hash": "",
         "is_active": 1,
     },
+    # As quatro contas abaixo foram criadas para fechar um buraco no modelo de
+    # dados: os registros de exemplo tinham donos ("Leandro Martins", "Bruna
+    # Melo", "Daniel Freitas", "Igor Lima") que não existiam como usuários.
+    # Eram 44% dos registros pertencendo a gente sem conta.
+    #
+    # Isso não incomodava enquanto todo mundo via tudo. Com a visibilidade por
+    # login, um registro sem dono identificável ficaria invisível para todos —
+    # então a posse precisa apontar para alguém que exista.
+    {
+        "username": "leandro",
+        "full_name": "Leandro Martins",
+        "role": "vendas",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "bruna",
+        "full_name": "Bruna Melo",
+        "role": "vendas",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "daniel",
+        "full_name": "Daniel Freitas",
+        "role": "atendimento",
+        "password_hash": "",
+        "is_active": 1,
+    },
+    {
+        "username": "igor",
+        "full_name": "Igor Lima",
+        "role": "atendimento",
+        "password_hash": "",
+        "is_active": 1,
+    },
 ]
 
 
@@ -856,6 +892,54 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(username)
         );
+
+        -- Índices.
+        --
+        -- O schema não declarava nenhum. Os três que a documentação de deploy
+        -- pedia eram um passo manual pós-instalação, então uma instalação
+        -- nova simplesmente não os tinha. Como get_data() ordena todas as
+        -- tabelas a cada rerun do Streamlit, cada interação virava varredura
+        -- completa mais ordenação.
+        --
+        -- Cobertos aqui: colunas de junção (customer_id), colunas de filtro
+        -- usadas pela interface (status, stage, owner) e as de ordenação
+        -- (event_at, opened_at, received_at, created_at).
+        CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+        CREATE INDEX IF NOT EXISTS idx_customers_owner ON customers(owner);
+        CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+
+        CREATE INDEX IF NOT EXISTS idx_tickets_customer ON tickets(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+        CREATE INDEX IF NOT EXISTS idx_tickets_owner ON tickets(owner);
+        CREATE INDEX IF NOT EXISTS idx_tickets_opened_at ON tickets(opened_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_deals_customer ON deals(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage);
+        CREATE INDEX IF NOT EXISTS idx_deals_owner ON deals(owner);
+        CREATE INDEX IF NOT EXISTS idx_deals_close_date ON deals(close_date);
+
+        CREATE INDEX IF NOT EXISTS idx_interactions_customer ON interactions(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_interactions_event_at ON interactions(event_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_audit_log_event_at ON audit_log(event_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+
+        CREATE INDEX IF NOT EXISTS idx_webhook_events_received ON webhook_events(received_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_refresh_tokens_username ON refresh_tokens(username);
+        CREATE INDEX IF NOT EXISTS idx_auth_throttle_updated ON auth_throttle(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_aci_tool_calls_created ON aci_tool_calls(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner);
+
+        -- Carimbo de versão dos dados.
+        --
+        -- Permite que a interface descubra, com uma consulta trivial, se algo
+        -- mudou desde a última leitura. É o que torna seguro cachear
+        -- get_data(): a chave do cache passa a ser esta versão, então uma
+        -- escrita invalida o cache na hora, sem risco de servir dado velho.
+        CREATE TABLE IF NOT EXISTS meta_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         """
     )
     connection.commit()
@@ -1153,6 +1237,74 @@ def _next_code(connection: sqlite3.Connection, table_name: str, column_name: str
     return f"{prefix}{number:03d}"
 
 
+# Papéis que enxergam a base inteira, independentemente de quem é o dono.
+PAPEIS_COM_VISAO_TOTAL = frozenset({"admin"})
+
+# Tabelas que têm dono e, portanto, são filtradas por visibilidade.
+_TABELAS_COM_DONO = ("customers", "tickets", "deals", "tasks")
+
+
+def ve_tudo(actor: dict[str, Any] | None) -> bool:
+    """Indica se o ator enxerga registros de outras pessoas."""
+    if not actor:
+        # Chamada interna (automação, webhook, migração) não tem dono e
+        # precisa da base inteira para funcionar.
+        return True
+    return str(actor.get("role", "")) in PAPEIS_COM_VISAO_TOTAL
+
+
+def pode_ver_registro(actor: dict[str, Any] | None, owner: Any) -> bool:
+    """Diz se o ator pode ver um registro pertencente a ``owner``."""
+    if ve_tudo(actor):
+        return True
+    return str(owner or "").strip() == str(actor.get("full_name", "")).strip()
+
+
+def aplicar_visibilidade(data: dict[str, Any], actor: dict[str, Any] | None) -> dict[str, Any]:
+    """Restringe o conjunto de dados ao que o ator tem direito de ver.
+
+    A regra é simples de propósito: administrador vê tudo; qualquer outro papel
+    vê apenas os registros dos quais é responsável. Não há noção de território
+    ou equipe no schema, então inventar hierarquia aqui seria fabricar uma
+    regra que o negócio não pediu.
+
+    O vínculo é feito pelo nome completo, que é o que a coluna ``owner``
+    guarda. É o ponto fraco conhecido desta implementação: renomear o
+    ``full_name`` de alguém desliga essa pessoa dos próprios registros. A
+    correção definitiva é a coluna passar a guardar o ``username``, o que exige
+    mexer nas telas que exibem e selecionam responsável — trabalho para quando
+    a estrutura de papéis amadurecer.
+
+    ``interactions`` acompanha a visibilidade dos clientes: mostrar a linha do
+    tempo de um cliente que a pessoa não pode ver vazaria justamente o
+    conteúdo mais sensível.
+    """
+    if ve_tudo(actor):
+        return data
+
+    nome = str(actor.get("full_name", "")).strip()
+    filtrado = dict(data)
+
+    for tabela in _TABELAS_COM_DONO:
+        df = filtrado.get(tabela)
+        if df is None or df.empty or "owner" not in df.columns:
+            continue
+        filtrado[tabela] = df[df["owner"].fillna("").str.strip() == nome]
+
+    clientes = filtrado.get("customers")
+    interacoes = filtrado.get("interactions")
+    if (
+        clientes is not None
+        and interacoes is not None
+        and not interacoes.empty
+        and "customer_id" in interacoes.columns
+    ):
+        visiveis = set(clientes["customer_id"]) if not clientes.empty else set()
+        filtrado["interactions"] = interacoes[interacoes["customer_id"].isin(visiveis)]
+
+    return filtrado
+
+
 def get_data() -> dict[str, Any]:
     with _connect() as connection:
         data = {
@@ -1338,6 +1490,49 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value)
+
+
+# Formatos de timestamp que existiram no banco antes da padronização.
+_LEGACY_TIMESTAMP_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
+
+
+def normalize_timestamp(value: str | None) -> str | None:
+    """Converte um timestamp em qualquer formato herdado para ISO 8601 em UTC.
+
+    O projeto gravava três formatos diferentes na mesma coluna TEXT:
+    ``2026-05-25 08:30`` (sem segundos), ``2026-05-25 08:30:00`` e o ISO com
+    fuso vindo de ``_utcnow().isoformat()``. Como a ordenação dessas colunas é
+    lexicográfica, misturar os formatos embaralha a ordem — o caractere ``T``
+    do ISO é maior que o espaço, então uma linha ISO se posiciona depois de
+    uma linha antiga do mesmo instante.
+
+    Valores sem fuso são interpretados como UTC. Isso é uma suposição, e é a
+    menos danosa possível: os registros antigos foram gravados com
+    ``datetime.now()`` no fuso do servidor, que não temos como recuperar.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return text
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+        for fmt in _LEGACY_TIMESTAMP_FORMATS:
+            try:
+                parsed = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            # Formato irreconhecível: devolve intacto em vez de destruir o dado.
+            return text
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def _get_or_create_auth_throttle(connection: sqlite3.Connection, subject: str, endpoint: str) -> sqlite3.Row:
@@ -1940,6 +2135,38 @@ def _safe_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+_DATA_VERSION_KEY = "data_version"
+
+
+def bump_data_version(connection: Any) -> None:
+    """Avança o carimbo de versão dentro da transação de quem chamou.
+
+    Chamado de ``log_audit_event``, que por sua vez é chamado por toda
+    operação de escrita do sistema. Um único ponto de instrumentação cobre
+    todas as mutações — e como participa da mesma transação, a versão só
+    avança se a escrita realmente for confirmada.
+    """
+    connection.execute(
+        "INSERT OR REPLACE INTO meta_state (key, value) VALUES (?, ?)",
+        (_DATA_VERSION_KEY, uuid.uuid4().hex),
+    )
+
+
+def data_version() -> str:
+    """Versão atual dos dados. Consulta barata, de uma linha só."""
+    try:
+        with _connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM meta_state WHERE key = ?",
+                (_DATA_VERSION_KEY,),
+            ).fetchone()
+    except Exception:
+        # Banco ainda não inicializado: qualquer valor serve, desde que
+        # estável, para não invalidar o cache a cada chamada.
+        return "inicial"
+    return str(row["value"]) if row else "inicial"
+
+
 def log_audit_event(
     actor: dict[str, str] | None,
     action: str,
@@ -1947,28 +2174,43 @@ def log_audit_event(
     entity_id: str,
     payload: dict[str, Any],
     source: str,
+    connection: Any | None = None,
 ) -> None:
+    """Registra um evento de auditoria.
+
+    Quando ``connection`` é informada, a escrita entra na transação de quem
+    chamou em vez de abrir a sua própria. Isso é o que permite gravar a
+    entidade e o rastro de auditoria de forma atômica: antes, a entidade era
+    commitada, a conexão fechava, e uma falha aqui deixava a operação sem
+    registro nenhum.
+    """
     resolved_actor = _resolve_actor(actor)
-    with _connect() as connection:
-        connection.execute(
-            """
+    parametros = (
+        _utcnow().isoformat(),
+        resolved_actor["username"],
+        resolved_actor["role"],
+        action,
+        entity_type,
+        entity_id,
+        source,
+        json.dumps(_safe_payload(payload), ensure_ascii=True),
+    )
+    comando = """
             INSERT INTO audit_log (
                 event_at, actor_username, actor_role, action,
                 entity_type, entity_id, source, payload_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                resolved_actor["username"],
-                resolved_actor["role"],
-                action,
-                entity_type,
-                entity_id,
-                source,
-                json.dumps(_safe_payload(payload), ensure_ascii=True),
-            ),
-        )
-        connection.commit()
+            """
+
+    if connection is not None:
+        connection.execute(comando, parametros)
+        bump_data_version(connection)
+        return
+
+    with _connect() as own_connection:
+        own_connection.execute(comando, parametros)
+        bump_data_version(own_connection)
+        own_connection.commit()
 
 
 def log_webhook_event(
@@ -1987,7 +2229,7 @@ def log_webhook_event(
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                _utcnow().isoformat(),
                 channel,
                 event_type,
                 status,
@@ -2125,25 +2367,37 @@ def add_interaction(
     owner: str,
     related_id: str = "",
     event_type: str = "note",
+    connection: Any | None = None,
 ) -> None:
-    with _connect() as connection:
-        connection.execute(
-            """
+    """Registra um evento na linha do tempo do cliente.
+
+    Aceita ``connection`` para participar da transação de quem chamou — ver a
+    explicação em ``log_audit_event``.
+    """
+    parametros = (
+        customer_id,
+        _utcnow().isoformat(),
+        event_type,
+        title,
+        body,
+        channel,
+        owner,
+        related_id,
+    )
+    comando = """
             INSERT INTO interactions (customer_id, event_at, event_type, title, body, channel, owner, related_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                customer_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                event_type,
-                title,
-                body,
-                channel,
-                owner,
-                related_id,
-            ),
-        )
-        connection.commit()
+            """
+
+    if connection is not None:
+        connection.execute(comando, parametros)
+        bump_data_version(connection)
+        return
+
+    with _connect() as own_connection:
+        own_connection.execute(comando, parametros)
+        bump_data_version(own_connection)
+        own_connection.commit()
 
 
 def _get_entity_row(connection: sqlite3.Connection, entity_type: str, entity_id: str) -> dict[str, Any] | None:
@@ -2185,6 +2439,14 @@ def update_entity(
         before = _get_entity_row(connection, entity_type, entity_id)
         if before is None:
             raise ValueError(f"{entity_type} {entity_id} not found")
+        # A permissão do RBAC diz que o papel pode editar este TIPO de
+        # registro. Não diz que pode editar ESTE registro. Sem a checagem
+        # abaixo, um vendedor com "customer.update" alteraria a carteira de
+        # qualquer colega — a leitura estaria restrita e a escrita, não.
+        if not pode_ver_registro(resolved_actor, before.get("owner")):
+            raise PermissionError(
+                f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
+            )
         valid_columns = set(before.keys()) - {pk}
         filtered_updates = {key: value for key, value in normalized.items() if key in valid_columns}
         if not filtered_updates:
@@ -2231,6 +2493,10 @@ def delete_entity(
         before = _get_entity_row(connection, entity_type, entity_id)
         if before is None:
             raise ValueError(f"{entity_type} {entity_id} not found")
+        if not pode_ver_registro(resolved_actor, before.get("owner")):
+            raise PermissionError(
+                f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
+            )
         connection.execute(
             f"DELETE FROM {table_name} WHERE {pk} = ?",
             (entity_id,),
@@ -2312,29 +2578,37 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
                 payload.get("phone", ""),
             ),
         )
+        # Cliente, linha do tempo e auditoria numa transação só.
+        #
+        # Antes eram três: o INSERT commitava e fechava a conexão, e cada uma
+        # das chamadas seguintes abria a sua. Uma falha na segunda ou terceira
+        # deixava o cliente gravado sem histórico ou sem rastro de auditoria —
+        # e o rastro é justamente o que a LGPD exige que exista.
+        add_interaction(
+            customer_id,
+            "Conta criada",
+            f"Conta criada via {payload.get('source', 'Manual')}.",
+            payload.get("channel", "Formulario"),
+            resolved_actor["full_name"],
+            related_id=customer_id,
+            event_type="account",
+            connection=connection,
+        )
+        log_audit_event(
+            resolved_actor,
+            "customer.create",
+            "customer",
+            customer_id,
+            {
+                "name": payload["name"],
+                "segment": payload["segment"],
+                "country": payload["country"],
+                "owner": payload["owner"],
+            },
+            source,
+            connection=connection,
+        )
         connection.commit()
-    add_interaction(
-        customer_id,
-        "Conta criada",
-        f"Conta criada via {payload.get('source', 'Manual')}.",
-        payload.get("channel", "Formulario"),
-        resolved_actor["full_name"],
-        related_id=customer_id,
-        event_type="account",
-    )
-    log_audit_event(
-        resolved_actor,
-        "customer.create",
-        "customer",
-        customer_id,
-        {
-            "name": payload["name"],
-            "segment": payload["segment"],
-            "country": payload["country"],
-            "owner": payload["owner"],
-        },
-        source,
-    )
     return customer_id
 
 
@@ -2364,29 +2638,32 @@ def add_ticket(payload: dict[str, Any], actor: dict[str, str] | None = None, sou
                 payload.get("opened_at", datetime.now().strftime("%Y-%m-%d %H:%M")),
             ),
         )
+        # Ticket, linha do tempo e auditoria na mesma transação.
+        add_interaction(
+            payload["customer_id"],
+            "Ticket criado",
+            payload.get("message", payload["subject"]),
+            payload["channel"],
+            resolved_actor["full_name"],
+            related_id=ticket_id,
+            event_type="ticket",
+            connection=connection,
+        )
+        log_audit_event(
+            resolved_actor,
+            "ticket.create",
+            "ticket",
+            ticket_id,
+            {
+                "customer_id": payload["customer_id"],
+                "subject": payload["subject"],
+                "priority": payload["priority"],
+                "channel": payload["channel"],
+            },
+            source,
+            connection=connection,
+        )
         connection.commit()
-    add_interaction(
-        payload["customer_id"],
-        "Ticket criado",
-        payload.get("message", payload["subject"]),
-        payload["channel"],
-        resolved_actor["full_name"],
-        related_id=ticket_id,
-        event_type="ticket",
-    )
-    log_audit_event(
-        resolved_actor,
-        "ticket.create",
-        "ticket",
-        ticket_id,
-        {
-            "customer_id": payload["customer_id"],
-            "subject": payload["subject"],
-            "priority": payload["priority"],
-            "channel": payload["channel"],
-        },
-        source,
-    )
     return ticket_id
 
 
@@ -2412,29 +2689,32 @@ def add_deal(payload: dict[str, Any], actor: dict[str, str] | None = None, sourc
                 payload["source"],
             ),
         )
+        # Oportunidade, linha do tempo e auditoria na mesma transação.
+        add_interaction(
+            payload["customer_id"],
+            "Oportunidade criada",
+            f"Nova oportunidade em {payload['stage']} no valor de R$ {float(payload['value']):,.0f}.",
+            "Sales",
+            resolved_actor["full_name"],
+            related_id=deal_id,
+            event_type="deal",
+            connection=connection,
+        )
+        log_audit_event(
+            resolved_actor,
+            "deal.create",
+            "deal",
+            deal_id,
+            {
+                "customer_id": payload["customer_id"],
+                "name": payload["name"],
+                "stage": payload["stage"],
+                "value": float(payload["value"]),
+            },
+            source,
+            connection=connection,
+        )
         connection.commit()
-    add_interaction(
-        payload["customer_id"],
-        "Oportunidade criada",
-        f"Nova oportunidade em {payload['stage']} no valor de R$ {float(payload['value']):,.0f}.",
-        "Sales",
-        resolved_actor["full_name"],
-        related_id=deal_id,
-        event_type="deal",
-    )
-    log_audit_event(
-        resolved_actor,
-        "deal.create",
-        "deal",
-        deal_id,
-        {
-            "customer_id": payload["customer_id"],
-            "name": payload["name"],
-            "stage": payload["stage"],
-            "value": float(payload["value"]),
-        },
-        source,
-    )
     return deal_id
 
 
@@ -2464,26 +2744,29 @@ def update_deal_stage(
             "UPDATE deals SET stage = ? WHERE deal_id = ?",
             (new_stage, deal_id),
         )
-        connection.commit()
         customer_id = str(row["customer_id"])
         deal_name = str(row["name"])
-    add_interaction(
-        customer_id,
-        "Mudança de etapa",
-        f"«{deal_name}» movida de {old_stage} para {new_stage}.",
-        "Sales",
-        resolved_actor["full_name"],
-        related_id=deal_id,
-        event_type="deal",
-    )
-    log_audit_event(
-        resolved_actor,
-        "deal.stage_changed",
-        "deal",
-        deal_id,
-        {"from": old_stage, "to": new_stage},
-        source,
-    )
+        # Etapa, linha do tempo e auditoria na mesma transação.
+        add_interaction(
+            customer_id,
+            "Mudança de etapa",
+            f"«{deal_name}» movida de {old_stage} para {new_stage}.",
+            "Sales",
+            resolved_actor["full_name"],
+            related_id=deal_id,
+            event_type="deal",
+            connection=connection,
+        )
+        log_audit_event(
+            resolved_actor,
+            "deal.stage_changed",
+            "deal",
+            deal_id,
+            {"from": old_stage, "to": new_stage},
+            source,
+            connection=connection,
+        )
+        connection.commit()
 
 
 WON_STAGE = "Fechado ganho"
@@ -2532,33 +2815,37 @@ def close_deal(
             """,
             (new_stage, new_probability, stored_reason, closed_at, deal_id),
         )
-        connection.commit()
         customer_id = str(row["customer_id"])
         deal_name = str(row["name"])
 
-    if outcome == "ganho":
-        titulo = "Negócio ganho"
-        corpo = f"«{deal_name}» marcada como GANHA (era {old_stage})."
-    else:
-        titulo = "Negócio perdido"
-        corpo = f"«{deal_name}» marcada como PERDIDA (era {old_stage}). Motivo: {reason}."
-    add_interaction(
-        customer_id,
-        titulo,
-        corpo,
-        "Sales",
-        resolved_actor["full_name"],
-        related_id=deal_id,
-        event_type="deal",
-    )
-    log_audit_event(
-        resolved_actor,
-        "deal.closed",
-        "deal",
-        deal_id,
-        {"outcome": outcome, "from": old_stage, "to": new_stage, "reason": stored_reason},
-        source,
-    )
+        if outcome == "ganho":
+            titulo = "Negócio ganho"
+            corpo = f"«{deal_name}» marcada como GANHA (era {old_stage})."
+        else:
+            titulo = "Negócio perdido"
+            corpo = f"«{deal_name}» marcada como PERDIDA (era {old_stage}). Motivo: {reason}."
+
+        # Fechamento, linha do tempo e auditoria na mesma transação.
+        add_interaction(
+            customer_id,
+            titulo,
+            corpo,
+            "Sales",
+            resolved_actor["full_name"],
+            related_id=deal_id,
+            event_type="deal",
+            connection=connection,
+        )
+        log_audit_event(
+            resolved_actor,
+            "deal.closed",
+            "deal",
+            deal_id,
+            {"outcome": outcome, "from": old_stage, "to": new_stage, "reason": stored_reason},
+            source,
+            connection=connection,
+        )
+        connection.commit()
 
 
 # Campos que a edição inline pode alterar. Etapa fica de fora de propósito:

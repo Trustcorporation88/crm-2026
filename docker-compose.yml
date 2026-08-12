@@ -66,26 +66,26 @@ services:
       - crm-network
     restart: unless-stopped
 
-  # FastAPI Backend (for REST API)
-  api:
+  # Serviço oficial: recebe o webhook do WhatsApp e expõe a API de entidades.
+  #
+  # Substitui o antigo serviço "api" (crm_api.py), aposentado por duplicar
+  # autenticação e não ter consumidor. Este é o serviço com amarras externas
+  # reais — o provedor de WhatsApp e o callback OAuth do ACI apontam para ele.
+  servico:
     build:
       context: .
-      dockerfile: Dockerfile.api
-    container_name: crm-api
+      dockerfile: Dockerfile
+    container_name: crm-servico
+    command: ["uvicorn", "crm_whatsapp_webhook:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       DATABASE_URL: postgresql://${DB_USER:-crm_admin}:${DB_PASSWORD:-changeme123}@postgres:5432/${DB_NAME:-crm_db}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme123}@redis:6379/0
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production-1234567890abcdef}
-      API_PORT: 8000
+      CRM_API_JWT_SECRET: ${CRM_API_JWT_SECRET:?defina CRM_API_JWT_SECRET}
+      CRM_WHATSAPP_HMAC_SECRET: ${CRM_WHATSAPP_HMAC_SECRET:?defina CRM_WHATSAPP_HMAC_SECRET}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./:/app
     networks:
       - crm-network
     restart: unless-stopped

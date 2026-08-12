@@ -11,8 +11,7 @@ python-multipart==0.0.6
 python-jose[cryptography]==3.3.0
 
 # Caching & Sessions
-redis==5.0.1
-hiredis==2.2.3
+# Redis saiu junto com o crm_api.py — nenhum módulo do sistema o usa hoje.
 
 # Security & Auth
 cryptography==41.0.7
@@ -21,21 +20,14 @@ bcrypt==4.2.1
 passlib[bcrypt]==1.7.4
 email-validator==2.1.0
 
-# Rate limiting
-# Required by crm_api.py at import time; its absence here made the API fail to
-# start in CI and in any deploy that installs only this file.
-slowapi==0.1.9
-
-# Monitoring & Logging
-python-json-logger==2.0.7
-prometheus-client==0.19.0
+# Observabilidade: as dependências foram removidas junto com o crm_api.py, o
+# único serviço que exportava métricas e usava log estruturado. Se a
+# instrumentação voltar, reinstale prometheus-client e python-json-logger.
 
 # Development/Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.2
-# In-memory Redis double so the test suite needs no live Redis server.
-fakeredis==2.23.2
 black==23.12.0
 ruff==0.1.8
 

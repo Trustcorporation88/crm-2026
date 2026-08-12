@@ -1,5 +1,10 @@
-# Streamlit Cloud / pip install (CRM app)
-streamlit>=1.28.0
+# Dependências do app Streamlit (Streamlit Cloud, Render, Railway).
+#
+# Os pisos de versão marcados com PYSEC referem-se a vulnerabilidades
+# conhecidas reportadas por pip-audit. As transitivas estão declaradas
+# explicitamente porque, sem isso, o resolvedor aceitaria a versão vulnerável
+# que o streamlit tolera.
+streamlit>=1.54.0  # PYSEC-2026-2285
 pandas>=2.0.0
 phonenumbers>=8.13.0
 dnspython>=2.4.0
@@ -8,9 +13,14 @@ cryptography>=41.0.0
 bcrypt>=4.0.1,<5
 passlib[bcrypt]>=1.7.4
 email-validator>=2.0.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2  # PYSEC-2026-2270
 sqlalchemy>=2.0.0
 httpx>=0.25.0
+requests>=2.33.0  # PYSEC-2026-2275 (transitiva)
+urllib3>=2.7.0  # PYSEC-2026-141/142 (transitiva)
+pillow>=12.3.0  # 17 CVEs abaixo desta versão (transitiva via streamlit)
+pyarrow>=23.0.1  # PYSEC-2026-113 (transitiva via streamlit)
+click>=8.3.3  # PYSEC-2026-2132 (transitiva)
 # Driver do Postgres. A imagem do Railway instala este arquivo — sem ele,
 # definir DATABASE_URL derruba o app no primeiro acesso ao banco.
 psycopg2-binary>=2.9.9

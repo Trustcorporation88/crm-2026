@@ -1,3 +1,15 @@
+> **Documento histórico — não descreve o estado atual do sistema.**
+>
+> Preservado como registro do que foi planejado ou anunciado na época. Uma
+> auditoria posterior verificou várias afirmações destes documentos contra o
+> código e encontrou divergências relevantes: funcionalidades listadas como
+> concluídas que nunca foram ligadas ao produto, e endpoints descritos como
+> funcionais que respondiam sucesso sem gravar nada.
+>
+> Para saber o que o sistema faz hoje, veja **[docs/ESTADO-ATUAL.md](../ESTADO-ATUAL.md)**.
+
+---
+
 # Melhorias de usabilidade — benchmark e implementação
 
 Estudo dos CRMs líderes no Brasil e nos EUA aplicado ao TRUST CRM, com a
