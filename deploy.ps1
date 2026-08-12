@@ -98,9 +98,9 @@ Write-Host "  Username: admin"
 Write-Host "  Password: admin123"
 Write-Host ""
 Write-Host "📚 Documentation:" -ForegroundColor Cyan
-Write-Host "  - Deployment Guide: DEPLOYMENT.md"
+Write-Host "  - Deployment Guide: docs/DEPLOYMENT.md"
 Write-Host "  - Production README: README-PRODUCTION.md"
-Write-Host "  - Phase 1 Summary: PHASE1-COMPLETE.md"
+Write-Host "  - Estado atual: docs/ESTADO-ATUAL.md"
 Write-Host ""
 Write-Host "🔍 Check logs with:" -ForegroundColor Cyan
 Write-Host "  docker-compose logs -f crm-app   # Streamlit"
