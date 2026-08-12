@@ -2,8 +2,8 @@
 from __future__ import annotations
 import json
 import sqlite3
-from datetime import datetime, timedelta
 from crm_backend import _connect, log_audit_event
+from scoring_datas import carimbo_utc, limiar_de_dias
 
 DEFAULT_RULES = {
     "has_email": 5, "has_whatsapp": 8, "responded_recently": 15,
@@ -40,9 +40,9 @@ def get_active_rules() -> dict[str, int]:
 
 def _signals(c: sqlite3.Connection, cust: dict) -> dict[str, bool]:
     cid = cust["customer_id"]
-    now = datetime.now()
-    d7 = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
-    d90 = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+    # Limiares somente com a data: ver scoring_datas.py para o porquê.
+    d7 = limiar_de_dias(7)
+    d90 = limiar_de_dias(90)
     rec = c.execute("SELECT COUNT(*) AS t FROM interactions WHERE customer_id=? AND event_at>=?", (cid, d7)).fetchone()
     ot = c.execute("SELECT COUNT(*) AS t FROM tickets WHERE customer_id=? AND status NOT IN ('Resolvido','Fechado')", (cid,)).fetchone()
     od = c.execute("SELECT COUNT(*) AS t FROM deals WHERE customer_id=? AND stage NOT IN ('Fechado ganho','Perdido')", (cid,)).fetchone()
@@ -74,7 +74,7 @@ def calculate_lead_score(cid: str) -> dict:
         sigs = _signals(c, cust)
         score = min(100, max(0, sum(rules[k] for k, f in sigs.items() if f and k in rules)))
         tier = _tier(score)
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = carimbo_utc()
         c.execute("""INSERT INTO lead_scores VALUES (?,?,?,?,?)
             ON CONFLICT(customer_id) DO UPDATE SET score=excluded.score, tier=excluded.tier,
             signals_json=excluded.signals_json, calculated_at=excluded.calculated_at""",

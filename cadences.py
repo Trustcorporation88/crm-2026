@@ -54,6 +54,20 @@ def get_cadence_steps(key: str) -> list:
         rows = c.execute("SELECT * FROM cadence_steps WHERE cadence_key=? ORDER BY step_order", (key,)).fetchall()
     return [dict(r) for r in rows]
 
+# NOTA sobre o formato de data neste módulo.
+#
+# Ao contrário de lead_scoring, health_score, productivity e ai_insights, aqui
+# os carimbos NÃO foram migrados para ISO UTC. O motivo é a consulta de
+# pendências em get_due_actions(), que compara "a.scheduled_at <= ?": a coluna
+# é escrita e lida apenas por este módulo, então hoje é internamente coerente.
+#
+# Migrar só a escrita criaria justamente o defeito que esta fase corrige —
+# linhas novas em ISO e antigas com espaço na mesma comparação, fazendo ações
+# agendadas para mais tarde no mesmo dia aparecerem como vencidas. A migração
+# correta converte os dados existentes junto, e isso merece PR próprio, com
+# dry-run e backup.
+
+
 def enroll(key, cid, owner, deal_id=None, actor=None) -> int:
     now = datetime.now()
     nstr = now.strftime("%Y-%m-%d %H:%M:%S")
