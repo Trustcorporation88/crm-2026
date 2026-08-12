@@ -1,0 +1,67 @@
+# Contexto de build. Sem este arquivo, tudo o que está no diretório era
+# enviado ao daemon do Docker — inclusive o .git inteiro, que carrega o
+# histórico completo e metadados de autoria para dentro da imagem.
+
+.git
+.github
+.gitignore
+.gitattributes
+
+# Documentação: ~20 markdowns na raiz, nenhum necessário em tempo de execução.
+*.md
+SUMMARY.txt
+
+# Testes e ferramental de desenvolvimento.
+tests/
+pytest.ini
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Ambientes virtuais.
+.venv/
+venv/
+env/
+
+# Dados locais e backups — nunca devem entrar numa imagem.
+Data/
+data/
+backups/
+*.sqlite3
+*.db
+*-wal
+*-shm
+
+# Segredos.
+.env
+.env.*
+!.env.example
+
+# Configuração de outros alvos de deploy e observabilidade.
+grafana/
+prometheus.yml
+alert_rules.yml
+docker-compose*.yml
+vercel.json
+render.yaml
+railway.toml
+
+# Scripts de conveniência que não fazem parte da imagem.
+deploy.sh
+deploy.ps1
+QUICKSTART.sh
+setup-v2.0.sh
+setup-v2.0.cmd
+run-local-windows.cmd
+Makefile
+
+# Artefatos de editor e sistema operacional.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

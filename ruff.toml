@@ -1,0 +1,59 @@
+# Configuração do Ruff.
+#
+# Existe por dois motivos.
+#
+# O primeiro é determinismo. O CI instalava o ruff sem fixar versão, e o
+# conjunto de regras que o ruff aplica por padrão muda entre versões — a 0.16,
+# por exemplo, passou a acusar centenas de achados que a 0.1 ignorava. Sem
+# configuração no repositório, o mesmo código passava ou falhava dependendo do
+# dia em que o pipeline rodou. Declarar as regras aqui torna o resultado
+# reprodutível.
+#
+# O segundo é foco. O gate de lint do CI passou a bloquear o deploy, então
+# precisa acusar defeito de verdade — nome indefinido, import inexistente,
+# variável usada antes de existir — e não preferência de estilo. As regras
+# abaixo são as que apontam bug.
+#
+# Ampliar este conjunto é bem-vindo, mas de forma incremental: escolha uma
+# família, corrija o que ela acusa e só então acrescente. Ligar tudo de uma vez
+# produz centenas de achados, e um gate que acusa centenas de coisas é um gate
+# que as pessoas aprendem a ignorar.
+
+target-version = "py311"
+line-length = 120
+
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".ruff_cache",
+]
+
+[lint]
+select = [
+    "E4",   # imports mal formados
+    "E7",   # erros de sintaxe de instrução
+    "E9",   # erros de execução e sintaxe
+    "F",    # Pyflakes: nome indefinido, import não usado, f-string sem campo
+]
+
+ignore = [
+    # Estilo, não defeito: o repositório usa bastante "if x: return" numa
+    # linha só. São 112 ocorrências, todas inofensivas. Ficam de fora para que
+    # o gate acuse apenas o que quebra em execução — E722 (except nu), que
+    # engole erro de verdade, continua ligado.
+    "E701",  # múltiplas instruções na linha (dois-pontos)
+    "E702",  # múltiplas instruções na linha (ponto e vírgula)
+]
+
+# Candidatas à adoção futura, em ordem sugerida de esforço crescente:
+#   "I"    imports ordenados            (~45 achados, correção automática)
+#   "UP"   sintaxe moderna do Python    (~84 achados, maioria automática)
+#   "B"    armadilhas do flake8-bugbear (~40 achados, exigem análise)
+#   "DTZ"  datetime sem fuso            (~36 achados; a Fase 2 já tratou os
+#                                        principais no caminho de escrita)
+#   "S"    bandit                       (o CI já roda o bandit em separado)
+
+[lint.per-file-ignores]
+# Testes importam fixtures e módulos por efeito colateral.
+"tests/*" = ["F401"]
