@@ -1,7 +1,7 @@
 """Message templates with variable substitution."""
 from __future__ import annotations
-from datetime import datetime
 from crm_backend import _connect, log_audit_event
+from scoring_datas import carimbo_utc
 
 DEFAULTS = [
     ("welcome_whatsapp","WhatsApp","Onboarding","Boas-vindas WhatsApp",
@@ -34,7 +34,7 @@ def init_templates_schema() -> None:
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
         if not c.execute("SELECT COUNT(*) AS t FROM message_templates").fetchone()["t"]:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now = carimbo_utc()
             c.executemany("INSERT INTO message_templates VALUES (?,?,?,?,?,1,?,?)",
                 [(k,ch,cat,t,b,now,now) for k,ch,cat,t,b in DEFAULTS])
         c.commit()
@@ -60,7 +60,7 @@ def render_template(key: str, vars: dict) -> str:
     return body
 
 def save_template(key, channel, category, title, body, active=True, actor=None) -> None:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = carimbo_utc()
     with _connect() as c:
         c.execute("""INSERT INTO message_templates VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(key) DO UPDATE SET channel=excluded.channel, category=excluded.category,

@@ -1,10 +1,10 @@
 """Productivity reports per owner."""
 from __future__ import annotations
-from datetime import datetime, timedelta
 from crm_backend import _connect
+from scoring_datas import limiar_de_dias
 
 def get_owner_productivity(period_days=30) -> list:
-    cutoff = (datetime.now()-timedelta(days=period_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = limiar_de_dias(period_days)  # ver scoring_datas.py
     with _connect() as c:
         tr = c.execute("""SELECT owner, COUNT(*) AS tickets_total,
             SUM(CASE WHEN status='Resolvido' THEN 1 ELSE 0 END) AS tickets_resolved,
@@ -64,7 +64,7 @@ def get_team_summary(period_days=30) -> dict:
         "avg_win_rate":round(sum(wr)/len(wr),1) if wr else 0.0}
 
 def get_channel_breakdown(period_days=30) -> list:
-    cutoff = (datetime.now()-timedelta(days=period_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = limiar_de_dias(period_days)  # ver scoring_datas.py
     with _connect() as c:
         rows = c.execute("""SELECT channel, COUNT(*) AS total,
             SUM(CASE WHEN status='Resolvido' THEN 1 ELSE 0 END) AS resolved,

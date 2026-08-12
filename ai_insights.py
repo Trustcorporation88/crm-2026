@@ -2,8 +2,9 @@
 from __future__ import annotations
 import os
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 from crm_backend import _connect
+from scoring_datas import limiar_de_dias
 
 USE_LLM = bool(os.getenv("CRM_OPENAI_API_KEY","").strip())
 
@@ -83,7 +84,7 @@ def classify_ticket(subject: str, body="") -> dict:
         "suggested_sla_hours":sla[pr],"confidence":"media" if max(cs.values())>=1 else "baixa"}
 
 def detect_anomalies(period_days=7) -> list:
-    cutoff = (datetime.now()-timedelta(days=period_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = limiar_de_dias(period_days)  # ver scoring_datas.py
     a = []
     with _connect() as c:
         sla = c.execute("""SELECT COUNT(*) AS t FROM tickets WHERE opened_at>=?

@@ -1,8 +1,8 @@
 """Customer health score."""
 from __future__ import annotations
 import json
-from datetime import datetime, timedelta
 from crm_backend import _connect
+from scoring_datas import carimbo_utc, limiar_de_dias
 
 POS = {"recent_interaction":20,"no_open_critical_ticket":15,"csat_above_4":15,
     "active_pipeline":10,"owner_assigned":5,"recent_purchase":15,
@@ -21,10 +21,10 @@ def init_health_schema() -> None:
 
 def _signals(c, cust):
     cid = cust["customer_id"]
-    now = datetime.now()
-    d14 = (now-timedelta(days=14)).strftime("%Y-%m-%d %H:%M")
-    d60 = (now-timedelta(days=60)).strftime("%Y-%m-%d %H:%M")
-    d90 = (now-timedelta(days=90)).strftime("%Y-%m-%d")
+    # Limiares somente com a data: ver scoring_datas.py para o porquê.
+    d14 = limiar_de_dias(14)
+    d60 = limiar_de_dias(60)
+    d90 = limiar_de_dias(90)
     rec = c.execute("SELECT COUNT(*) AS t FROM interactions WHERE customer_id=? AND event_at>=?",(cid,d14)).fetchone()
     no60 = c.execute("SELECT COUNT(*) AS t FROM interactions WHERE customer_id=? AND event_at>=?",(cid,d60)).fetchone()
     crit = c.execute("""SELECT COUNT(*) AS t FROM tickets WHERE customer_id=?
@@ -72,7 +72,7 @@ def calculate_health(cid: str) -> dict:
         elif norm >= 30: risk = "Alto"
         else: risk = "Critico"
         act = _action(cust, p, n)
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = carimbo_utc()
         c.execute("""INSERT INTO health_snapshots VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(customer_id) DO UPDATE SET health_score=excluded.health_score,
             churn_risk=excluded.churn_risk, positive_signals_json=excluded.positive_signals_json,
