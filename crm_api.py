@@ -203,6 +203,29 @@ def _is_blacklisted(token: str) -> bool:
         raise AuthenticationError("Unable to validate session")
 
 
+def _blacklist_until_expiry(token: str, payload: Dict[str, Any]) -> None:
+    """Revoga um token pelo tempo que ainda lhe restava de validade.
+
+    Guardar por um prazo fixo deixaria um token de vida longa utilizável de
+    novo assim que a entrada expirasse; guardar para sempre encheria o Redis.
+    O TTL correto é exatamente o que falta para o ``exp`` do próprio token.
+    """
+    exp = payload.get("exp")
+    ttl = 3600
+    if isinstance(exp, (int, float)):
+        ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+
+    try:
+        get_redis().setex(f"blacklist:{token}", ttl, "true")
+    except redis.RedisError as exc:
+        logger.error("Could not blacklist token", error=str(exc))
+        raise CRMException(
+            code="SERVICE_UNAVAILABLE",
+            message="Token revocation could not be completed",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
     """Verify JWT token and return user info"""
     token = credentials.credentials
@@ -351,13 +374,19 @@ async def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(secu
 
         # Rebuild the claims instead of copying: reusing the old payload would
         # carry over iat/jti and let a token be refreshed indefinitely.
-        claims = {k: v for k, v in payload.items() if k not in {"exp", "iat"}}
+        claims = {k: v for k, v in payload.items() if k not in {"exp", "iat", "jti"}}
         now = datetime.now(timezone.utc)
         new_token = jwt.encode(
-            {**claims, "iat": now, "exp": now + timedelta(hours=24)},
+            {**claims, "jti": str(uuid.uuid4()), "iat": now, "exp": now + timedelta(hours=24)},
             JWT_SECRET,
             algorithm=JWT_ALGORITHM
         )
+
+        # Rotação de verdade: o token consumido vai para a blacklist pelo
+        # tempo que ainda lhe restava. Sem isto, um token roubado podia ser
+        # renovado indefinidamente — cada renovação rendia mais 24 horas e o
+        # token antigo seguia válido até expirar por conta própria.
+        _blacklist_until_expiry(token, payload)
 
         logger.info("Token refreshed", user_id=payload.get("user_id"))
         return {"access_token": new_token, "token_type": "bearer"}
@@ -378,22 +407,9 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except jwt.InvalidTokenError:
         raise AuthenticationError("Invalid token")
 
-    # Keep the entry until the token would have expired anyway, otherwise a
-    # long-lived token becomes usable again after the old hardcoded hour.
-    exp = payload.get("exp")
-    ttl = 3600
-    if isinstance(exp, (int, float)):
-        ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
-
-    try:
-        get_redis().setex(f"blacklist:{token}", ttl, "true")
-    except redis.RedisError as exc:
-        logger.error("Could not blacklist token", error=str(exc))
-        raise CRMException(
-            code="SERVICE_UNAVAILABLE",
-            message="Logout could not be completed",
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+    # Mantém a entrada até o momento em que o token expiraria de qualquer
+    # forma — mesma regra usada na rotação do /auth/refresh.
+    _blacklist_until_expiry(token, payload)
 
     logger.info("User logged out", user_id=payload.get("user_id"))
     return {"message": "Logout successful"}
@@ -834,11 +850,41 @@ async def create_deal(
         raise InternalServerError()
 
 # ====== ROUTES: WEBHOOKS ======
+# ====== WEBHOOK SIGNATURE ======
+async def _require_valid_signature(request: Request) -> bytes:
+    """Valida a assinatura HMAC do corpo bruto e devolve o corpo lido.
+
+    As rotas /webhooks/* deste serviço aceitavam qualquer POST vindo da
+    internet: não havia assinatura, autenticação ou verificação de origem —
+    apenas um rate limit. O serviço irmão (crm_whatsapp_webhook.py) sempre fez
+    a validação correta; aqui reaproveitamos exatamente a mesma função para
+    que exista uma única definição de "assinatura válida" no projeto.
+
+    O corpo precisa ser lido em bytes crus: o HMAC é calculado sobre o que
+    chegou no fio, e reserializar o modelo do Pydantic mudaria os bytes
+    (ordem de chaves, espaços) e invalidaria assinaturas legítimas.
+    """
+    import crm_backend
+
+    raw_body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256")
+
+    if not crm_backend.verify_webhook_hmac(raw_body, signature):
+        logger.warning(
+            "Webhook rejeitado por assinatura inválida",
+            path=str(request.url.path),
+        )
+        raise AuthenticationError("Assinatura de webhook inválida ou ausente")
+
+    return raw_body
+
+
 @app.post("/webhooks/whatsapp")
 @limiter.limit("100/minute")
 async def webhook_whatsapp(request: Request, payload: WebhookPayload, db: Session = Depends(get_db)):
     """Receive WhatsApp messages and create tickets"""
     try:
+        await _require_valid_signature(request)
         logger.info(f"WhatsApp webhook received: {payload.event_type}", source_id=payload.source_id)
         
         # Queue for retry if needed
@@ -864,6 +910,7 @@ async def webhook_whatsapp(request: Request, payload: WebhookPayload, db: Sessio
 async def webhook_email(request: Request, payload: WebhookPayload, db: Session = Depends(get_db)):
     """Receive emails and create tickets"""
     try:
+        await _require_valid_signature(request)
         logger.info(f"Email webhook received: {payload.event_type}", source_id=payload.source_id)
         
         return {
@@ -884,6 +931,7 @@ async def webhook_email(request: Request, payload: WebhookPayload, db: Session =
 async def webhook_form(request: Request, payload: WebhookPayload, db: Session = Depends(get_db)):
     """Receive form submissions and create leads"""
     try:
+        await _require_valid_signature(request)
         logger.info(f"Form webhook received: {payload.event_type}", source_id=payload.source_id)
         
         return {

@@ -6,7 +6,10 @@ so FastAPI's HTTPBearer answers 401 Unauthorized. 403 Forbidden is reserved for 
 authenticated caller lacking permission (see the admin/role checks).
 """
 
+import json
+
 import pytest
+
 from fastapi.testclient import TestClient
 from crm_api import app
 
@@ -99,31 +102,62 @@ class TestDeals:
 class TestWebhooks:
     """Webhook endpoint tests"""
     
-    def test_whatsapp_webhook(self):
-        """Test WhatsApp webhook receives messages"""
+    def test_whatsapp_webhook(self, assinar_webhook):
+        """Webhook assinado é aceito."""
+        corpo = json.dumps({
+            "event_type": "message_received",
+            "channel": "whatsapp",
+            "source_id": "customer_123",
+            "payload": {"message": "Test message"}
+        }).encode("utf-8")
+
+        response = client.post(
+            "/webhooks/whatsapp", content=corpo, headers=assinar_webhook(corpo)
+        )
+        assert response.status_code == 200
+
+    def test_email_webhook(self, assinar_webhook):
+        """Webhook assinado é aceito."""
+        corpo = json.dumps({
+            "event_type": "email_received",
+            "channel": "email",
+            "source_id": "customer_123",
+            "payload": {"subject": "Test", "body": "Test email"}
+        }).encode("utf-8")
+
+        response = client.post(
+            "/webhooks/email", content=corpo, headers=assinar_webhook(corpo)
+        )
+        assert response.status_code == 200
+
+    def test_webhook_sem_assinatura_e_rejeitado(self):
+        """Antes, qualquer POST da internet era aceito nestas rotas."""
         response = client.post(
             "/webhooks/whatsapp",
             json={
                 "event_type": "message_received",
                 "channel": "whatsapp",
-                "source_id": "customer_123",
-                "payload": {"message": "Test message"}
+                "source_id": "invasor",
+                "payload": {"message": "sem assinatura"}
             }
         )
-        assert response.status_code == 200
-    
-    def test_email_webhook(self):
-        """Test Email webhook receives messages"""
+        assert response.status_code == 401
+
+    def test_webhook_com_assinatura_invalida_e_rejeitado(self):
+        corpo = json.dumps({
+            "event_type": "message_received",
+            "channel": "whatsapp",
+            "source_id": "invasor",
+            "payload": {"message": "assinatura forjada"}
+        }).encode("utf-8")
+
         response = client.post(
-            "/webhooks/email",
-            json={
-                "event_type": "email_received",
-                "channel": "email",
-                "source_id": "customer_123",
-                "payload": {"subject": "Test", "body": "Test email"}
-            }
+            "/webhooks/whatsapp",
+            content=corpo,
+            headers={"X-Hub-Signature-256": "sha256=" + "0" * 64,
+                     "Content-Type": "application/json"},
         )
-        assert response.status_code == 200
+        assert response.status_code == 401
 
 class TestIntegrations:
     """Integration endpoint tests"""

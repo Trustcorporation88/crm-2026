@@ -116,6 +116,7 @@ from crm_backend import (
     change_own_password,
     accounts_with_default_password,
     consume_auth_attempt,
+    data_version,
     register_auth_failure,
     register_auth_success,
     seed_password_for,
@@ -1649,8 +1650,26 @@ if "crm_user" not in st.session_state:
 maybe_show_onboarding_tour()
 
 
+@st.cache_data(show_spinner=False)
+def _dados_da_versao(versao: str) -> dict:
+    """Carrega o banco inteiro, memorizado por versão dos dados.
+
+    `get_data()` lê todas as tabelas para DataFrames. Sem cache isso
+    acontecia a cada rerun do Streamlit — ou seja, a cada clique, filtro ou
+    tecla digitada num campo. Num CRM com histórico acumulado, essa é a
+    origem dominante de lentidão.
+
+    A chave é o carimbo `data_version()`, que o backend avança dentro da
+    mesma transação de qualquer escrita. Enquanto ninguém grava, o cache
+    serve; assim que alguém grava, a chave muda e a próxima leitura vai ao
+    banco. Não existe janela de dado velho — que é justamente o risco de um
+    cache baseado em TTL.
+    """
+    return get_data()
+
+
 user = st.session_state["crm_user"]
-data = get_data()
+data = _dados_da_versao(data_version())
 customers_df = data["customers"]
 tickets_df = data["tickets"]
 deals_df = data["deals"]

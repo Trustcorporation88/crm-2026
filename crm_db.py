@@ -185,6 +185,7 @@ CONFLICT_TARGETS: dict[str, str] = {
     "deals": "deal_id",
     "tasks": "task",
     "users": "username",
+    "meta_state": "key",
 }
 
 

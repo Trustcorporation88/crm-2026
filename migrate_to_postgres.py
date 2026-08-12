@@ -81,6 +81,27 @@ CONFLICT_KEYS = {
     "role_permissions": "role, action",
     "user_preferences": "username, pref_key",
     "aci_tool_calls": "call_id",
+    # As tabelas abaixo não tinham chave de conflito declarada. Numa
+    # reexecução sem --replace, cada linha era inserida de novo, duplicando
+    # silenciosamente todo o histórico append-only.
+    "interactions": "id",
+    "audit_log": "id",
+    "webhook_events": "id",
+    "refresh_tokens": "token_id",
+    "auth_throttle": "subject, endpoint",
+    "aci_connections": "connection_id",
+    "aci_policies": "policy_id",
+    "cadences": "cadence_id",
+    "cadence_steps": "step_id",
+    "cadence_enrollments": "enrollment_id",
+    "cadence_actions": "action_id",
+    "lead_scoring_rules": "rule_id",
+    "lead_scores": "customer_id",
+    "message_templates": "template_id",
+    "health_snapshots": "snapshot_id",
+    # meta_state fica de fora de propósito: é apenas o carimbo de versão dos
+    # dados, regenerado na primeira escrita após a migração. Migrá-lo não traz
+    # ganho e o deixaria fora de TABLE_ORDER, quebrando o invariante testado.
 }
 
 BATCH_SIZE = 500
@@ -219,7 +240,14 @@ def truncate_all(pg_conn: Any, tables: Iterable[str]) -> None:
         return
     with pg_conn.cursor() as cursor:
         cursor.execute(f"TRUNCATE {', '.join(targets)} RESTART IDENTITY CASCADE")
-    pg_conn.commit()
+    # Sem commit aqui de propósito.
+    #
+    # Antes esta função confirmava o TRUNCATE imediatamente. Se a cópia
+    # seguinte falhasse (queda de rede, erro de tipo, processo morto), o
+    # destino ficava vazio e confirmado — a origem SQLite continuava intacta,
+    # mas o Postgres tinha perdido tudo. Mantendo o TRUNCATE na mesma
+    # transação da cópia, uma falha desfaz os dois: ou a migração inteira
+    # acontece, ou nada acontece.
 
 
 def resync_sequences(pg_conn: Any, tables: Iterable[str]) -> list[str]:
@@ -338,10 +366,20 @@ def migrate(
             truncate_all(pg_conn, ordered)
 
             log("Copiando dados…")
-            for table in ordered:
-                columns, rows = plan[table]
-                copied = copy_table(pg_conn, table, columns, rows)
-                log(f"  {table:<20} {copied:>6} linhas enviadas")
+            try:
+                for table in ordered:
+                    columns, rows = plan[table]
+                    copied = copy_table(pg_conn, table, columns, rows)
+                    log(f"  {table:<20} {copied:>6} linhas enviadas")
+            except Exception as exc:
+                # O rollback devolve o destino ao estado anterior, incluindo o
+                # TRUNCATE. Vale dizer isso em voz alta: quem vê a migração
+                # falhar precisa saber que o banco não ficou pela metade.
+                pg_conn.rollback()
+                log(f"❌ Falha ao copiar '{table}': {exc}")
+                log("   Nada foi confirmado no destino — o TRUNCATE também foi desfeito.")
+                log("   A origem SQLite não foi tocada. Corrija a causa e rode de novo.")
+                raise MigrationError(f"cópia interrompida na tabela '{table}'") from exc
             pg_conn.commit()
 
             resynced = resync_sequences(pg_conn, ordered)

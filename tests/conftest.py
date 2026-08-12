@@ -136,3 +136,36 @@ def test_user():
         "password": "test_password123",
         "role": "admin"
     }
+
+
+# ---------------------------------------------------------------------------
+# Assinatura de webhook para os testes.
+#
+# As rotas /webhooks/* passaram a exigir HMAC-SHA256 sobre o corpo bruto, do
+# mesmo modo que o serviço crm_whatsapp_webhook.py sempre exigiu. Os testes
+# precisam assinar o payload exatamente como um emissor legítimo faria — daí
+# enviarem `content=` (bytes crus) em vez de `json=`: o HMAC é calculado sobre
+# os bytes que trafegam, e deixar o cliente reserializar mudaria o corpo.
+# ---------------------------------------------------------------------------
+def _assinar_webhook(corpo: bytes) -> dict[str, str]:
+    """Cabeçalho de assinatura válido para o corpo informado."""
+    import hashlib
+    import hmac as _hmac
+
+    import crm_backend
+
+    assinatura = _hmac.new(
+        key=crm_backend.get_webhook_hmac_secret().encode("utf-8"),
+        msg=corpo,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+    return {
+        "X-Hub-Signature-256": f"sha256={assinatura}",
+        "Content-Type": "application/json",
+    }
+
+
+@pytest.fixture
+def assinar_webhook():
+    """Exposto como fixture para ficar disponível sem importar o conftest."""
+    return _assinar_webhook

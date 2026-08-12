@@ -5,6 +5,7 @@ Each test here maps to a specific bug that shipped in crm_api.py and its
 supporting modules. They exist to keep those failures from silently returning.
 """
 
+import json
 import logging
 import uuid
 
@@ -43,15 +44,16 @@ class TestRequestBodySurvivesMiddleware:
     body. Every POST/PUT/PATCH route was effectively broken.
     """
 
-    def test_post_body_reaches_endpoint(self):
+    def test_post_body_reaches_endpoint(self, assinar_webhook):
+        corpo = json.dumps({
+            "event_type": "message_received",
+            "channel": "whatsapp",
+            "source_id": "customer_42",
+            "payload": {"message": "body must survive the middleware"},
+        }).encode("utf-8")
+
         response = client.post(
-            "/webhooks/whatsapp",
-            json={
-                "event_type": "message_received",
-                "channel": "whatsapp",
-                "source_id": "customer_42",
-                "payload": {"message": "body must survive the middleware"},
-            },
+            "/webhooks/whatsapp", content=corpo, headers=assinar_webhook(corpo)
         )
         assert response.status_code == 200
         # A truncated body would have produced a 422 from model validation.
