@@ -21,7 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        # Referência mutável numa ação de segurança é risco de cadeia de suprimentos.
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -56,19 +57,29 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-prod.txt -r web_requirements.txt
-          pip install pylint black ruff
-      
+          # web_requirements.txt já referencia requirements.txt e -prod.
+          pip install -r web_requirements.txt
+          # Versão fixa: o conjunto de regras padrão do ruff muda entre
+          # versões, e com o gate bloqueando isso faria o mesmo código passar
+          # ou falhar conforme o dia. As regras em uso estão em ruff.toml.
+          pip install pylint black 'ruff==0.16.2'
+
+      # Os passos abaixo eram decorativos: --exit-zero e "|| true" garantiam
+      # sucesso mesmo com erro de lint ou achado de segurança. Como o build
+      # depende deste job, e o deploy depende do build, nada jamais barrava
+      # uma publicação.
       - name: Lint with Ruff
-        run: ruff check . --exit-zero
-      
+        run: ruff check .
+
+      # Black ainda não roda no repositório inteiro sem reformatar muita
+      # coisa; até lá, reporta sem bloquear. Aqui é escolha consciente.
       - name: Format check with Black
-        run: black --check . --diff || true
-      
+        run: black --check . --diff || echo "::warning::formatação fora do padrão Black"
+
       - name: Security check with Bandit
         run: |
           pip install bandit
-          bandit -r . -ll -i || true
+          bandit -r . -ll -i --exclude ./tests
 
   # Job 3: Unit Tests
   test:
@@ -88,16 +99,6 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
 
     steps:
       - uses: actions/checkout@v4
@@ -118,12 +119,23 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-prod.txt -r web_requirements.txt
+          # web_requirements.txt já referencia requirements.txt e -prod.
+          pip install -r web_requirements.txt
       
+      # DATABASE_URL NÃO é definida aqui, de propósito.
+      #
+      # Defini-la faz crm_db.is_postgres() virar True e joga a suíte inteira
+      # para o Postgres — um caminho que nunca foi validado. A suíte foi
+      # escrita e verificada sobre SQLite, que é o padrão quando a variável
+      # está ausente.
+      #
+      # Os testes que exercitam o Postgres de verdade (a migração) usam uma
+      # variável própria, TEST_PG_URL, e se pulam sozinhos sem ela. Apontá-la
+      # para o serviço do CI é o que finalmente os coloca para rodar — antes
+      # o Postgres subia a cada execução e ninguém o usava.
       - name: Run tests with pytest
         env:
-          DATABASE_URL: postgresql://crm_admin:test123@localhost:5432/crm_test
-          REDIS_URL: redis://localhost:6379/0
+          TEST_PG_URL: postgresql://crm_admin:test123@localhost:5432/crm_test
         run: |
           pip install pytest pytest-asyncio pytest-cov
           pytest tests/ -v --cov=. --cov-report=xml --cov-report=html
@@ -143,13 +155,13 @@ jobs:
       contents: read
       packages: write
     
+    # O serviço "api" (crm_api.py) foi aposentado e o Dockerfile.api removido.
+    # Manter a entrada aqui faria o build falhar em todo push.
     strategy:
       matrix:
         include:
           - image: streamlit
             dockerfile: Dockerfile
-          - image: api
-            dockerfile: Dockerfile.api
 
     steps:
       - uses: actions/checkout@v4
@@ -209,12 +221,24 @@ jobs:
           ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
           
           ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+            set -e
             cd /opt/crm-2026
+
+            # O backup precisa vir ANTES de subir a versão nova. Antes era
+            # tirado depois do "docker-compose up -d", capturando o estado já
+            # produzido pelo código novo — inútil como ponto de retorno se
+            # justamente o código novo corrompesse algo.
+            mkdir -p backups
+            docker-compose exec -T postgres pg_dump -U crm_admin crm_db \
+              > backups/pre-deploy-$(date +%s).sql
+            echo "✅ Backup pré-deploy concluído"
+
+            git rev-parse HEAD > .last-deployed-sha
             git pull origin main
             docker-compose pull
             docker-compose up -d
-            docker-compose exec -T postgres pg_dump -U crm_admin crm_db > backups/pre-deploy-$(date +%s).sql
             echo "✅ Deployment successful"
+            echo "   Rollback: git checkout $(cat .last-deployed-sha) && docker-compose up -d"
           EOF
 
   # Job 6: Smoke Tests (post-deploy)
@@ -256,10 +280,16 @@ jobs:
           echo "❌ API health check failed"
           exit 1
       
+      # Apontava para tests/integration/, diretório que não existe no
+      # repositório — o passo falhava em todo deploy.
       - name: Run integration tests
         run: |
           pip install httpx pytest
-          pytest tests/integration/ -v
+          if [ -d tests/integration ]; then
+            pytest tests/integration/ -v
+          else
+            echo "::notice::sem suíte de integração dedicada; os testes de fumaça acima cobrem o deploy"
+          fi
 
   # Job 7: Notify Slack
   notify:
