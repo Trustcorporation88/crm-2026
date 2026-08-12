@@ -1471,3 +1471,21 @@ def queue_position_label(index: int, total: int) -> str:
         return "Fila vazia"
     current = min(max(index + 1, 1), total)
     return f"Tarefa {current} de {total}"
+
+
+# Chave usada nas linhas de auth_throttle originadas da tela de login.
+LOGIN_ENDPOINT = "streamlit/login"
+
+
+def login_throttle_subject(username: str | None) -> str:
+    """Identifica quem está tentando entrar, para efeito de throttle.
+
+    Usa o nome informado, normalizado. Quando o campo vem vazio, cai num
+    rótulo fixo para que rajadas de submissões em branco também sejam
+    contabilizadas em vez de escaparem do controle.
+
+    Mora aqui, e não em crm_app.py, porque crm_app só é importável dentro do
+    runtime do Streamlit — o que deixaria esta função sem teste unitário.
+    """
+    normalized = (username or "").strip().lower()
+    return f"user:{normalized}" if normalized else "user:<vazio>"

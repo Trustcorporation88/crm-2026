@@ -49,16 +49,43 @@ class TestGateDoLoginDeDemonstracao:
         assert crm_ux.demo_login_enabled() is False
 
 
+def _forcar_senha_fraca(backend, username: str, senha: str) -> None:
+    """Grava direto no banco uma senha fraca, simulando instalação legada.
+
+    Instalações criadas antes do endurecimento nasceram com admin/admin123 e
+    continuam assim até alguém trocar. É esse estado que a detecção precisa
+    enxergar — e ele não é mais produzido pelo seed, então o teste o constrói.
+    """
+    hash_fraco = backend.hash_password(senha)
+    with backend._connect() as connection:
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (hash_fraco, username),
+        )
+        connection.commit()
+
+
 class TestSenhaPadrao:
     """Senha padrão publicada é acesso aberto — precisa ser detectada."""
 
-    def test_base_recem_criada_sinaliza_contas_padrao(self, backend):
+    def test_instalacao_nova_nao_nasce_com_senha_publica(self, backend):
+        """A correção em si: seed novo não pode cair numa senha conhecida."""
+        assert backend.uses_default_password("admin") is False
+        assert backend.accounts_with_default_password() == []
+
+    def test_instalacao_legada_e_sinalizada(self, backend):
+        _forcar_senha_fraca(backend, "admin", "admin123")
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+
         assert backend.uses_default_password("admin") is True
         sinalizadas = backend.accounts_with_default_password()
         assert "admin" in sinalizadas
         assert "vendas" in sinalizadas
 
     def test_trocar_a_senha_remove_do_alerta(self, backend):
+        _forcar_senha_fraca(backend, "admin", "admin123")
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+
         backend.change_own_password(
             {"username": "admin", "role": "admin"},
             "admin123",
@@ -81,6 +108,26 @@ class TestSenhaSemente:
         monkeypatch.setenv("CRM_SEED_PASSWORD_ADMIN", "definida-no-deploy")
         assert backend.seed_password_for("admin") == "definida-no-deploy"
 
-    def test_sem_variavel_cai_no_padrao(self, backend, monkeypatch):
+    def test_sem_variavel_gera_senha_aleatoria(self, backend, monkeypatch):
+        """Sem variável definida, a senha inicial não pode ser previsível.
+
+        Antes esta função devolvia "admin123", e o teste anterior fixava esse
+        retorno — ou seja, protegia a vulnerabilidade contra correção.
+        """
         monkeypatch.delenv("CRM_SEED_PASSWORD_ADMIN", raising=False)
-        assert backend.seed_password_for("admin") == "admin123"
+        backend._GENERATED_SEED_PASSWORDS.clear()
+
+        senha = backend.seed_password_for("admin")
+
+        assert senha not in backend.KNOWN_WEAK_SEED_PASSWORDS.values()
+        assert len(senha) >= 20
+        # Estável dentro do mesmo processo: caso contrário o hash gravado no
+        # seed não corresponderia à senha informada ao operador no log.
+        assert backend.seed_password_for("admin") == senha
+
+    def test_senhas_geradas_diferem_entre_contas(self, backend, monkeypatch):
+        for conta in ("admin", "vendas"):
+            monkeypatch.delenv(f"CRM_SEED_PASSWORD_{conta.upper()}", raising=False)
+        backend._GENERATED_SEED_PASSWORDS.clear()
+
+        assert backend.seed_password_for("admin") != backend.seed_password_for("vendas")
