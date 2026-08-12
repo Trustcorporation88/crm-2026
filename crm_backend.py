@@ -56,6 +56,7 @@ ACTIONS = [
     "audit.view",
     "webhook.ingest",
     "rbac.manage",
+    "user.manage",
     "aci.connect",
     "aci.tools.read",
     "aci.tools.execute",
@@ -1107,6 +1108,94 @@ def _migrate_refresh_tokens_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+TABELAS_COM_DONO = ("customers", "tickets", "deals", "tasks")
+
+
+def _migrate_owner_username(connection: sqlite3.Connection) -> None:
+    """Cria a coluna que liga o registro ao LOGIN do responsável.
+
+    Por que existir uma segunda coluna, em vez de simplesmente passar `owner`
+    a guardar o login:
+
+    `owner` é exibido direto em cerca de dez telas e num editor de tabela do
+    Streamlit que não aceita função de formatação. Guardar o login ali faria a
+    interface mostrar "vendas" onde hoje se lê "Rafael Nogueira" — pior para
+    quem usa, e sem ganho para quem mantém.
+
+    Então a divisão é: `owner` continua sendo o rótulo humano, e
+    `owner_username` é a chave estável usada por controle de acesso. Renomear
+    uma pessoa altera o rótulo em todos os registros e não toca na chave — que
+    é exatamente o problema que esta coluna resolve.
+
+    O preço da duplicação é o risco de as duas divergirem. Ele é contido por
+    haver um único ponto de escrita (`_definir_responsavel`) e por um teste que
+    varre o banco exigindo que nenhuma linha discorde.
+    """
+    for tabela in TABELAS_COM_DONO:
+        colunas = _table_columns(connection, tabela)
+        if not colunas or "owner" not in colunas:
+            continue
+        if "owner_username" not in colunas:
+            connection.execute(
+                f"ALTER TABLE {_safe_identifier(tabela)} "
+                "ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''"
+            )
+            connection.commit()
+
+        # Preenche o que estiver vazio casando pelo nome completo. É o único
+        # vínculo disponível nos dados antigos; a partir daqui, deixa de ser.
+        connection.execute(
+            f"""
+            UPDATE {_safe_identifier(tabela)}
+            SET owner_username = COALESCE(
+                (SELECT u.username FROM users u WHERE u.full_name = {_safe_identifier(tabela)}.owner),
+                ''
+            )
+            WHERE owner_username = '' AND owner IS NOT NULL AND owner <> ''
+            """
+        )
+        connection.commit()
+
+
+def _resolver_username_do_responsavel(connection: Any, nome_ou_login: str) -> tuple[str, str]:
+    """Devolve (nome_exibido, login) para um responsável informado.
+
+    Aceita tanto o nome completo (que é o que as telas enviam) quanto o login,
+    porque chamadas de API e automações usam um ou outro. Um responsável que
+    não corresponda a nenhuma conta é recusado: registro sem dono identificável
+    fica invisível para todos assim que a visibilidade por login entra em jogo.
+    """
+    valor = str(nome_ou_login or "").strip()
+    if not valor:
+        return "", ""
+
+    linha = connection.execute(
+        "SELECT username, full_name FROM users WHERE full_name = ? OR username = ? LIMIT 1",
+        (valor, valor),
+    ).fetchone()
+    if linha is None:
+        raise ValueError(
+            f"Responsável '{valor}' não corresponde a nenhuma conta de usuário"
+        )
+    return str(linha["full_name"]), str(linha["username"])
+
+
+def _definir_responsavel(connection: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Normaliza o responsável de um payload, preenchendo as duas colunas.
+
+    Ponto único de escrita da dupla owner/owner_username — ver a explicação em
+    `_migrate_owner_username`.
+    """
+    if "owner" not in payload:
+        return payload
+
+    nome, login = _resolver_username_do_responsavel(connection, payload.get("owner", ""))
+    ajustado = dict(payload)
+    ajustado["owner"] = nome
+    ajustado["owner_username"] = login
+    return ajustado
+
+
 def _migrate_customers_schema(connection: sqlite3.Connection) -> None:
     """Adiciona CPF/CNPJ e telefone da conta.
 
@@ -1201,6 +1290,7 @@ def init_database() -> str:
             _migrate_refresh_tokens_schema(connection)
             _migrate_auth_throttle_schema(connection)
             _migrate_customers_schema(connection)
+            _migrate_owner_username(connection)
             _migrate_tasks_schema(connection)
             _migrate_deals_schema(connection)
     except sqlite3.OperationalError as exc:
@@ -1253,11 +1343,15 @@ def ve_tudo(actor: dict[str, Any] | None) -> bool:
     return str(actor.get("role", "")) in PAPEIS_COM_VISAO_TOTAL
 
 
-def pode_ver_registro(actor: dict[str, Any] | None, owner: Any) -> bool:
-    """Diz se o ator pode ver um registro pertencente a ``owner``."""
+def pode_ver_registro(actor: dict[str, Any] | None, owner_username: Any) -> bool:
+    """Diz se o ator pode ver um registro cujo responsável é ``owner_username``.
+
+    A comparação é por LOGIN, não por nome. O login não muda; o nome sim — e
+    quando mudava, a pessoa perdia acesso aos próprios registros.
+    """
     if ve_tudo(actor):
         return True
-    return str(owner or "").strip() == str(actor.get("full_name", "")).strip()
+    return str(owner_username or "").strip() == str(actor.get("username", "")).strip()
 
 
 def aplicar_visibilidade(data: dict[str, Any], actor: dict[str, Any] | None) -> dict[str, Any]:
@@ -1282,14 +1376,14 @@ def aplicar_visibilidade(data: dict[str, Any], actor: dict[str, Any] | None) -> 
     if ve_tudo(actor):
         return data
 
-    nome = str(actor.get("full_name", "")).strip()
+    login = str(actor.get("username", "")).strip()
     filtrado = dict(data)
 
     for tabela in _TABELAS_COM_DONO:
         df = filtrado.get(tabela)
-        if df is None or df.empty or "owner" not in df.columns:
+        if df is None or df.empty or "owner_username" not in df.columns:
             continue
-        filtrado[tabela] = df[df["owner"].fillna("").str.strip() == nome]
+        filtrado[tabela] = df[df["owner_username"].fillna("").str.strip() == login]
 
     clientes = filtrado.get("customers")
     interacoes = filtrado.get("interactions")
@@ -2443,10 +2537,14 @@ def update_entity(
         # registro. Não diz que pode editar ESTE registro. Sem a checagem
         # abaixo, um vendedor com "customer.update" alteraria a carteira de
         # qualquer colega — a leitura estaria restrita e a escrita, não.
-        if not pode_ver_registro(resolved_actor, before.get("owner")):
+        if not pode_ver_registro(resolved_actor, before.get("owner_username")):
             raise PermissionError(
                 f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
             )
+        # Trocar o responsável precisa mover as duas colunas juntas.
+        if "owner" in normalized:
+            normalized = _definir_responsavel(connection, normalized)
+
         valid_columns = set(before.keys()) - {pk}
         filtered_updates = {key: value for key, value in normalized.items() if key in valid_columns}
         if not filtered_updates:
@@ -2493,7 +2591,7 @@ def delete_entity(
         before = _get_entity_row(connection, entity_type, entity_id)
         if before is None:
             raise ValueError(f"{entity_type} {entity_id} not found")
-        if not pode_ver_registro(resolved_actor, before.get("owner")):
+        if not pode_ver_registro(resolved_actor, before.get("owner_username")):
             raise PermissionError(
                 f"{resolved_actor['username']} não é responsável por {entity_type} {entity_id}"
             )
@@ -2516,6 +2614,240 @@ def delete_entity(
         source,
     )
     return before
+
+
+# ---------------------------------------------------------------------------
+# Gestão de usuários
+#
+# Até aqui o sistema não tinha como criar uma conta. Os usuários nasciam uma
+# única vez, no seed, quando o banco era criado do zero — e não havia décima
+# conta possível. Quem perdia a senha também não tinha para onde recorrer.
+# ---------------------------------------------------------------------------
+
+TAMANHO_MINIMO_DE_SENHA = 8
+
+
+def _validar_login(username: str) -> str:
+    """Normaliza e valida o login.
+
+    Restringe a identificador simples porque o login circula em cabeçalho HTTP,
+    em chave de throttle e em nome de variável de ambiente
+    (CRM_SEED_PASSWORD_<LOGIN>). Aceitar espaço ou acento aqui geraria
+    comportamento diferente em cada um desses lugares.
+    """
+    valor = str(username or "").strip().lower()
+    if not valor:
+        raise ValueError("Login é obrigatório")
+    if not valor.isascii() or not valor.replace("_", "").replace("-", "").isalnum():
+        raise ValueError(
+            "Login deve conter apenas letras, números, hífen ou sublinhado, sem acento"
+        )
+    if len(valor) > 40:
+        raise ValueError("Login deve ter no máximo 40 caracteres")
+    return valor
+
+
+def _validar_senha(password: str) -> str:
+    valor = str(password or "")
+    if len(valor) < TAMANHO_MINIMO_DE_SENHA:
+        raise ValueError(f"A senha precisa ter ao menos {TAMANHO_MINIMO_DE_SENHA} caracteres")
+    return valor
+
+
+def _contar_admins_ativos(connection: Any, exceto: str = "") -> int:
+    return int(
+        connection.execute(
+            "SELECT COUNT(*) AS t FROM users WHERE role = 'admin' AND is_active = 1 AND username <> ?",
+            (exceto,),
+        ).fetchone()["t"]
+    )
+
+
+def create_user(
+    username: str,
+    full_name: str,
+    role: str,
+    password: str,
+    actor: dict[str, str] | None = None,
+    is_active: bool = True,
+) -> dict[str, Any]:
+    """Cria uma conta de acesso."""
+    resolved_actor = _ensure_permission(actor, "user.manage")
+
+    login = _validar_login(username)
+    nome = str(full_name or "").strip()
+    papel = str(role or "").strip()
+    senha = _validar_senha(password)
+
+    if not nome:
+        raise ValueError("Nome completo é obrigatório")
+    if papel not in DEFAULT_ROLE_PERMISSIONS:
+        raise ValueError(f"Papel desconhecido: {papel}")
+
+    with _connect() as connection:
+        if connection.execute(
+            "SELECT 1 FROM users WHERE username = ?", (login,)
+        ).fetchone():
+            raise ValueError(f"Já existe uma conta com o login '{login}'")
+
+        # Nome completo precisa ser único: é ele que aparece como responsável
+        # nas telas, e é por ele que registros antigos foram vinculados.
+        if connection.execute(
+            "SELECT 1 FROM users WHERE full_name = ?", (nome,)
+        ).fetchone():
+            raise ValueError(f"Já existe uma conta com o nome '{nome}'")
+
+        connection.execute(
+            "INSERT INTO users (username, full_name, role, password_hash, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (login, nome, papel, hash_password(senha), 1 if is_active else 0),
+        )
+        log_audit_event(
+            resolved_actor,
+            "user.create",
+            "user",
+            login,
+            {"full_name": nome, "role": papel, "is_active": bool(is_active)},
+            "admin-ui",
+            connection=connection,
+        )
+        connection.commit()
+
+    return {"username": login, "full_name": nome, "role": papel, "is_active": is_active}
+
+
+def update_user(
+    username: str,
+    full_name: str | None = None,
+    role: str | None = None,
+    is_active: bool | None = None,
+    actor: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Altera nome, papel ou situação de uma conta.
+
+    Renomear é seguro: a posse dos registros é ligada pelo login, não pelo
+    nome. O rótulo exibido nas tabelas é atualizado junto, na mesma transação,
+    para que as telas não fiquem mostrando o nome antigo.
+    """
+    resolved_actor = _ensure_permission(actor, "user.manage")
+    login = _validar_login(username)
+
+    with _connect() as connection:
+        antes = connection.execute(
+            "SELECT username, full_name, role, is_active FROM users WHERE username = ?",
+            (login,),
+        ).fetchone()
+        if antes is None:
+            raise ValueError(f"Conta '{login}' não encontrada")
+
+        novo_nome = str(full_name).strip() if full_name is not None else str(antes["full_name"])
+        novo_papel = str(role).strip() if role is not None else str(antes["role"])
+        nova_situacao = int(antes["is_active"]) if is_active is None else int(bool(is_active))
+
+        if not novo_nome:
+            raise ValueError("Nome completo é obrigatório")
+        if novo_papel not in DEFAULT_ROLE_PERMISSIONS:
+            raise ValueError(f"Papel desconhecido: {novo_papel}")
+
+        if novo_nome != antes["full_name"] and connection.execute(
+            "SELECT 1 FROM users WHERE full_name = ? AND username <> ?", (novo_nome, login)
+        ).fetchone():
+            raise ValueError(f"Já existe uma conta com o nome '{novo_nome}'")
+
+        # Trava contra ficar sem administrador. Sem ela, um clique desliga a
+        # última conta capaz de gerir contas — e não há como voltar pela
+        # interface.
+        virou_nao_admin = antes["role"] == "admin" and (novo_papel != "admin" or not nova_situacao)
+        if virou_nao_admin and _contar_admins_ativos(connection, exceto=login) == 0:
+            raise ValueError(
+                "Esta é a última conta de administrador ativa. "
+                "Promova outra pessoa antes de rebaixar ou desativar esta."
+            )
+
+        connection.execute(
+            "UPDATE users SET full_name = ?, role = ?, is_active = ? WHERE username = ?",
+            (novo_nome, novo_papel, nova_situacao, login),
+        )
+
+        # Mantém o rótulo de responsável coerente nas tabelas de negócio.
+        if novo_nome != antes["full_name"]:
+            for tabela in TABELAS_COM_DONO:
+                connection.execute(
+                    f"UPDATE {_safe_identifier(tabela)} SET owner = ? WHERE owner_username = ?",
+                    (novo_nome, login),
+                )
+
+        log_audit_event(
+            resolved_actor,
+            "user.update",
+            "user",
+            login,
+            {
+                "antes": {k: antes[k] for k in ("full_name", "role", "is_active")},
+                "depois": {"full_name": novo_nome, "role": novo_papel, "is_active": nova_situacao},
+            },
+            "admin-ui",
+            connection=connection,
+        )
+        connection.commit()
+
+    return {
+        "username": login,
+        "full_name": novo_nome,
+        "role": novo_papel,
+        "is_active": bool(nova_situacao),
+    }
+
+
+def reset_user_password(
+    username: str, new_password: str, actor: dict[str, str] | None = None
+) -> None:
+    """Define uma senha nova para outra conta, sem exigir a senha atual.
+
+    É o caminho para quem perdeu a própria senha. Diferente de
+    `change_own_password`, exige permissão de gestão de usuários — e todas as
+    sessões da pessoa são encerradas, porque uma troca de senha administrativa
+    costuma significar que o acesso anterior não é mais confiável.
+    """
+    resolved_actor = _ensure_permission(actor, "user.manage")
+    login = _validar_login(username)
+    senha = _validar_senha(new_password)
+
+    with _connect() as connection:
+        if connection.execute("SELECT 1 FROM users WHERE username = ?", (login,)).fetchone() is None:
+            raise ValueError(f"Conta '{login}' não encontrada")
+
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (hash_password(senha), login),
+        )
+        log_audit_event(
+            resolved_actor,
+            "user.password_reset",
+            "user",
+            login,
+            {"por": resolved_actor["username"]},
+            "admin-ui",
+            connection=connection,
+        )
+        connection.commit()
+
+    # Fora da transação: revogar sessões abre a sua própria conexão.
+    try:
+        revoke_all_refresh_tokens_for_user(login, actor=resolved_actor)
+    except Exception:
+        # A senha já foi trocada; falhar aqui não deve desfazer isso. O pior
+        # caso é uma sessão antiga sobreviver até expirar sozinha.
+        pass
+
+
+def list_users() -> list[dict[str, Any]]:
+    """Contas cadastradas, para a tela de administração."""
+    with _connect() as connection:
+        linhas = connection.execute(
+            "SELECT username, full_name, role, is_active FROM users ORDER BY full_name"
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
 
 
 def update_role_permissions(role: str, actions: list[str], actor: dict[str, str] | None, source: str = "admin-ui") -> None:
@@ -2551,14 +2883,15 @@ def update_role_permissions(role: str, actions: list[str], actor: dict[str, str]
 def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:
     resolved_actor = _ensure_permission(actor, "customer.create")
     with _connect() as connection:
+        payload = _definir_responsavel(connection, payload)
         customer_id = _next_code(connection, "customers", "customer_id", "C")
         connection.execute(
             """
             INSERT INTO customers (
-                customer_id, name, segment, city, country, owner, status,
+                customer_id, name, segment, city, country, owner, owner_username, status,
                 health_score, lifetime_value, last_purchase, channel, next_action, source,
                 document, phone
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
@@ -2567,6 +2900,7 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
                 payload["city"],
                 payload["country"],
                 payload["owner"],
+                payload["owner_username"],
                 payload.get("status", "Novo"),
                 int(payload.get("health_score", 70)),
                 float(payload.get("lifetime_value", 0)),
@@ -2615,13 +2949,14 @@ def add_customer(payload: dict[str, Any], actor: dict[str, str] | None = None, s
 def add_ticket(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:
     resolved_actor = _ensure_permission(actor, "ticket.create")
     with _connect() as connection:
+        payload = _definir_responsavel(connection, payload)
         ticket_id = _next_code(connection, "tickets", "ticket_id", "T-")
         connection.execute(
             """
             INSERT INTO tickets (
-                ticket_id, customer_id, subject, channel, status, priority, owner,
+                ticket_id, customer_id, subject, channel, status, priority, owner, owner_username,
                 sla_hours, age_hours, csat, category, opened_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ticket_id,
@@ -2631,6 +2966,7 @@ def add_ticket(payload: dict[str, Any], actor: dict[str, str] | None = None, sou
                 payload.get("status", "Novo"),
                 payload["priority"],
                 payload["owner"],
+                payload["owner_username"],
                 int(payload.get("sla_hours", 8)),
                 int(payload.get("age_hours", 0)),
                 float(payload.get("csat", 0.0)),
@@ -2670,12 +3006,14 @@ def add_ticket(payload: dict[str, Any], actor: dict[str, str] | None = None, sou
 def add_deal(payload: dict[str, Any], actor: dict[str, str] | None = None, source: str = "ui") -> str:
     resolved_actor = _ensure_permission(actor, "deal.create")
     with _connect() as connection:
+        payload = _definir_responsavel(connection, payload)
         deal_id = _next_code(connection, "deals", "deal_id", "D-")
         connection.execute(
             """
             INSERT INTO deals (
-                deal_id, customer_id, name, stage, value, probability, owner, close_date, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                deal_id, customer_id, name, stage, value, probability, owner, owner_username,
+                close_date, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 deal_id,
@@ -2685,6 +3023,7 @@ def add_deal(payload: dict[str, Any], actor: dict[str, str] | None = None, sourc
                 float(payload["value"]),
                 int(payload["probability"]),
                 payload["owner"],
+                payload["owner_username"],
                 payload["close_date"],
                 payload["source"],
             ),
@@ -3008,7 +3347,10 @@ def bulk_import_customers(
                     "segment": linha.get("segment") or "Nao informado",
                     "city": linha.get("city") or "Nao informado",
                     "country": linha.get("country") or "Brasil",
-                    "owner": linha.get("owner") or resolved_actor["full_name"],
+                    # Cai no LOGIN de quem importou, não no nome exibido: o
+                    # login é sempre uma conta real, enquanto o nome vem do
+                    # dicionário do chamador e pode não corresponder a ninguém.
+                    "owner": linha.get("owner") or resolved_actor["username"],
                     "status": linha.get("status") or "Novo",
                     "document": linha.get("document", ""),
                     "phone": linha.get("phone", ""),
