@@ -1,8 +1,17 @@
+# Deploy do CRM no Railway. Guia completo em docs/DEPLOY-RAILWAY.md.
+#
+# O banco NÃO está aqui: é um Postgres gerenciado no Supabase, ligado pela
+# variável DATABASE_URL nas Variables do serviço. Sem ela, o app cai no SQLite
+# do contêiner — que some a cada deploy.
+
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Endpoint interno do Streamlit: confirma que o processo web responde, e não
+# que o banco está acessível. Uma instância sem banco passa aqui e falha na
+# primeira tela.
 healthcheckPath = "/_stcore/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

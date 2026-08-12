@@ -53,10 +53,22 @@ Saíram também os quatro módulos que existiam só para servir ao `crm_api.py`:
 SQLite por padrão; Postgres quando `DATABASE_URL` está definida. A tradução
 entre os dialetos fica em `crm_db.py`.
 
-**Atenção ao ambiente:** no plano free da Render não há disco persistente, e o
-SQLite vive no sistema de arquivos efêmero do contêiner — todo restart apaga a
-base. Use `DATABASE_URL` apontando para um Postgres gerenciado, ou um disco
-persistente no plano pago. O `render.yaml` documenta as duas opções.
+**Em produção hoje:** aplicação no **Railway**, banco no **Supabase**
+(Postgres gerenciado). Ver [`DEPLOY-RAILWAY.md`](DEPLOY-RAILWAY.md).
+
+A Render foi abandonada e seus arquivos (`render.yaml`, guia de deploy,
+exemplo de variáveis) removidos do repositório.
+
+**Uma consequência de ter banco persistente:** as contas iniciais são criadas
+**uma única vez**, no primeiro arranque de um banco vazio. Definir
+`CRM_SEED_PASSWORD_*` depois disso não altera senha de quem já existe. Para
+gerir contas, use Administração → «Contas de acesso»; se ninguém souber a
+senha do `admin`, há uma receita de redefinição direta no banco em
+[`DEPLOY-RAILWAY.md`](DEPLOY-RAILWAY.md).
+
+**Ressalva importante:** a suíte de testes roda em SQLite. O caminho Postgres
+é exercitado em produção, mas não pelos testes — divergência entre os dois
+dialetos aparece em produção antes de aparecer no CI.
 
 ### Formatos de data convivendo
 
@@ -191,8 +203,8 @@ Registrada aqui para não virar surpresa:
 
 ## Documentos vizinhos
 
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) — deploy com Docker
-- [`DEPLOY-RENDER.md`](DEPLOY-RENDER.md) — deploy na Render
+- [`DEPLOY-RAILWAY.md`](DEPLOY-RAILWAY.md) — deploy em uso: Railway + Supabase
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — Docker local
 - [`MIGRACAO-POSTGRES.md`](MIGRACAO-POSTGRES.md) — migração de SQLite para Postgres
 - [`CODE-AUDIT.md`](CODE-AUDIT.md) — auditoria anterior da camada de API
 - [`historico/`](historico/) — documentos preservados, não confiáveis como descrição do presente

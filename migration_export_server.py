@@ -1,4 +1,11 @@
-"""One-shot SQLite export for Render → Railway migration.
+"""Exportação pontual do SQLite, para migrar de um hospedeiro para outro.
+
+ATENÇÃO: enquanto roda, este servidor SUBSTITUI o CRM e publica o banco
+inteiro em GET /export?token=... Foi assim que o banco ficou exposto — o modo
+estava ligado em arquivo de deploy versionado, junto com o token.
+
+Não ligue por variável de ambiente em arquivo de configuração. Se precisar
+exportar, rode explicitamente, com token novo, e desligue ao terminar.
 
 Set CRM_MIGRATION_TOKEN and run on PORT (replaces Streamlit temporarily):
   CRM_MIGRATION_TOKEN=... python migration_export_server.py
