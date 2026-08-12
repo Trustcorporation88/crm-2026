@@ -34,8 +34,8 @@ python -m pytest
 | Documento | Para quê |
 |---|---|
 | **[docs/ESTADO-ATUAL.md](docs/ESTADO-ATUAL.md)** | **O que o sistema faz hoje — comece por aqui** |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deploy com Docker |
-| [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md) | Deploy na Render |
+| [docs/DEPLOY-RAILWAY.md](docs/DEPLOY-RAILWAY.md) | **Deploy em uso: Railway + Supabase** |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker local |
 | [docs/MIGRACAO-POSTGRES.md](docs/MIGRACAO-POSTGRES.md) | Migrar de SQLite para Postgres |
 | [docs/CODE-AUDIT.md](docs/CODE-AUDIT.md) | Auditoria da camada de API |
 | [docs/historico/](docs/historico/) | Documentos antigos, preservados como registro |
