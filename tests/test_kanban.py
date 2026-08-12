@@ -111,7 +111,7 @@ class TestMudancaDeEtapaNoBanco:
                 "stage": "Descoberta",
                 "value": 5_000,
                 "probability": 30,
-                "owner": "Admin Teste",
+                "owner": "admin",
                 "close_date": "2026-12-01",
                 "source": "Outbound",
             },

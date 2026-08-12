@@ -74,6 +74,8 @@ Os dados existentes não foram convertidos. `crm_backend.normalize_timestamp()`
 - Funil comercial com kanban e previsão ponderada
 - Linha do tempo por cliente e registro de auditoria de toda escrita
 - Papéis e permissões (RBAC), com bloqueio progressivo de tentativas de login
+- Gestão de contas de acesso: criar, editar papel, ativar/desativar e
+  redefinir senha, em Administração → «Contas de acesso»
 - Visibilidade por login: administrador vê a base inteira, os demais papéis
   veem apenas os registros sob sua responsabilidade
 - Recebimento de webhook do WhatsApp com validação HMAC
@@ -102,6 +104,25 @@ negócio. A regra passou a ser:
 | `admin` | A base inteira |
 | Demais papéis | Apenas os registros onde é o responsável |
 | Chamada interna (automação, webhook, migração) | A base inteira — não tem dono |
+
+#### Como a posse é ligada
+
+A coluna `owner` guarda o **nome exibido**; a coluna `owner_username` guarda o
+**login**, e é ela que o controle de acesso usa. Renomear uma pessoa troca o
+rótulo em todos os registros e não toca na chave — a pessoa continua enxergando
+o que é dela.
+
+A separação existe porque `owner` aparece direto em cerca de dez telas e num
+editor de tabela do Streamlit que não aceita função de formatação: guardar o
+login ali faria a interface mostrar "vendas" onde se lê "Rafael Nogueira".
+
+O preço é o risco de as duas colunas divergirem. Ele é contido por haver um
+único ponto de escrita (`_definir_responsavel`) e por um teste que varre o banco
+exigindo que nenhuma linha discorde.
+
+Um responsável que não corresponda a nenhuma conta é **recusado na escrita**.
+Parece rígido, mas é o que impede o problema anterior: registro sem dono
+identificável fica invisível para todo mundo.
 
 A restrição vale para **leitura e escrita**. Alterar ou apagar registro de
 outra pessoa devolve `PermissionError`, que a API traduz em HTTP 403. Esconder
@@ -159,10 +180,9 @@ Registrada aqui para não virar surpresa:
   `st.session_state`
 - `crm_backend.py` tem 101 funções num arquivo só, ainda que com fronteiras
   semânticas razoavelmente limpas
-- A posse é ligada pelo **nome completo**, não pelo login. Renomear o
-  `full_name` de alguém desliga a pessoa dos próprios registros. A correção
-  definitiva é a coluna `owner` passar a guardar `username`, o que exige mexer
-  nas telas que exibem e selecionam responsável
+- A posse mantém duas colunas (`owner` para exibir, `owner_username` para
+  controlar acesso). Funciona e é testado, mas é denormalização: o ideal seria
+  uma coluna só, com o nome resolvido na exibição
 - Valores monetários são `REAL` (ponto flutuante), não decimal
 - `brand_assets.py` guarda 171 KB de PNG em base64, contornando o `COPY *.py`
   do Dockerfile

@@ -119,6 +119,10 @@ from crm_backend import (
     data_version,
     aplicar_visibilidade,
     ve_tudo,
+    create_user,
+    update_user,
+    reset_user_password,
+    list_users,
     register_auth_failure,
     register_auth_success,
     seed_password_for,
@@ -3413,12 +3417,120 @@ elif section == "Administração":
     st.dataframe(admin_summary, width="stretch", hide_index=True)
     st.markdown("**Usuarios e perfis**")
     st.dataframe(users_df, width="stretch", hide_index=True)
+    st.caption("Para criar, editar ou redefinir senha, use o painel «Contas de acesso» abaixo.")
     st.markdown("**Permissoes por role (RBAC por acao)**")
     st.dataframe(role_permissions_df, width="stretch", hide_index=True)
     st.markdown("**Token de verificacao do webhook WhatsApp**")
     st.code(get_webhook_verify_token())
     st.caption("Use este token no GET de verificacao do provedor de webhook.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # ------------------------------------------------------------------
+    # Contas de acesso
+    #
+    # Antes deste painel não havia como criar um usuário: as contas nasciam
+    # uma única vez, no seed, quando o banco era criado do zero. Quem perdia a
+    # senha também não tinha para onde recorrer.
+    # ------------------------------------------------------------------
+    if can_manage(user["role"], "admin"):
+        st.markdown(" ")
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Contas de acesso</div>', unsafe_allow_html=True)
+
+        _contas = list_users()
+        _papeis = get_roles()
+
+        aba_nova, aba_editar, aba_senha = st.tabs(
+            ["Criar conta", "Editar conta", "Redefinir senha"]
+        )
+
+        with aba_nova:
+            with st.form("form-nova-conta"):
+                _login = st.text_input(
+                    "Login",
+                    placeholder="ex.: joao",
+                    help="Só letras, números, hífen ou sublinhado. É o identificador "
+                         "permanente da pessoa — não muda mais depois de criado.",
+                )
+                _nome = st.text_input("Nome completo", placeholder="ex.: João Pereira")
+                _papel = st.selectbox("Papel", _papeis, key="novo-papel")
+                _senha = st.text_input(
+                    "Senha inicial", type="password",
+                    help="Mínimo de 8 caracteres. Peça para a pessoa trocar no primeiro acesso.",
+                )
+                if st.form_submit_button("Criar conta", type="primary"):
+                    try:
+                        criado = create_user(
+                            username=_login, full_name=_nome, role=_papel,
+                            password=_senha, actor=user,
+                        )
+                        queue_toast(f"Conta '{criado['username']}' criada.", icon="✅")
+                        st.rerun()
+                    except (ValueError, PermissionError) as exc:
+                        st.error(str(exc))
+
+        with aba_editar:
+            if not _contas:
+                st.info("Nenhuma conta cadastrada.")
+            else:
+                _rotulos = {
+                    f"{c['full_name']} ({c['username']})": c for c in _contas
+                }
+                _escolha = st.selectbox("Conta", list(_rotulos), key="editar-conta")
+                _alvo = _rotulos[_escolha]
+
+                with st.form("form-editar-conta"):
+                    _novo_nome = st.text_input("Nome completo", value=_alvo["full_name"])
+                    _novo_papel = st.selectbox(
+                        "Papel", _papeis,
+                        index=_papeis.index(_alvo["role"]) if _alvo["role"] in _papeis else 0,
+                        key="editar-papel",
+                    )
+                    _ativa = st.checkbox("Conta ativa", value=bool(_alvo["is_active"]))
+                    st.caption(
+                        "Renomear é seguro: a posse dos registros é ligada ao login, "
+                        "não ao nome. O rótulo é atualizado nas telas automaticamente."
+                    )
+                    if st.form_submit_button("Salvar alterações", type="primary"):
+                        try:
+                            update_user(
+                                username=_alvo["username"], full_name=_novo_nome,
+                                role=_novo_papel, is_active=_ativa, actor=user,
+                            )
+                            queue_toast("Conta atualizada.", icon="✅")
+                            st.rerun()
+                        except (ValueError, PermissionError) as exc:
+                            st.error(str(exc))
+
+        with aba_senha:
+            if not _contas:
+                st.info("Nenhuma conta cadastrada.")
+            else:
+                _rotulos_senha = {
+                    f"{c['full_name']} ({c['username']})": c for c in _contas
+                }
+                _escolha_senha = st.selectbox("Conta", list(_rotulos_senha), key="senha-conta")
+                _alvo_senha = _rotulos_senha[_escolha_senha]
+
+                with st.form("form-redefinir-senha"):
+                    _nova = st.text_input("Nova senha", type="password")
+                    st.caption(
+                        "Todas as sessões ativas dessa pessoa são encerradas. "
+                        "A senha atual não é exigida — é o caminho para quem perdeu a dela."
+                    )
+                    if st.form_submit_button("Redefinir senha", type="primary"):
+                        try:
+                            reset_user_password(
+                                username=_alvo_senha["username"], new_password=_nova, actor=user,
+                            )
+                            queue_toast(
+                                f"Senha de '{_alvo_senha['username']}' redefinida.", icon="🔑"
+                            )
+                            st.rerun()
+                        except (ValueError, PermissionError) as exc:
+                            st.error(str(exc))
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     if can_manage(user["role"], "rbac"):
         st.markdown(" ")

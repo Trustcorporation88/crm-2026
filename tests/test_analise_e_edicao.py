@@ -74,7 +74,7 @@ class TestEdicaoInline:
                 "stage": "Proposta",
                 "value": 20_000,
                 "probability": 40,
-                "owner": "Admin Teste",
+                "owner": "admin",
                 "close_date": "2026-11-01",
                 "source": "Inbound",
             },

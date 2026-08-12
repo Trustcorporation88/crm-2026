@@ -52,7 +52,7 @@ class TestFecharNoBanco:
                 "stage": "Proposta",
                 "value": 40_000,
                 "probability": 50,
-                "owner": "Admin Teste",
+                "owner": "admin",
                 "close_date": "2026-12-01",
                 "source": "Inbound",
             },
