@@ -7,9 +7,12 @@
 .gitignore
 .gitattributes
 
-# Documentação: ~20 markdowns na raiz, nenhum necessário em tempo de execução.
+# Documentação: nada disso é necessário em tempo de execução.
 *.md
-SUMMARY.txt
+docs/
+
+# Código escrito mas nunca ligado ao produto — não entra na imagem.
+nao_integrado/
 
 # Testes e ferramental de desenvolvimento.
 tests/
