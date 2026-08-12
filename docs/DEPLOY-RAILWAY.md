@@ -99,10 +99,14 @@ aplicação para coletar.
 conforme o plano contratado. O repositório não tem rotina própria, apesar de
 `.env.example` documentar variáveis `BACKUP_*` que nenhum código lê.
 
-**O `keep-alive` do GitHub Actions aponta para `crm.trustcorp.com.br`.** Ele
-existia para impedir a hibernação do plano free da Render. Se o Railway não
-hiberna no seu plano, o workflow virou consumo de minutos de CI sem função —
-avalie desligá-lo.
+**Não há mais keep-alive.** Existia um workflow que pingava
+`crm.trustcorp.com.br` a cada 10 minutos para impedir a hibernação do plano
+free da Render — cerca de 140 execuções por dia. Com a saída da Render ele
+perdeu a função e foi removido.
+
+Se o plano do Railway em uso hibernar por inatividade, o caminho correto é o
+recurso de *always-on* da própria plataforma, não um agendador externo batendo
+na porta a cada dez minutos.
 
 ## Docker local
 
