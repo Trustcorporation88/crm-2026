@@ -71,6 +71,26 @@ class NotFoundError(CRMException):
             status_code=404
         )
 
+class NotImplementedEndpoint(CRMException):
+    """Rota declarada mas ainda sem implementação real.
+
+    Existe para que um endpoint incompleto responda 501 em vez de devolver
+    200 com um corpo sintético. Um cliente que recebe 200 assume que a
+    operação aconteceu; foi exatamente assim que PUT/DELETE de clientes
+    passaram muito tempo "funcionando" sem gravar nada.
+    """
+
+    def __init__(self, endpoint: str):
+        super().__init__(
+            code="NOT_IMPLEMENTED",
+            message=(
+                f"O endpoint '{endpoint}' ainda não foi implementado. "
+                "Ele responde 501 de propósito, para não simular sucesso."
+            ),
+            status_code=501,
+        )
+
+
 class ConflictError(CRMException):
     """Resource conflict"""
     def __init__(self, message: str, details: Optional[Dict] = None):

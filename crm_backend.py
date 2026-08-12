@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import sqlite3
+import sys
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -593,7 +594,13 @@ def set_user_preference(username: str, pref_key: str, pref_value: str) -> None:
         connection.commit()
 
 
-DEFAULT_SEED_PASSWORDS = {
+# Senhas que este projeto já distribuiu publicamente em versões anteriores.
+#
+# Esta lista NÃO é mais usada para criar contas — serve exclusivamente para
+# detectar instalações antigas que ainda carregam uma dessas senhas no banco,
+# de modo que o produto consiga alertar o administrador. Não acrescente nada
+# aqui esperando que vire senha inicial: `seed_password_for` ignora este dict.
+KNOWN_WEAK_SEED_PASSWORDS = {
     "admin": "admin123",
     "atendimento": "atend123",
     "vendas": "vendas123",
@@ -601,15 +608,45 @@ DEFAULT_SEED_PASSWORDS = {
     "cs": "cs123",
 }
 
+# Mantido como alias por compatibilidade com integrações externas que ainda
+# importem o nome antigo.
+DEFAULT_SEED_PASSWORDS = KNOWN_WEAK_SEED_PASSWORDS
+
+# Senhas geradas nesta execução, para que chamadas repetidas a
+# `seed_password_for` devolvam o mesmo valor dentro do mesmo processo.
+_GENERATED_SEED_PASSWORDS: dict[str, str] = {}
+
 
 def seed_password_for(username: str) -> str:
-    """Senha inicial do usuário, sobrescrevível por variável de ambiente.
+    """Senha inicial do usuário.
 
-    Ex.: CRM_SEED_PASSWORD_ADMIN permite subir uma instância nova já sem a
-    senha padrão pública.
+    Ordem de resolução:
+
+    1. `CRM_SEED_PASSWORD_<USUARIO>`, se definida — é o caminho recomendado
+       para deploy, porque o operador escolhe e já conhece a senha.
+    2. Caso contrário, uma senha aleatória gerada na hora e registrada no log
+       de inicialização, uma única vez.
+
+    O que esta função deliberadamente não faz mais é devolver uma senha fixa
+    e pública. Antes, uma instância nova que esquecesse de definir as
+    variáveis subia com `admin/admin123` — credencial conhecida por qualquer
+    pessoa com acesso ao repositório.
     """
     override = os.getenv(f"CRM_SEED_PASSWORD_{username.upper()}")
-    return override or DEFAULT_SEED_PASSWORDS[username]
+    if override:
+        return override
+
+    if username not in _GENERATED_SEED_PASSWORDS:
+        generated = secrets.token_urlsafe(18)
+        _GENERATED_SEED_PASSWORDS[username] = generated
+        print(
+            f"[crm] senha inicial gerada para '{username}': {generated}\n"
+            f"[crm] anote agora — ela não será exibida de novo. "
+            f"Para fixá-la, defina CRM_SEED_PASSWORD_{username.upper()}.",
+            file=sys.stderr,
+            flush=True,
+        )
+    return _GENERATED_SEED_PASSWORDS[username]
 
 
 def _seed_passwords() -> None:
@@ -618,12 +655,12 @@ def _seed_passwords() -> None:
 
 
 def uses_default_password(username: str) -> bool:
-    """Indica se a conta ainda usa a senha padrão pública do projeto.
+    """Indica se a conta ainda usa uma das senhas públicas antigas do projeto.
 
     Serve para alertar o administrador dentro do produto — senha padrão em
     ambiente exposto é acesso aberto, não um detalhe de configuração.
     """
-    default = DEFAULT_SEED_PASSWORDS.get(username)
+    default = KNOWN_WEAK_SEED_PASSWORDS.get(username)
     if not default:
         return False
     with _connect() as connection:
@@ -637,8 +674,8 @@ def uses_default_password(username: str) -> bool:
 
 
 def accounts_with_default_password() -> list[str]:
-    """Lista das contas que ainda estão com a senha padrão."""
-    return [name for name in DEFAULT_SEED_PASSWORDS if uses_default_password(name)]
+    """Lista das contas que ainda estão com uma senha pública conhecida."""
+    return [name for name in KNOWN_WEAK_SEED_PASSWORDS if uses_default_password(name)]
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:

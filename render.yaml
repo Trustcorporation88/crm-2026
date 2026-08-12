@@ -16,18 +16,42 @@ services:
         value: HS256
       - key: CRM_PUBLIC_URL
         value: https://crm.trustcorp.com.br
-      - key: CRM_MIGRATION_MODE
-        value: export
-      - key: CRM_MIGRATION_TOKEN
-        value: crm-migrate-20260705-temp
       - key: JWT_SECRET_KEY
         generateValue: true
-    # Descomente ao usar plano Starter + disco persistente:
+      - key: CRM_API_JWT_SECRET
+        generateValue: true
+
+      # PERSISTÊNCIA DOS DADOS — leia antes de subir.
+      #
+      # No plano free não há disco persistente, então o SQLite vive no
+      # sistema de arquivos efêmero do contêiner: todo restart ou deploy
+      # apaga a base inteira. Há duas saídas, e uma precisa ser escolhida
+      # conscientemente:
+      #
+      #   (a) Postgres gerenciado externo — recomendado, custo zero no free
+      #       tier de Supabase/Neon. Defina DATABASE_URL no painel da Render
+      #       e o app passa a usar Postgres no lugar do SQLite.
+      #   (b) Disco persistente da Render, que exige plano starter (pago).
+      #       Veja o bloco comentado no fim deste arquivo.
+      #
+      # Enquanto nenhuma das duas estiver ativa, trate esta instância como
+      # descartável e não coloque dado real nela.
+      - key: DATABASE_URL
+        sync: false
+
+    # NOTA: CRM_MIGRATION_MODE=export foi removido daqui deliberadamente.
+    # Com ele, o contêiner sobe o migration_export_server.py no lugar do CRM
+    # e publica a base inteira em GET /export?token=... — era o que estava
+    # em produção. Se precisar reexecutar a exportação um dia, defina as duas
+    # variáveis manualmente no painel, com token novo, e remova ao terminar.
+    # Nunca versione o token.
+
+    # Alternativa (b) — disco persistente, requer plano pago:
     # plan: starter
     # disk:
     #   name: crm-data
     #   mountPath: /data
     #   sizeGB: 1
-    # envVars adicional:
+    # e adicione em envVars:
     #   - key: CRM_DATA_DIR
     #     value: /data

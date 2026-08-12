@@ -29,6 +29,8 @@ from error_handlers import (
     AuthorizationError,
     InternalServerError,
     NotFoundError,
+    NotImplementedEndpoint,
+    ValidationError,
 )
 from cache_utils import clear_cache_pattern, init_redis as init_cache_redis
 from prometheus_metrics import add_metrics_middleware, record_login_attempt, record_cache_hit, record_cache_miss
@@ -536,18 +538,42 @@ async def update_customer(
 ):
     """Update customer"""
     try:
+        import crm_backend
+
+        # Antes, este handler apenas invalidava o cache e devolvia
+        # {"status": "updated"} com HTTP 200 — sem tocar no banco. Quem
+        # integrasse com a API acreditava ter gravado, e nada era gravado.
+        crm_backend.init_database()
+        try:
+            updated = crm_backend.update_entity(
+                "customer",
+                customer_id,
+                customer.model_dump(exclude_unset=True),
+                actor={"username": user.get("username", "api"), "role": user.get("role", "admin")},
+                source="api",
+            )
+        except ValueError as exc:
+            # update_entity sinaliza "não existe" e "payload sem campo válido"
+            # pela mesma via. Traduzimos para o status correto em vez de
+            # deixar virar 500 no except genérico lá embaixo.
+            if "not found" in str(exc):
+                raise NotFoundError("Customer", customer_id) from exc
+            raise ValidationError(str(exc)) from exc
+
         logger.info(f"Customer {customer_id} updated by {user.get('username')}")
-        
+
         # Invalidate cache
         redis_client = get_redis()
         redis_client.delete(f"customer:{customer_id}")
-        
+        clear_cache_pattern("customers:*")
+
         return {
             "status": "updated",
             "customer_id": customer_id,
+            "customer": updated,
             "correlation_id": get_correlation_id()
         }
-    
+
     except CRMException:
         # Domain errors already carry the right status code.
         raise
@@ -563,24 +589,49 @@ async def delete_customer(
     db: Session = Depends(get_db),
     user: Dict = Depends(verify_token)
 ):
-    """Delete customer (soft delete for LGPD compliance)"""
+    """Remove o cliente.
+
+    Atenção: é remoção definitiva (DELETE), não soft delete. A docstring
+    anterior prometia soft delete e o handler não apagava nada; agora o
+    comportamento e a descrição batem. O registro completo da linha vai para
+    audit_log antes da remoção, que é o que atende à exigência de rastro.
+    """
     try:
         if user.get("role") != "admin":
             logger.warning(f"Unauthorized delete attempt by {user.get('username')}")
             raise AuthorizationError("Only admins can delete customers")
-        
+
+        import crm_backend
+
+        # Mesmo defeito do PUT: antes devolvia {"status": "deleted"} sem
+        # remover coisa alguma. delete_entity já faz a checagem de permissão
+        # e grava o registro completo em audit_log.
+        crm_backend.init_database()
+        try:
+            crm_backend.delete_entity(
+                "customer",
+                customer_id,
+                actor={"username": user.get("username", "api"), "role": user.get("role", "admin")},
+                source="api",
+            )
+        except ValueError as exc:
+            if "not found" in str(exc):
+                raise NotFoundError("Customer", customer_id) from exc
+            raise ValidationError(str(exc)) from exc
+
         logger.info(f"Customer {customer_id} deleted by {user.get('username')}")
-        
+
         # Invalidate cache
         redis_client = get_redis()
         redis_client.delete(f"customer:{customer_id}")
-        
+        clear_cache_pattern("customers:*")
+
         return {
             "status": "deleted",
             "customer_id": customer_id,
             "correlation_id": get_correlation_id()
         }
-    
+
     except CRMException:
         # Domain errors already carry the right status code.
         raise
@@ -888,12 +939,12 @@ async def connect_integration(
     """Connect to an external service"""
     try:
         logger.info(f"Integration {integration_name} connection attempted by {user.get('username')}")
-        
-        return {
-            "status": "connected",
-            "integration": integration_name,
-            "correlation_id": get_correlation_id()
-        }
+
+        # Este handler nunca conectou nada: recebia as credenciais e devolvia
+        # {"status": "connected"}. Responder 501 é mais honesto do que
+        # confirmar uma integração inexistente — e evita que alguém envie
+        # credencial real para um endpoint que só a descarta.
+        raise NotImplementedEndpoint("connect_integration")
     
     except CRMException:
         # Domain errors already carry the right status code.
@@ -945,13 +996,9 @@ async def export_report(
     """Export report in specified format (pdf, csv, excel)"""
     try:
         logger.info(f"Report export requested: {report_type} as {format}")
-        
-        return {
-            "status": "generating",
-            "report_type": report_type,
-            "format": format,
-            "correlation_id": get_correlation_id()
-        }
+
+        # Nunca gerou arquivo algum; devolvia "generating" e encerrava.
+        raise NotImplementedEndpoint("export_report")
     
     except CRMException:
         # Domain errors already carry the right status code.
@@ -1002,12 +1049,11 @@ async def trigger_backup(
             raise AuthorizationError("Admin access required")
         
         logger.info(f"Backup triggered by {user.get('username')}")
-        
-        return {
-            "status": "backup_started",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "correlation_id": get_correlation_id()
-        }
+
+        # Não existe rotina de backup no projeto: o handler apenas respondia
+        # "backup_started". Um backup que o operador acredita ter feito e que
+        # nunca aconteceu é pior do que não ter o botão.
+        raise NotImplementedEndpoint("trigger_backup")
     
     except CRMException:
         raise
@@ -1029,13 +1075,23 @@ async def view_logs(
             raise AuthorizationError("Admin access required")
         
         logger.info("Audit logs requested by admin")
-        
+
+        # Antes devolvia {"logs": [], "total": 0} fixo, ignorando o parâmetro
+        # limit — o que fazia a tela de auditoria parecer vazia mesmo com o
+        # banco cheio. A tabela audit_log já é populada por log_audit_event.
+        audit = _crm_data().get("audit_log")
+        if audit is None or audit.empty:
+            return {"logs": [], "total": 0, "correlation_id": get_correlation_id()}
+
+        total = int(len(audit))
+        page = audit.head(limit).to_dict(orient="records")
         return {
-            "logs": [],
-            "total": 0,
+            "logs": page,
+            "total": total,
+            "returned": len(page),
             "correlation_id": get_correlation_id()
         }
-    
+
     except CRMException:
         raise
     except Exception as e:

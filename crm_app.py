@@ -27,6 +27,8 @@ from crm_views import (
 )
 import crm_db
 from crm_ux import (
+    LOGIN_ENDPOINT,
+    login_throttle_subject,
     account_summary_text,
     build_customer_timeline,
     build_day_agenda,
@@ -113,6 +115,10 @@ from crm_backend import (
     verify_login,
     change_own_password,
     accounts_with_default_password,
+    consume_auth_attempt,
+    register_auth_failure,
+    register_auth_success,
+    seed_password_for,
 )
 
 
@@ -957,12 +963,17 @@ def flush_pending_toast() -> None:
         st.toast(message, icon=icon)
 
 
+# Perfis do login de demonstração. A senha não fica mais escrita aqui: é
+# resolvida em tempo de execução por seed_password_for(), que respeita as
+# variáveis CRM_SEED_PASSWORD_* e, na ausência delas, usa a senha aleatória
+# gerada na inicialização. Assim o botão de demo continua funcionando sem
+# reintroduzir credenciais públicas no código.
 DEMO_ACCOUNTS = [
-    ("Admin (visão completa)", "admin", "admin123"),
-    ("Vendas", "vendas", "vendas123"),
-    ("Atendimento", "atendimento", "atend123"),
-    ("Marketing", "marketing", "mkt123"),
-    ("Customer Success", "cs", "cs123"),
+    ("Admin (visão completa)", "admin"),
+    ("Vendas", "vendas"),
+    ("Atendimento", "atendimento"),
+    ("Marketing", "marketing"),
+    ("Customer Success", "cs"),
 ]
 
 
@@ -1127,11 +1138,23 @@ def show_login() -> None:
                 password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
                 submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
             if submitted:
-                user = verify_login(username.strip(), password)
-                if user:
-                    start_user_session(user)
+                # O backend já tinha throttle progressivo com bloqueio, mas ele
+                # só estava ligado no serviço de webhook. A tela de login — o
+                # caminho que de fato está exposto ao público — chamava
+                # verify_login() direto, sem limite algum de tentativas.
+                subject = login_throttle_subject(username)
+                try:
+                    consume_auth_attempt(subject, LOGIN_ENDPOINT)
+                except ValueError as exc:
+                    st.error(str(exc))
                 else:
-                    st.error("Credenciais inválidas.")
+                    user = verify_login(username.strip(), password)
+                    if user:
+                        register_auth_success(subject, LOGIN_ENDPOINT)
+                        start_user_session(user)
+                    else:
+                        register_auth_failure(subject, LOGIN_ENDPOINT)
+                        st.error("Credenciais inválidas.")
 
     with right:
         with st.container(border=True):
@@ -1149,9 +1172,9 @@ def show_login() -> None:
                     "Não use em ambiente com dado real.",
                     icon="⚠️",
                 )
-                for label, demo_username, demo_password in DEMO_ACCOUNTS:
+                for label, demo_username in DEMO_ACCOUNTS:
                     if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
-                        demo_user = verify_login(demo_username, demo_password)
+                        demo_user = verify_login(demo_username, seed_password_for(demo_username))
                         if demo_user:
                             queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
                             start_user_session(demo_user)

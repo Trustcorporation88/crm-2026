@@ -23,12 +23,23 @@ def test_hash_password_roundtrip(tmp_path):
     assert not backend._password_matches(hashed, "wrong-password")
 
 
-def test_seed_passwords_and_login(tmp_path):
+def test_seed_passwords_and_login(tmp_path, monkeypatch):
+    """A senha semeada precisa autenticar — sem depender de valor público.
+
+    Antes o teste usava "admin123" literal. Agora a senha inicial vem de
+    CRM_SEED_PASSWORD_ADMIN (ou é aleatória), então o teste fixa a variável
+    e verifica o contrato de verdade: o que foi semeado é o que faz login.
+    """
+    monkeypatch.setenv("CRM_SEED_PASSWORD_ADMIN", "Senha-De-Deploy-2026")
     backend = _load_backend(tmp_path)
     backend.init_database()
-    user = backend.verify_login("admin", "admin123")
+
+    user = backend.verify_login("admin", "Senha-De-Deploy-2026")
     assert user is not None
     assert user["username"] == "admin"
+
+    # E a senha pública antiga não pode mais valer.
+    assert backend.verify_login("admin", "admin123") is None
 
 
 def test_password_longer_than_72_bytes_rejected(tmp_path):
