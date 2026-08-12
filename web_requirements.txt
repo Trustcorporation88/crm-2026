@@ -1,9 +1,12 @@
-streamlit
-pandas
-phonenumbers
-dnspython
-fastapi
-uvicorn
-PyJWT
-pytest
-httpx
+# Conjunto usado pelo CI (app Streamlit + camada de API).
+#
+# Antes este arquivo repetia, sem fixar versão, dependências que
+# requirements-prod.txt fixa. O CI instalava os dois em sequência, então as
+# linhas sem versão daqui podiam sobrescrever as versões fixadas de lá — o
+# ambiente de teste deixava de corresponder ao de produção, de forma
+# silenciosa e variável a cada execução.
+#
+# Agora apenas referencia os dois arquivos canônicos, o que elimina a
+# duplicação sem mudar o que acaba instalado.
+-r requirements.txt
+-r requirements-prod.txt

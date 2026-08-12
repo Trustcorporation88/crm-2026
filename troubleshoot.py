@@ -26,7 +26,11 @@ def run_cmd(cmd: str) -> Tuple[int, str]:
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
         return result.returncode, result.stdout + result.stderr
-    except:
+    except (OSError, subprocess.SubprocessError):
+        # Antes era um "except:" nu, que engolia inclusive KeyboardInterrupt e
+        # SystemExit — num script de diagnóstico isso significa não conseguir
+        # nem interromper com Ctrl+C. Timeout e comando ausente são as falhas
+        # esperadas aqui, e ambas descendem destas duas classes.
         return 1, ""
 
 class Troubleshooter:
