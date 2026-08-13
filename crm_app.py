@@ -12,6 +12,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import brand_assets
+import demo_meishop
 
 from services_catalog import resolve_service_section
 from service_guide_ui import open_service_guide_dialog, render_global_assistant
@@ -1181,6 +1182,25 @@ def maybe_show_onboarding_tour() -> None:
     show_onboarding_tour()
 
 
+def faixa_de_demonstracao() -> None:
+    """Diz, na tela, que aquele ambiente não é o CRM da operação.
+
+    Sem isso a vitrine é indistinguível do sistema real: mesma marca, mesmas
+    telas, mesmo endereço de terceiro nível. Dois estragos possíveis, os dois
+    caros e os dois evitáveis por um aviso — alguém da equipe trabalhar horas
+    dentro da demonstração achando que está no CRM, e um cliente em prospecção
+    achar que está vendo dados de clientes reais da Trust.
+    """
+    if not demo_meishop.modo_demonstracao():
+        return
+    st.info(
+        "**Ambiente de demonstração.** Clientes, contratos e chamados desta tela "
+        "são fictícios, criados para apresentar o sistema. Nada aqui é dado real "
+        "de cliente. As alterações são apagadas a cada atualização do ambiente.",
+        icon="🎭",
+    )
+
+
 def show_login() -> None:
     """Porta de entrada do CRM.
 
@@ -1221,6 +1241,9 @@ def show_login() -> None:
             "pela administração.</p>",
             unsafe_allow_html=True,
         )
+        # A vitrine se anuncia antes de pedir credencial: é a primeira tela que
+        # um cliente em prospecção vê, e é onde o aviso custa menos.
+        faixa_de_demonstracao()
         with st.form("crm-login"):
             username = st.text_input("Usuário", placeholder="Digite seu usuário")
             password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
@@ -1714,6 +1737,20 @@ def render_services_catalog() -> None:
 
 init_database()
 
+# Vitrine pública (democrm.trustcorp.com.br).
+#
+# Ligada por CRM_DEMO_DATASET=meishop, apenas no serviço de demonstração do
+# Railway. Esse serviço roda sem DATABASE_URL, em SQLite dentro do contêiner:
+# a carga acontece na primeira sessão depois de cada deploy e o ambiente se
+# restaura sozinho, o que é a propriedade que se quer numa vitrine — visitante
+# pode desarrumar à vontade.
+#
+# A produção não define a variável, e mesmo que definisse a carga se recusa a
+# rodar quando existe DATABASE_URL. São duas travas para o mesmo acidente,
+# porque o acidente apagaria a base real.
+if demo_meishop.modo_demonstracao():
+    demo_meishop.preparar_demonstracao_no_arranque()
+
 restore_session_from_url()
 flush_pending_toast()
 
@@ -2040,6 +2077,10 @@ pipeline_open = filtered_deals[~filtered_deals["stage"].isin(["Fechado ganho", "
 won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 
 render_top_bar(section)
+
+# O aviso acompanha o visitante para dentro: quem entrou pela vitrine precisa
+# continuar sabendo que é vitrine, em qualquer tela.
+faixa_de_demonstracao()
 
 # Senha padrão em ambiente exposto é acesso aberto. O aviso fica visível para o
 # admin até que as contas sejam trocadas.
