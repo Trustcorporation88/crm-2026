@@ -322,3 +322,66 @@ class TestListagem:
         backend.create_user("novata", "Conta Novata", "vendas", "senha-forte-123", actor=ADMIN)
 
         assert any(c["username"] == "novata" for c in backend.list_users())
+
+
+class TestFormularioDeEdicaoNaoContaminaOutraConta:
+    """Trocar de conta no seletor não pode carregar o papel da conta anterior.
+
+    Bug real, encontrado em produção: o seletor de papel tinha uma chave fixa
+    de sessão. No Streamlit, o valor guardado na sessão vence o argumento
+    `index`, então ao trocar de conta o campo continuava exibindo o papel da
+    conta ANTERIOR — e salvar gravava esse papel na conta nova.
+
+    O efeito prático foi elevação silenciosa de privilégio: o administrador
+    abriu a própria conta, foi desativar contas de vendas e atendimento, e as
+    três saíram marcadas como `admin` no banco.
+
+    O teste percorre as contas como uma pessoa percorreria, e exige que o
+    campo mostre sempre o papel de quem está selecionado.
+    """
+
+    import pathlib
+
+    APP = str(pathlib.Path(__file__).resolve().parent.parent / "crm_app.py")
+
+    def _admin_na_administracao(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file(self.APP, default_timeout=90)
+        app.session_state["crm_user"] = {
+            "username": "admin", "full_name": "FLAVIO RINALDI", "role": "admin",
+        }
+        app.session_state["nav_section"] = "Administração"
+        app.session_state["onboarding_tour_done"] = True
+        return app.run()
+
+    def _papel_exibido(self, app):
+        campo = next(s for s in app.selectbox if str(s.key or "").startswith("editar-papel"))
+        return campo.value
+
+    def test_papel_exibido_acompanha_a_conta_escolhida(self):
+        app = self._admin_na_administracao()
+
+        seletor = app.selectbox(key="editar-conta")
+        rotulos = list(seletor.options)
+
+        # Mapa rótulo -> papel gravado, direto do banco.
+        import crm_backend
+
+        por_login = {c["username"]: c["role"] for c in crm_backend.list_users()}
+
+        vistos = 0
+        for rotulo in rotulos:
+            app.selectbox(key="editar-conta").set_value(rotulo).run()
+            assert not app.exception
+
+            login = rotulo.rsplit("(", 1)[1].rstrip(")")
+            esperado = por_login[login]
+            assert self._papel_exibido(app) == esperado, (
+                f"a conta «{login}» deveria mostrar o papel «{esperado}», mas o "
+                f"campo exibe «{self._papel_exibido(app)}» — provavelmente o "
+                f"papel da conta selecionada antes dela"
+            )
+            vistos += 1
+
+        assert vistos >= 3, "o seed precisa de contas com papéis diferentes para este teste"

@@ -711,8 +711,28 @@ def uses_default_password(username: str) -> bool:
 
 
 def accounts_with_default_password() -> list[str]:
-    """Lista das contas que ainda estão com uma senha pública conhecida."""
-    return [name for name in KNOWN_WEAK_SEED_PASSWORDS if uses_default_password(name)]
+    """Contas que representam uma porta aberta: senha pública **e** ativas.
+
+    Conta desativada não entra: `verify_login` recusa `is_active = 0` antes de
+    sequer olhar a senha. Incluí-la no alerta era um falso positivo com um
+    custo real — o administrador desativava as contas expostas, o aviso
+    continuava vermelho na tela, e a única leitura possível era "não
+    funcionou". Aviso que não apaga quando o problema é resolvido treina quem
+    usa a ignorar o aviso.
+
+    `uses_default_password` continua respondendo o fato isolado (o hash bate
+    com uma senha pública?), sem opinar sobre risco.
+    """
+    ativas = set()
+    with _connect() as connection:
+        for row in connection.execute("SELECT username FROM users WHERE is_active = 1").fetchall():
+            ativas.add(row["username"])
+
+    return [
+        name
+        for name in KNOWN_WEAK_SEED_PASSWORDS
+        if name in ativas and uses_default_password(name)
+    ]
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
