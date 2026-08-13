@@ -1489,3 +1489,28 @@ def login_throttle_subject(username: str | None) -> str:
     """
     normalized = (username or "").strip().lower()
     return f"user:{normalized}" if normalized else "user:<vazio>"
+
+
+# ---------------------------------------------------------------------------
+# Nome que a seção mostra na tela
+#
+# Vive aqui, e não no crm_app.py, pelo mesmo motivo de `login_throttle_subject`:
+# o crm_app.py é um script do Streamlit e não pode ser importado fora do
+# runtime, então nada que precise de teste unitário deve morar lá.
+#
+# "Clientes 360" é jargão de quem construiu o sistema. Numa apresentação a uma
+# franqueadora, "360" não quer dizer nada — e quem procura a lista de clientes
+# procura por "Clientes".
+#
+# Só o rótulo muda. A chave interna aparece no mapa de permissões por papel
+# (`get_role_sections`), no catálogo de serviços e no roteamento das telas:
+# renomeá-la faria a seção desaparecer para todos os papéis.
+# ---------------------------------------------------------------------------
+NOMES_EXIBIDOS_DAS_SECOES = {
+    "Clientes 360": "Clientes",
+}
+
+
+def nome_exibido(secao: str) -> str:
+    """Rótulo de tela da seção, que pode diferir do nome interno."""
+    return NOMES_EXIBIDOS_DAS_SECOES.get(secao, secao)
