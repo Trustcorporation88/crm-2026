@@ -420,132 +420,58 @@ st.markdown(
         font-weight: 600 !important;
     }
 
-    /* ==================================================================
-       Login
-       ------------------------------------------------------------------
-       Registro visual diferente do resto do produto, de propósito. O CRM
-       interno é claro e denso, porque é ferramenta de trabalho; a porta de
-       entrada é escura e vazia, porque é a fachada de uma casa de
-       patrimônio. O ouro velho vem do próprio emblema.
-
-       A tela anterior espalhava marca, texto de vitrine e dois painéis por
-       980px de largura, num cinza que não pertencia a lugar nenhum. Aqui há
-       uma coluna estreita e um único cartão: numa tela de login não existe
-       segunda coisa para fazer.
-       ================================================================== */
+    /* ---- Login ---- */
     .stApp:has(.login-shell) [data-testid="stSidebar"],
     .stApp:has(.login-shell) [data-testid="stSidebarCollapsedControl"],
-    .stApp:has(.login-shell) [data-testid="stHeader"],
     .stApp:has(.login-shell) [data-testid="stToolbar"] { display: none !important; }
 
     .stApp:has(.login-shell) {
         background:
-            radial-gradient(ellipse 70% 50% at 50% -10%, rgba(176, 141, 87, 0.20), transparent 60%),
-            radial-gradient(ellipse 90% 60% at 50% 110%, rgba(8, 167, 66, 0.10), transparent 60%),
-            linear-gradient(168deg, #0d1a14 0%, #0a1310 55%, #070d0b 100%) !important;
+            radial-gradient(ellipse 60% 40% at 85% 0%, rgba(8, 167, 66, 0.07), transparent 55%),
+            radial-gradient(ellipse 50% 40% at 10% 10%, rgba(47, 111, 228, 0.08), transparent 50%),
+            #f4f6f8 !important;
     }
-
-    /* A coluna estreita é o que dá foco: sem ela, o formulário flutua num
-       vazio de mil pixels e a página parece inacabada.
-
-       Os três seletores são a mesma caixa em versões diferentes do Streamlit.
-       A primeira versão desta tela mirava só `section.main > div.block-container`,
-       que nesta versão não casa com nada — a largura simplesmente não era
-       aplicada, e o formulário atravessava a tela inteira. */
-    .stApp:has(.login-shell) [data-testid="stMainBlockContainer"],
-    .stApp:has(.login-shell) section.main > div.block-container,
-    .stApp:has(.login-shell) .block-container {
-        max-width: 452px;
-        padding-top: clamp(1.75rem, 6vh, 3.75rem); padding-bottom: 3rem;
-        /* O padding lateral padrão do Streamlit é de 80px de cada lado. Numa
-           coluna de 452px ele comeria um terço da largura e o cartão sairia
-           estreito demais. */
-        padding-left: 18px; padding-right: 18px;
+    .stApp:has(.login-shell) section.main > div.block-container {
+        max-width: 980px; padding-top: 2.5rem; padding-bottom: 3rem;
     }
-    /* Espaçamento entre marca e cartão: o padrão empurra os dois para longe
-       um do outro e a página fica com um buraco no meio. */
-    .stApp:has(.login-shell) [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
-        gap: 0.75rem;
-    }
-
-    .login-brand { text-align: center; margin-bottom: 30px; }
+    .login-shell { display: flex; flex-direction: column; gap: 28px; }
+    .login-brand { text-align: left; max-width: 36rem; }
     .login-logo {
-        display: block; margin: 0 auto 18px; height: auto;
-        width: clamp(132px, 30vw, 158px);
-        filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.45));
+        display: block; width: clamp(150px, 19vw, 205px); height: auto;
+        margin: 0 0 14px -8px;
+        filter: drop-shadow(0 6px 18px rgba(16, 24, 40, 0.16));
     }
-    /* O emblema já diz "TRUST CORPORATION". Repetir o nome em caixa alta
-       gigante competia com ele; aqui o texto só nomeia o sistema. */
+    .login-brand .eyebrow {
+        display: inline-block; font-size: 0.72rem; font-weight: 700;
+        letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--green); margin-bottom: 10px;
+    }
     .login-brand h1 {
-        font-family: 'Syne', 'Instrument Sans', sans-serif;
-        font-size: 1.5rem; font-weight: 700; letter-spacing: 0.16em;
-        text-transform: uppercase; line-height: 1.2;
-        color: #f4f1ea; margin: 0 0 10px;
+        font-size: clamp(2.2rem, 5vw, 3.2rem); font-weight: 800;
+        letter-spacing: -0.04em; line-height: 1.05;
+        color: var(--ink); margin: 0 0 12px;
     }
     .login-brand .tagline {
-        font-size: 0.86rem; line-height: 1.6; margin: 0 auto;
-        max-width: 30ch; color: rgba(233, 228, 217, 0.62);
+        font-size: 1.05rem; line-height: 1.55; color: var(--muted);
+        margin: 0 0 18px; max-width: 40ch;
     }
-    /* Um <hr> aqui saía com 1px e quase invisível: o reset de estilo do
-       Streamlit tem precedência sobre a altura. Uma <div> não é alvo desse
-       reset e desenha o filete de fato. */
-    .login-rule {
-        width: 88px; height: 2px; margin: 20px auto 0; border: 0;
-        background: linear-gradient(90deg, transparent, #d9b378 45%, #d9b378 55%, transparent);
-    }
-
-    /* O cartão branco sobre o fundo escuro.
-       `stLayoutWrapper` é o que o st.container(border=True) gera nesta versão;
-       `stVerticalBlockBorderWrapper` era o nome antigo. Manter os dois evita
-       que o cartão desapareça numa atualização do Streamlit — e sem cartão o
-       texto escuro do formulário cai direto no fundo escuro, ilegível. */
-    .stApp:has(.login-shell) [data-testid="stLayoutWrapper"]:has(.login-gate-title),
-    .stApp:has(.login-shell) [data-testid="stVerticalBlockBorderWrapper"]:has(.login-gate-title) {
-        background: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        border-radius: 16px;
-        padding: 26px 26px 22px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
-    }
-    /* O st.container(border=True) desenha a própria borda num bloco interno.
-       Com o cartão pintado por fora, ela virava uma segunda moldura dentro da
-       primeira — duas caixas concêntricas, que é o efeito de formulário
-       remendado que esta tela veio corrigir. */
-    .stApp:has(.login-shell) [data-testid="stLayoutWrapper"]:has(.login-gate-title)
-        [data-testid="stVerticalBlock"] {
-        border: 0 !important; border-radius: 0 !important; padding: 0 !important;
+    .login-signals { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+    .login-signals li {
+        font-size: 0.78rem; font-weight: 600; letter-spacing: 0.03em;
+        color: #333d4d; padding: 5px 0; margin-right: 14px;
+        border-bottom: 2px solid var(--green);
     }
     .login-gate-title {
-        font-size: 1.06rem; font-weight: 700; color: var(--ink);
+        font-size: 1.12rem; font-weight: 700; color: var(--ink);
         margin: 0 0 4px; letter-spacing: -0.01em;
     }
-    .login-gate-hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; line-height: 1.45; }
-
-    /* Os campos herdavam borda branca. Sobre o cinza claro da tela antiga isso
-       passava; sobre o cartão branco eles sumiam, e sobrava um retângulo de
-       nada onde se deveria digitar. */
-    .stApp:has(.login-shell) [data-testid="stTextInputRootElement"] {
-        border: 1px solid var(--line-strong) !important;
-        background: #fdfdfe !important;
+    .login-gate-hint { color: var(--muted); font-size: 0.88rem; margin: 0 0 14px; line-height: 1.45; }
+    .login-note {
+        margin-top: 8px; padding: 12px 0 0; border-top: 1px solid var(--line);
+        color: var(--muted); font-size: 0.8rem; line-height: 1.5;
     }
-    .stApp:has(.login-shell) [data-testid="stTextInputRootElement"]:focus-within {
-        border-color: var(--green) !important;
-        box-shadow: 0 0 0 3px rgba(8, 167, 66, 0.15) !important;
-    }
-    .stApp:has(.login-shell) .stTextInput input { padding: 11px 13px; }
-    .stApp:has(.login-shell) [data-testid="stForm"] { border: 0; padding: 0; }
-
-    /* Rodapé: quem é o dono da porta, e o aviso de que ela não é pública. */
-    .login-foot {
-        margin-top: 26px; text-align: center;
-        font-size: 0.74rem; line-height: 1.7; letter-spacing: 0.04em;
-        color: rgba(233, 228, 217, 0.40);
-    }
-    .login-foot strong { color: rgba(233, 228, 217, 0.62); font-weight: 600; }
-
-    @media (max-width: 480px) {
-        .stApp:has(.login-shell) section.main > div.block-container { padding-top: 1.5rem; }
-        .login-brand h1 { font-size: 1.28rem; letter-spacing: 0.12em; }
+    .login-panel label, .login-panel p, .login-panel span, .login-panel small {
+        color: #333d4d !important;
     }
 
     /* ---- Cabeçalho de página ---- */
@@ -1182,21 +1108,6 @@ def maybe_show_onboarding_tour() -> None:
 
 
 def show_login() -> None:
-    """Porta de entrada do CRM.
-
-    Duas coisas foram deliberadamente retiradas da versão anterior desta tela.
-
-    A primeira é a lista de atributos técnicos ("PostgreSQL gerenciado",
-    "Acesso por papéis"). Era texto de vitrine numa ferramenta interna: quem
-    chega aqui já trabalha na empresa e só quer entrar. Sublinhados em verde
-    ainda faziam os três itens parecerem abas clicáveis.
-
-    A segunda é o painel que instruía o visitante a definir
-    `CRM_DEMO_LOGIN=true` para entrar sem senha. Era o manual do desvio de
-    autenticação publicado na única página que o mundo inteiro enxerga.
-    Quem administra a instância encontra a variável no `.env.example` e na
-    documentação, que é onde ela pertence.
-    """
     st.markdown(
         f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1204,73 +1115,94 @@ def show_login() -> None:
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <div class="login-shell">
   <div class="login-brand">
-    <img class="login-logo" src="{brand_assets.data_uri("logo")}" alt="Trust Corporation — Patrimônio e Legado">
-    <h1>Trust CRM</h1>
-    <p class="tagline">Clientes, atendimento e funil comercial em um só lugar.</p>
-    <div class="login-rule"></div>
+    <img class="login-logo" src="{brand_assets.data_uri("logo")}" alt="Trust Corporation — Património e Legado">
+    <h1>TRUST CRM</h1>
+    <p class="tagline">
+      Vendas, atendimento e marketing em um só lugar — pipeline com previsão ponderada,
+      cliente 360 e execução guiada do dia.
+    </p>
+    <ul class="login-signals">
+      <li>PostgreSQL gerenciado</li>
+      <li>Acesso por papéis</li>
+      <li>WhatsApp, e-mail e formulários</li>
+    </ul>
   </div>
 </div>
 """,
         unsafe_allow_html=True,
     )
 
-    with st.container(border=True):
-        st.markdown('<p class="login-gate-title">Entrar</p>', unsafe_allow_html=True)
-        st.markdown(
-            '<p class="login-gate-hint">Acesso restrito. Use as credenciais fornecidas '
-            "pela administração.</p>",
-            unsafe_allow_html=True,
-        )
-        with st.form("crm-login"):
-            username = st.text_input("Usuário", placeholder="Digite seu usuário")
-            password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
-        if submitted:
-            # O backend já tinha throttle progressivo com bloqueio, mas ele
-            # só estava ligado no serviço de webhook. A tela de login — o
-            # caminho que de fato está exposto ao público — chamava
-            # verify_login() direto, sem limite algum de tentativas.
-            subject = login_throttle_subject(username)
-            try:
-                consume_auth_attempt(subject, LOGIN_ENDPOINT)
-            except ValueError as exc:
-                st.error(str(exc))
-            else:
-                user = verify_login(username.strip(), password)
-                if user:
-                    register_auth_success(subject, LOGIN_ENDPOINT)
-                    start_user_session(user)
-                else:
-                    register_auth_failure(subject, LOGIN_ENDPOINT)
-                    st.error("Credenciais inválidas.")
-
-    # O acesso de demonstração aparece apenas quando está de fato ligado.
-    # Desligado, a tela não deve sequer mencionar que ele existe.
-    if demo_login_enabled():
+    left, right = st.columns([1, 1], gap="large")
+    with left:
         with st.container(border=True):
+            st.markdown('<p class="login-gate-title">Entrar</p>', unsafe_allow_html=True)
             st.markdown(
-                '<p class="login-gate-title">Entrar sem senha (demonstração)</p>',
+                '<p class="login-gate-hint">Use seu usuário e senha para acessar o workspace.</p>',
                 unsafe_allow_html=True,
             )
-            st.warning(
-                "Modo demonstração ativo: qualquer visitante entra sem senha. "
-                "Não use em ambiente com dado real.",
-                icon="⚠️",
-            )
-            for label, demo_username in DEMO_ACCOUNTS:
-                if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
-                    demo_user = verify_login(demo_username, seed_password_for(demo_username))
-                    if demo_user:
-                        queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
-                        start_user_session(demo_user)
+            with st.form("crm-login"):
+                username = st.text_input("Usuario", placeholder="Digite seu usuário")
+                password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
+            if submitted:
+                # O backend já tinha throttle progressivo com bloqueio, mas ele
+                # só estava ligado no serviço de webhook. A tela de login — o
+                # caminho que de fato está exposto ao público — chamava
+                # verify_login() direto, sem limite algum de tentativas.
+                subject = login_throttle_subject(username)
+                try:
+                    consume_auth_attempt(subject, LOGIN_ENDPOINT)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    user = verify_login(username.strip(), password)
+                    if user:
+                        register_auth_success(subject, LOGIN_ENDPOINT)
+                        start_user_session(user)
                     else:
-                        st.error("Conta de demonstração indisponível.")
+                        register_auth_failure(subject, LOGIN_ENDPOINT)
+                        st.error("Credenciais inválidas.")
 
-    st.markdown(
-        '<p class="login-foot"><strong>Trust Corporation</strong><br>'
-        "Sistema interno · uso autorizado apenas</p>",
-        unsafe_allow_html=True,
-    )
+    with right:
+        with st.container(border=True):
+            if demo_login_enabled():
+                st.markdown(
+                    '<p class="login-gate-title">Entrar com 1 clique (demonstração)</p>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p class="login-gate-hint">Escolha um perfil para explorar o CRM sem digitar credenciais.</p>',
+                    unsafe_allow_html=True,
+                )
+                st.warning(
+                    "Modo demonstração ativo: qualquer visitante entra sem senha. "
+                    "Não use em ambiente com dado real.",
+                    icon="⚠️",
+                )
+                for label, demo_username in DEMO_ACCOUNTS:
+                    if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
+                        demo_user = verify_login(demo_username, seed_password_for(demo_username))
+                        if demo_user:
+                            queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
+                            start_user_session(demo_user)
+                        else:
+                            st.error("Conta de demonstração indisponível.")
+            else:
+                st.markdown(
+                    '<p class="login-gate-title">Acesso restrito</p>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p class="login-gate-hint">Use as credenciais fornecidas pelo administrador. '
+                    "Para liberar o acesso de demonstração em um clique, defina "
+                    "<code>CRM_DEMO_LOGIN=true</code> no ambiente.</p>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown(
+                '<p class="login-note">Sem credenciais reais de WhatsApp ou e-mail, a conexão de canais '
+                "entra por intake operacional: formulário interno e importação de mensagem/corpo do atendimento.</p>",
+                unsafe_allow_html=True,
+            )
 
 
 def can_manage(user_role: str, area: str) -> bool:
@@ -3549,10 +3481,21 @@ elif section == "Administração":
 
                 with st.form("form-editar-conta"):
                     _novo_nome = st.text_input("Nome completo", value=_alvo["full_name"])
+                    # A chave carrega o login de propósito.
+                    #
+                    # Com uma chave fixa ("editar-papel"), o valor guardado na
+                    # sessão vence o argumento `index` — regra do Streamlit. Ao
+                    # trocar de conta no seletor de cima, o campo continuava
+                    # exibindo o papel da conta ANTERIOR, e salvar gravava esse
+                    # papel na conta nova. Editar uma pessoa mudava o papel de
+                    # outra, sem aviso: quem abrisse a própria conta de admin e
+                    # depois fosse desativar um vendedor promovia o vendedor a
+                    # administrador. Com a chave por conta, cada uma tem seu
+                    # próprio estado e o `index` volta a valer.
                     _novo_papel = st.selectbox(
                         "Papel", _papeis,
                         index=_papeis.index(_alvo["role"]) if _alvo["role"] in _papeis else 0,
-                        key="editar-papel",
+                        key=f"editar-papel-{_alvo['username']}",
                     )
                     _ativa = st.checkbox("Conta ativa", value=bool(_alvo["is_active"]))
                     st.caption(

@@ -101,6 +101,59 @@ class TestSenhaPadrao:
         assert backend.uses_default_password("fantasma") is False
 
 
+class TestAlertaSoApontaPortaAberta:
+    """Desativar a conta também fecha a porta — e o alerta tem de reconhecer.
+
+    O alerta listava qualquer conta cujo hash batesse com uma senha pública,
+    ativa ou não. Quem desativava as contas expostas via o aviso vermelho
+    continuar na tela, sem nenhuma leitura possível além de "não funcionou".
+
+    Aviso que não apaga quando o problema é resolvido ensina a ignorar o
+    aviso, e aí ele deixa de proteger na vez em que importa.
+    """
+
+    def _desativar(self, backend, username: str) -> None:
+        with backend._connect() as connection:
+            connection.execute(
+                "UPDATE users SET is_active = 0 WHERE username = ?", (username,)
+            )
+            connection.commit()
+
+    def test_conta_desativada_sai_do_alerta(self, backend):
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+        assert "vendas" in backend.accounts_with_default_password()
+
+        self._desativar(backend, "vendas")
+        assert "vendas" not in backend.accounts_with_default_password()
+
+    def test_desativada_realmente_nao_entra_mesmo_com_a_senha_certa(self, backend):
+        """A premissa do teste acima: sem isso, tirar do alerta seria esconder."""
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+        self._desativar(backend, "vendas")
+
+        assert backend.verify_login("vendas", "vendas123") is None
+
+    def test_o_fato_isolado_continua_reportado(self, backend):
+        """`uses_default_password` responde sobre a senha, não sobre o risco."""
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+        self._desativar(backend, "vendas")
+
+        assert backend.uses_default_password("vendas") is True
+
+    def test_reativar_traz_o_alerta_de_volta(self, backend):
+        _forcar_senha_fraca(backend, "vendas", "vendas123")
+        self._desativar(backend, "vendas")
+
+        with backend._connect() as connection:
+            connection.execute("UPDATE users SET is_active = 1 WHERE username = 'vendas'")
+            connection.commit()
+
+        assert "vendas" in backend.accounts_with_default_password(), (
+            "reativar uma conta com senha pública reabre a porta e o alerta "
+            "precisa voltar"
+        )
+
+
 class TestSenhaSemente:
     """Instalação nova deve poder nascer sem a senha padrão pública."""
 
