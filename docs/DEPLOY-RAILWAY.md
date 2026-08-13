@@ -108,6 +108,105 @@ Se o plano do Railway em uso hibernar por inatividade, o caminho correto é o
 recurso de *always-on* da própria plataforma, não um agendador externo batendo
 na porta a cada dez minutos.
 
+## A vitrine pública: democrm.trustcorp.com.br
+
+Um **segundo serviço no Railway**, do mesmo repositório, servindo uma operação
+fictícia da MEiSHOP. Serve para mandar o link a uma franqueadora ou a uma
+construtora sem que ela veja um único cliente real.
+
+### Por que um serviço separado, e não uma seção dentro do CRM
+
+Porque o isolamento tem de ser de infraestrutura, não de código. Um "modo
+demonstração" dentro da instância de produção significaria dado fictício e dado
+real no mesmo banco, separados apenas por um `if` — e um `if` errado é um
+incidente. Serviços separados não têm como se misturar.
+
+### Como o banco funciona (e por que não tem banco)
+
+A vitrine roda **sem `DATABASE_URL`**, o que a faz cair no SQLite dentro do
+contêiner. Em produção isso seria um defeito grave; aqui é o recurso: o banco é
+efêmero, morre a cada deploy, e a carga acontece de novo na primeira visita.
+
+**A vitrine se restaura sozinha.** Um visitante pode editar, apagar e
+desarrumar o que quiser durante a apresentação; o próximo deploy devolve tudo.
+Nenhum banco a mais para pagar, nenhum volume a configurar.
+
+### Criar o serviço
+
+No projeto do Railway: **New → GitHub Repo → o mesmo `crm-2026`**. Ele lê o
+`railway.toml` e usa o mesmo `Dockerfile`. Depois, em **Variables**:
+
+| Variável | Valor | Por quê |
+|---|---|---|
+| `CRM_DEMO_DATASET` | `meishop` | liga a carga da vitrine |
+| `CRM_SEED_PASSWORD_ADMIN` | senha só desta vitrine | não repetir a de produção |
+| `DATABASE_URL` | **não definir** | é o que mantém o SQLite efêmero |
+
+⚠️ **`DATABASE_URL` não pode existir neste serviço.** Se existir, o app grava no
+Postgres apontado por ela. A carga tem trava e se recusa a rodar nesse caso —
+mas a trava é a segunda linha de defesa, não a primeira.
+
+Confirme também que o serviço de produção **não** tem `CRM_DEMO_DATASET`. É a
+mesma proteção pelo outro lado.
+
+### Apontar o domínio
+
+No serviço da vitrine: **Settings → Networking → Custom Domain** →
+`democrm.trustcorp.com.br`. O Railway devolve um destino `CNAME`.
+
+No DNS do `trustcorp.com.br`, crie:
+
+| Tipo | Nome | Valor |
+|---|---|---|
+| CNAME | `democrm` | o destino que o Railway mostrar |
+
+O certificado é emitido automaticamente depois que o DNS propaga. Enquanto não
+propagar, o endereço `*.up.railway.app` do próprio serviço já funciona.
+
+### O que o visitante vê
+
+Uma faixa em toda tela, na entrada e depois de entrar:
+
+> 🎭 **Ambiente de demonstração.** Clientes, contratos e chamados desta tela são
+> fictícios, criados para apresentar o sistema.
+
+Sem isso a vitrine é indistinguível do CRM real: mesma marca, mesmas telas,
+endereço parecido. Os dois estragos que o aviso evita são alguém da equipe
+trabalhar horas dentro da demonstração, e um cliente em prospecção achar que
+está vendo a carteira real da Trust.
+
+### Acesso
+
+Login `admin` com a senha de `CRM_SEED_PASSWORD_ADMIN`. Mande link e senha na
+mesma mensagem para o cliente.
+
+Existe a alternativa de `CRM_DEMO_LOGIN=true`, que troca a senha por botões de
+"entrar com um clique". É legítimo aqui — é para isso que a variável existe.
+Mas note que `democrm.trustcorp.com.br` é um endereço público sob a marca da
+Trust: com o acesso livre ligado, qualquer pessoa que encontre o endereço entra,
+e buscadores encontram. Com senha, você controla quem entra e revoga trocando a
+variável. **Nunca ligue `CRM_DEMO_LOGIN` no serviço de produção.**
+
+### Trocar os dados da vitrine
+
+A operação fictícia vive em [`demo_meishop.py`](../demo_meishop.py), em listas
+Python legíveis (`CONTAS`, `NEGOCIOS`, `CHAMADOS`, `TAREFAS`, `CAMPANHAS`).
+Editar e dar push republica a vitrine com os dados novos.
+
+Para conferir localmente antes de publicar:
+
+```bash
+env -u DATABASE_URL python demo_meishop.py
+CRM_DB_PATH=Data/demo_meishop.sqlite3 streamlit run crm_app.py
+```
+
+### O custo
+
+Um contêiner a mais, cobrado por RAM e CPU como o primeiro. Vale ligar o
+**Serverless** neste serviço (`Settings → Deploy → Serverless`): uma vitrine
+fica ociosa quase todo o tempo, e o preço do sono é a primeira tela demorar
+alguns segundos — o que numa demonstração agendada não incomoda.
+
 ## Docker local
 
 O `docker-compose.yml` continua servindo para desenvolvimento: sobe Postgres
