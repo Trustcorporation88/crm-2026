@@ -152,16 +152,50 @@ mesma proteção pelo outro lado.
 ### Apontar o domínio
 
 No serviço da vitrine: **Settings → Networking → Custom Domain** →
-`democrm.trustcorp.com.br`. O Railway devolve um destino `CNAME`.
+`democrm.trustcorp.com.br`. O Railway devolve **dois** registros.
 
-No DNS do `trustcorp.com.br`, crie:
+O DNS do `trustcorp.com.br` é gerenciado na **Cloudflare** — o
+`crm.trustcorp.com.br` responde hoje em IPs dela (`104.21.x`, `172.67.x`), o
+que significa que passa pelo proxy. É lá que os registros entram:
 
-| Tipo | Nome | Valor |
-|---|---|---|
-| CNAME | `democrm` | o destino que o Railway mostrar |
+| Tipo | Nome | Valor | Proxy |
+|---|---|---|---|
+| CNAME | `democrm` | o destino que o Railway mostrar | **desligado** (nuvem cinza) |
+| TXT | o que o Railway mostrar | o que o Railway mostrar | — |
 
-O certificado é emitido automaticamente depois que o DNS propaga. Enquanto não
-propagar, o endereço `*.up.railway.app` do próprio serviço já funciona.
+**Os dois são obrigatórios.** Este documento dizia que bastava o CNAME, e
+estava errado. O TXT é como o Railway confirma que o domínio é seu antes de
+rotear tráfego, e a falta dele tem um sintoma que engana:
+
+> Sem o registro TXT, o endereço responde **404** mesmo com o CNAME
+> resolvendo corretamente.
+
+Quem não sabe disso vai procurar o defeito na aplicação, que está sã, enquanto
+o problema está no DNS.
+
+Sobre o proxy da Cloudflare: comece com a **nuvem cinza** (DNS only), porque
+com o proxy no meio o Railway pode não conseguir emitir o certificado. Se
+depois quiser ligar o proxy, o modo SSL/TLS da Cloudflare precisa ser **Full**
+— em *Full (Strict)* a resposta é `ERR_TOO_MANY_REDIRECTS`.
+
+O certificado é emitido automaticamente depois que o DNS propaga; o Railway
+tenta por até 72 horas antes de desistir. Enquanto não propagar, o endereço
+`*.up.railway.app` do próprio serviço já funciona — e serve perfeitamente para
+mandar a um cliente, porque o domínio bonito é acabamento, não requisito.
+
+### Limite de domínios por plano
+
+Vale saber antes de planejar endereços, porque a mensagem do Railway não
+explica o motivo:
+
+| Plano | Domínios próprios |
+|---|---|
+| Trial | 1 no total |
+| **Hobby** | **2 por serviço** |
+| Pro | 20 por serviço |
+
+No Trial, `exemplo.com` e `www.exemplo.com` já contam como dois — o limite é
+por domínio distinto, não por site.
 
 ### O que o visitante vê
 
