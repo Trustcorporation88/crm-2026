@@ -30,6 +30,7 @@ import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
     login_throttle_subject,
+    nome_exibido,
     account_summary_text,
     build_customer_timeline,
     build_day_agenda,
@@ -156,7 +157,8 @@ NAV_ICONS = {
 
 def nav_option_label(section: str) -> str:
     icon = NAV_ICONS.get(section)
-    return f"{icon} {section}" if icon else section
+    rotulo = nome_exibido(section)
+    return f"{icon} {rotulo}" if icon else rotulo
 
 
 
@@ -940,7 +942,7 @@ def render_top_bar(active_section: str) -> None:
         )
         st.markdown(
             f'<div class="section-crumb"><span class="crumb-root">Trust CRM</span>'
-            f'<span class="crumb-sep">›</span><strong>{active_section}</strong>{filters_html}</div>',
+            f'<span class="crumb-sep">›</span><strong>{nome_exibido(active_section)}</strong>{filters_html}</div>',
             unsafe_allow_html=True,
         )
     with col_home:
@@ -1346,7 +1348,7 @@ def render_page_header(section: str) -> None:
         "Serviços": "Escolha um módulo abaixo ou use o menu à esquerda.",
         "Visão Executiva": "KPIs e leitura rápida da operação.",
         "Atendimento": "Fila de tickets e SLA.",
-        "Clientes 360": "Conta, histórico e contexto comercial.",
+        "Clientes 360": "Sua base de clientes e a ficha completa de cada um.",
         "Funil Comercial": "Oportunidades e etapas de venda.",
         "Canais": "Entrada WhatsApp, e-mail e formulários.",
         "Administração": "Governança, usuários, permissões e auditoria.",
@@ -1365,7 +1367,8 @@ def render_page_header(section: str) -> None:
         "Importar Dados": "Traga sua base de clientes de outro sistema por planilha.",
     }
     st.markdown(
-        f'<div class="page-head"><h2>{section}</h2><p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
+        f'<div class="page-head"><h2>{nome_exibido(section)}</h2>'
+        f'<p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -2481,6 +2484,78 @@ elif section == "Clientes 360":
     if filtered_customers.empty:
         render_empty_state("Nenhuma conta encontrada para os filtros atuais.")
     else:
+        # ------------------------------------------------------------------
+        # Lista da base
+        #
+        # Esta tela só tinha o seletor abaixo, que mostra uma conta por vez.
+        # Não havia, em nenhum lugar do sistema, uma lista de clientes:
+        # chamados tinham tabela, campanhas tinham, usuários tinham — clientes
+        # não. Para responder "quantos clientes eu tenho e quem são" era
+        # preciso abrir o seletor e ler as opções uma a uma.
+        #
+        # A lista sai de `filtered_customers`, então respeita a visibilidade
+        # por login: um vendedor vê a própria carteira, o administrador vê a
+        # base inteira.
+        # ------------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown('<div class="section-title">Sua base</div>', unsafe_allow_html=True)
+
+            _busca_conta = st.text_input(
+                "Filtrar a lista",
+                key="lista_clientes_busca",
+                placeholder="Filtrar por nome, cidade, segmento ou responsável…",
+                label_visibility="collapsed",
+            )
+
+            _lista = filtered_customers.copy()
+            if _busca_conta.strip():
+                _termo = _busca_conta.strip().lower()
+                _mascara = None
+                for _coluna in ("name", "city", "segment", "owner", "status"):
+                    _parcial = _lista[_coluna].astype(str).str.lower().str.contains(
+                        _termo, regex=False
+                    )
+                    _mascara = _parcial if _mascara is None else (_mascara | _parcial)
+                _lista = _lista[_mascara]
+
+            render_metric_cards([
+                ("Clientes", str(len(_lista)), "No recorte atual."),
+                (
+                    "Carteira",
+                    currency(_lista["lifetime_value"].sum() if not _lista.empty else 0),
+                    "Soma do valor de vida.",
+                ),
+                (
+                    "Saúde média",
+                    f"{int(_lista['health_score'].mean())}/100" if not _lista.empty else "—",
+                    "Quanto menor, mais risco.",
+                ),
+            ])
+
+            if _lista.empty:
+                render_empty_state(f'Nenhum cliente encontrado para «{_busca_conta}».')
+            else:
+                _tabela = pd.DataFrame({
+                    "Cliente": _lista["name"],
+                    "Segmento": _lista["segment"],
+                    "Cidade": _lista["city"],
+                    "Responsável": _lista["owner"],
+                    "Situação": _lista["status"],
+                    "Saúde": _lista["health_score"],
+                    "Valor de vida": _lista["lifetime_value"].map(currency),
+                    "Próxima ação": _lista["next_action"],
+                })
+                st.dataframe(
+                    _tabela.sort_values("Saúde"),
+                    width="stretch",
+                    hide_index=True,
+                )
+                st.caption(
+                    "Ordenada pela saúde da conta — quem está em risco aparece primeiro. "
+                    "Clique no título de uma coluna para reordenar."
+                )
+
+        st.markdown(" ")
         customer_name = st.selectbox("Selecionar conta", filtered_customers["name"].tolist())
         customer = filtered_customers[filtered_customers["name"] == customer_name].iloc[0].to_dict()
         account_id = customer["customer_id"]
