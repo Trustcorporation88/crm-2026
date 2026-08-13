@@ -119,6 +119,48 @@ class TestTelaDeLogin:
         chaves = [str(b.key) for b in app.button]
         assert any(k.startswith("demo-login-") for k in chaves)
 
+    def _texto_visivel(self, app) -> str:
+        partes = [m.value for m in app.markdown]
+        partes += [c.value for c in app.caption]
+        partes += [w.value for w in app.warning]
+        return " ".join(partes)
+
+    def test_nao_ensina_o_visitante_a_desligar_a_autenticacao(self, monkeypatch):
+        """A tela publicava o nome da variável que libera entrada sem senha.
+
+        É a única página que o mundo inteiro enxerga, e ela trazia escrito
+        «para liberar o acesso de demonstração em um clique, defina
+        CRM_DEMO_LOGIN=true». Quem administra a instância encontra isso no
+        .env.example; quem só passou na porta não precisa saber que a porta
+        tem um destravamento.
+        """
+        app = self._login_page(monkeypatch)
+        assert "CRM_DEMO_LOGIN" not in self._texto_visivel(app), (
+            "a tela de login voltou a divulgar a variável do acesso sem senha"
+        )
+
+    def test_o_aviso_continua_quando_o_modo_esta_de_fato_ligado(self, monkeypatch):
+        """Ligado, o risco tem de estar visível — o silêncio aqui seria pior."""
+        app = self._login_page(monkeypatch, "true")
+        assert any("sem senha" in w.value for w in app.warning), (
+            "modo demonstração ativo sem aviso na tela"
+        )
+
+    def test_nao_traz_texto_de_vitrine(self, monkeypatch):
+        """Ferramenta interna não faz propaganda para quem já é da casa.
+
+        Os três atributos técnicos ficavam sublinhados em verde, o que ainda
+        os fazia parecer abas clicáveis que não clicavam em nada.
+        """
+        texto = self._texto_visivel(self._login_page(monkeypatch))
+        for vitrine in ("PostgreSQL gerenciado", "Acesso por papéis", "intake operacional"):
+            assert vitrine not in texto, f"texto de vitrine de volta na tela de login: {vitrine}"
+
+    def test_pede_usuario_e_senha_e_nada_mais(self, monkeypatch):
+        app = self._login_page(monkeypatch)
+        rotulos = [w.label for w in app.text_input]
+        assert rotulos == ["Usuário", "Senha"], f"campos na tela: {rotulos}"
+
 
 class TestVisoesSalvas:
     """O recorte de filtros precisa poder ser salvo e reaplicado."""
