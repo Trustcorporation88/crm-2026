@@ -4,6 +4,7 @@ import os
 from collections import Counter
 from datetime import datetime
 from crm_backend import _connect
+from crm_domain import LOST_STAGE, WON_STAGE
 from scoring_datas import limiar_de_dias
 
 USE_LLM = bool(os.getenv("CRM_OPENAI_API_KEY","").strip())
@@ -18,7 +19,7 @@ def summarize_customer_timeline(cid: str, max_events=20) -> str:
             SUM(CASE WHEN status NOT IN ('Resolvido') THEN 1 ELSE 0 END) AS open
             FROM tickets WHERE customer_id=?""",(cid,)).fetchone()
         dl = c.execute("""SELECT COUNT(*) AS total, SUM(value) AS pipeline
-            FROM deals WHERE customer_id=? AND stage NOT IN ('Fechado ganho','Perdido')""",(cid,)).fetchone()
+            FROM deals WHERE customer_id=? AND stage NOT IN (?,?)""",(cid, WON_STAGE, LOST_STAGE)).fetchone()
     if not events: return f"Conta {cust['name']} sem interacoes registradas. Vale fazer o primeiro contato."
     types = Counter(e["event_type"] for e in events)
     chans = Counter(e["channel"] for e in events)
@@ -41,7 +42,7 @@ def suggest_next_action(cid: str) -> dict:
         crit = c.execute("""SELECT ticket_id, subject FROM tickets WHERE customer_id=?
             AND status NOT IN ('Resolvido') AND priority IN ('Alta','Critica') LIMIT 1""",(cid,)).fetchone()
         deal = c.execute("""SELECT deal_id, name, stage FROM deals WHERE customer_id=?
-            AND stage NOT IN ('Fechado ganho','Perdido') ORDER BY value DESC LIMIT 1""",(cid,)).fetchone()
+            AND stage NOT IN (?,?) ORDER BY value DESC LIMIT 1""",(cid, WON_STAGE, LOST_STAGE)).fetchone()
     cust = dict(cust)
     if crit: return {"action":f"Atualizar ticket {crit['ticket_id']}: {crit['subject']}",
         "reason":"Ticket critico aberto.","priority":"Alta",
@@ -97,8 +98,10 @@ def detect_anomalies(period_days=7) -> list:
         ch = c.execute("SELECT COUNT(*) AS t FROM customers WHERE status='Risco'").fetchone()
         if ch["t"]>=2: a.append({"type":"churn_risk","severity":"Alta",
             "title":f"{ch['t']} contas em risco","description":"Acionar customer success."})
-        st = c.execute("""SELECT COUNT(*) AS t FROM deals WHERE stage NOT IN ('Fechado ganho','Perdido')
-            AND close_date < date('now','-7 day')""").fetchone()
+        # limiar em Python: date('now','-7 day') é função exclusiva do SQLite
+        # e quebrava esta consulta no Postgres.
+        st = c.execute("""SELECT COUNT(*) AS t FROM deals WHERE stage NOT IN (?,?)
+            AND close_date < ?""", (WON_STAGE, LOST_STAGE, limiar_de_dias(7))).fetchone()
         if st["t"]>=1: a.append({"type":"stalled","severity":"Media",
             "title":f"{st['t']} oportunidade(s) atrasada(s)","description":"Replanejar ou perder."})
     return a

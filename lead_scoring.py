@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+from crm_domain import LOST_STAGE, WON_STAGE
 from crm_backend import _connect, log_audit_event
 from scoring_datas import carimbo_utc, limiar_de_dias
 
@@ -45,7 +46,7 @@ def _signals(c: sqlite3.Connection, cust: dict) -> dict[str, bool]:
     d90 = limiar_de_dias(90)
     rec = c.execute("SELECT COUNT(*) AS t FROM interactions WHERE customer_id=? AND event_at>=?", (cid, d7)).fetchone()
     ot = c.execute("SELECT COUNT(*) AS t FROM tickets WHERE customer_id=? AND status NOT IN ('Resolvido','Fechado')", (cid,)).fetchone()
-    od = c.execute("SELECT COUNT(*) AS t FROM deals WHERE customer_id=? AND stage NOT IN ('Fechado ganho','Perdido')", (cid,)).fetchone()
+    od = c.execute("SELECT COUNT(*) AS t FROM deals WHERE customer_id=? AND stage NOT IN (?,?)", (cid, WON_STAGE, LOST_STAGE)).fetchone()
     return {
         "has_email": cust.get("channel") == "Email",
         "has_whatsapp": cust.get("channel") == "WhatsApp",

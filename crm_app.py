@@ -29,6 +29,7 @@ from crm_views import (
 import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
+    esc,
     login_throttle_subject,
     nome_exibido,
     account_summary_text,
@@ -96,8 +97,9 @@ from crm_backend import (
     add_campaign,
     add_interaction,
     complete_task,
-    create_access_token,
-    verify_access_token,
+    create_ui_session,
+    resolve_ui_session,
+    revoke_ui_session,
     add_customer,
     add_deal,
     add_ticket,
@@ -936,7 +938,7 @@ def render_top_bar(active_section: str) -> None:
         if st.session_state.get("filter_country", "Todos") != "Todos":
             filter_bits.append(f"Mercado: {st.session_state['filter_country']}")
         if st.session_state.get("filter_owner", "Todos") != "Todos":
-            filter_bits.append(f"Responsável: {st.session_state['filter_owner']}")
+            filter_bits.append(f"Responsável: {esc(st.session_state['filter_owner'])}")
         filters_html = (
             f' <span class="top-nav-pill">{" · ".join(filter_bits)}</span>' if filter_bits else ""
         )
@@ -990,22 +992,59 @@ def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id
         )
 
 
-SESSION_TOKEN_TTL_MINUTES = 720  # 12h: usuário não perde a sessão ao atualizar a página.
+def _client_ip_do_streamlit() -> str | None:
+    """IP do cliente, quando o runtime expõe (Streamlit >= 1.45).
+
+    Atrás de proxy confiável, o primeiro X-Forwarded-For; senão, o IP direto.
+    Só devolve algo que valide como IP de verdade: no AppTest dos testes,
+    st.context é um mock e devolveria um objeto cujo repr muda a cada run —
+    o que fragmentaria o subject do throttle e desligaria o bloqueio.
+    Falha em silêncio: sem IP, o throttle continua funcionando só por usuário.
+    """
+    import ipaddress
+
+    def _valido(valor: object) -> str | None:
+        if not isinstance(valor, str):
+            return None
+        candidato = valor.strip()
+        try:
+            ipaddress.ip_address(candidato)
+        except ValueError:
+            return None
+        return candidato
+
+    try:
+        headers = getattr(st.context, "headers", None) or {}
+        forwarded = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+        if isinstance(forwarded, str) and forwarded:
+            return _valido(forwarded.split(",", 1)[0])
+        return _valido(getattr(st.context, "ip_address", None))
+    except Exception:
+        return None
 
 
 def start_user_session(user: dict[str, Any]) -> None:
-    """Autentica o usuário e grava um token na URL para sobreviver ao refresh (F5)."""
+    """Autentica o usuário e grava um token OPACO na URL para sobreviver ao F5.
+
+    O token não é o JWT: é um identificador aleatório de sessão registrado no
+    servidor (ver crm_backend.create_ui_session), revogável no logout e sem
+    nenhum claim dentro. O JWT nunca vai para a URL.
+    """
     st.session_state["crm_user"] = user
     try:
-        st.query_params["auth"] = create_access_token(user, expires_minutes=SESSION_TOKEN_TTL_MINUTES)
+        st.query_params["auth"] = create_ui_session(user["username"])
     except Exception:
         pass  # Sem token, o login continua funcionando — só não persiste no refresh.
     st.rerun()
 
 
 def end_user_session() -> None:
-    """Sai da conta com um redirect real para a raiz, removendo o token da URL."""
+    """Sai da conta: revoga a sessão no servidor e redireciona limpando a URL."""
     st.session_state.pop("crm_user", None)
+    try:
+        revoke_ui_session(str(st.query_params.get("auth", "") or ""))
+    except Exception:
+        pass  # A revogação é defesa extra; o logout local acontece de todo modo.
     # Redirect completo (não st.rerun): garante que o ?auth= saia da URL do navegador.
     st.markdown(
         '<meta http-equiv="refresh" content="0; url=./">',
@@ -1015,20 +1054,19 @@ def end_user_session() -> None:
 
 
 def restore_session_from_url() -> None:
-    """Se a página foi atualizada (F5), restaura o login a partir do token na URL."""
+    """Se a página foi atualizada (F5), restaura o login a partir da sessão opaca."""
     if "crm_user" in st.session_state:
         return
     token = str(st.query_params.get("auth", "") or "")
     if not token:
         return
     try:
-        payload = verify_access_token(token)
-        st.session_state["crm_user"] = {
-            "username": payload["sub"],
-            "full_name": payload.get("full_name") or payload["sub"],
-            "role": payload["role"],
-        }
+        user = resolve_ui_session(token)
     except Exception:
+        user = None
+    if user is not None:
+        st.session_state["crm_user"] = user
+    else:
         try:
             del st.query_params["auth"]
         except Exception:
@@ -1255,7 +1293,7 @@ def show_login() -> None:
             # só estava ligado no serviço de webhook. A tela de login — o
             # caminho que de fato está exposto ao público — chamava
             # verify_login() direto, sem limite algum de tentativas.
-            subject = login_throttle_subject(username)
+            subject = login_throttle_subject(username, _client_ip_do_streamlit())
             try:
                 consume_auth_attempt(subject, LOGIN_ENDPOINT)
             except ValueError as exc:
@@ -1374,7 +1412,8 @@ def render_page_header(section: str) -> None:
 
 
 def render_empty_state(message: str) -> None:
-    st.markdown(f'<div class="empty-state">{message}</div>', unsafe_allow_html=True)
+    # esc(): o texto pode carregar termo digitado pelo usuário.
+    st.markdown(f'<div class="empty-state">{esc(message)}</div>', unsafe_allow_html=True)
 
 
 # Ícone e tom por serviço — paleta azul/verde/grafite.
@@ -2049,10 +2088,10 @@ with st.sidebar:
     st.markdown(
         f"""
 <div class="side-user">
-  <div class="side-avatar">{_initials}</div>
+  <div class="side-avatar">{esc(_initials)}</div>
   <div class="side-user-meta">
-    <div class="side-user-name">{user["full_name"]}</div>
-    <div class="side-user-role">{user["role"]}</div>
+    <div class="side-user-name">{esc(user["full_name"])}</div>
+    <div class="side-user-role">{esc(user["role"])}</div>
   </div>
 </div>
 """,
@@ -2316,7 +2355,7 @@ elif section == "Atendimento":
         ]
         for col, pair in zip(cols * 2, details):
             with col:
-                st.markdown(f"<div class='mini-card'><div class='mini-label'>{pair[0]}</div><div class='mini-value' style='font-size:1.2rem;'>{pair[1]}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='mini-card'><div class='mini-label'>{esc(pair[0])}</div><div class='mini-value' style='font-size:1.2rem;'>{esc(pair[1])}</div></div>", unsafe_allow_html=True)
         st.info(f"Ticket aberto em {ticket['opened_at']} | SLA alvo: {ticket['sla_hours']}h | Tempo corrido: {ticket['age_hours']}h")
         st.markdown(f"**Resumo do caso:** {ticket['subject']}")
         st.markdown(f"**Proxima acao sugerida:** {customer['next_action']}")
@@ -2721,8 +2760,8 @@ elif section == "Clientes 360":
                 st.markdown(
                     f"<div style='display:flex;justify-content:space-between;gap:1rem;"
                     f"padding:0.35rem 0;border-bottom:1px solid #eceff3;'>"
-                    f"<span style='opacity:0.6;font-size:0.85rem;'>{rotulo}</span>"
-                    f"<span style='font-size:0.88rem;text-align:right;'>{valor}</span></div>",
+                    f"<span style='opacity:0.6;font-size:0.85rem;'>{esc(rotulo)}</span>"
+                    f"<span style='font-size:0.88rem;text-align:right;'>{esc(valor)}</span></div>",
                     unsafe_allow_html=True,
                 )
             st.markdown('</div>', unsafe_allow_html=True)

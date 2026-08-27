@@ -17,6 +17,7 @@ interface.
 
 from __future__ import annotations
 
+import html as _html
 import os
 import re
 import unicodedata
@@ -192,9 +193,9 @@ STAGE_ROT_DAYS: dict[str, int] = {
 }
 DEFAULT_ROT_DAYS = 14
 
-# Etapas terminais não estagnam.
-WON_STAGE = "Fechado ganho"
-LOST_STAGE = "Fechado perdido"
+# Etapas terminais não estagnam. Fonte única em crm_domain.py.
+from crm_domain import LOST_STAGE, WON_STAGE  # noqa: E402
+
 CLOSED_STAGES = {WON_STAGE, LOST_STAGE}
 
 # Motivos de perda mais comuns em B2B — viram catálogo para análise depois.
@@ -681,6 +682,17 @@ _HEALTH_STYLE = {
 }
 
 
+def esc(value: Any) -> str:
+    """Escapa texto que será interpolado em HTML de ``unsafe_allow_html``.
+
+    Todo dado que chega de fora (nome de conta, assunto de ticket, corpo de
+    mensagem de cliente) passa por aqui antes de virar HTML. Sem isso, uma
+    mensagem de WhatsApp com ``<img onerror=...>`` executaria script na
+    sessão autenticada do operador.
+    """
+    return _html.escape(str(value if value is not None else ""), quote=True)
+
+
 def render_deal_card(deal: dict[str, Any], customer_name: str, health: DealHealth) -> None:
     """Card de oportunidade no funil.
 
@@ -695,10 +707,10 @@ def render_deal_card(deal: dict[str, Any], customer_name: str, health: DealHealt
     st.markdown(
         f"""
         <div class='mini-card' style='border-left:3px solid {color};'>
-            <div class='mini-label'>{customer_name}</div>
-            <div class='mini-value' style='font-size:1.05rem;'>{deal.get('name','')}</div>
-            <div class='mini-caption'>{format_brl(deal.get('value'))} · {probability}% · {deal.get('owner','')}</div>
-            <div class='mini-caption' style='color:{color};'>{icon} {health.label}</div>
+            <div class='mini-label'>{esc(customer_name)}</div>
+            <div class='mini-value' style='font-size:1.05rem;'>{esc(deal.get('name',''))}</div>
+            <div class='mini-caption'>{format_brl(deal.get('value'))} · {probability}% · {esc(deal.get('owner',''))}</div>
+            <div class='mini-caption' style='color:{color};'>{icon} {esc(health.label)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1236,8 +1248,8 @@ def render_next_action(action: NextAction) -> None:
                     padding:0.85rem 1.1rem;border-radius:4px;margin-bottom:0.75rem;'>
             <div style='font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;
                         opacity:0.65;margin-bottom:0.2rem;'>Próxima ação</div>
-            <div style='font-size:1.05rem;font-weight:600;'>{icon} {action.headline}</div>
-            <div style='opacity:0.7;font-size:0.88rem;margin-top:0.15rem;'>{action.reason}</div>
+            <div style='font-size:1.05rem;font-weight:600;'>{icon} {esc(action.headline)}</div>
+            <div style='opacity:0.7;font-size:0.88rem;margin-top:0.15rem;'>{esc(action.reason)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1259,13 +1271,13 @@ def render_activity_timeline(
     for label, group in group_timeline_by_day(entries, today=today):
         st.markdown(
             f"<div style='font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;"
-            f"opacity:0.55;margin:1.1rem 0 0.5rem;'>{label}</div>",
+            f"opacity:0.55;margin:1.1rem 0 0.5rem;'>{esc(label)}</div>",
             unsafe_allow_html=True,
         )
         for entry in group:
-            autor = f" · {entry.owner}" if entry.owner else ""
+            autor = f" · {esc(entry.owner)}" if entry.owner else ""
             corpo = (
-                f"<div style='opacity:0.72;font-size:0.9rem;margin-top:0.15rem;'>{entry.body}</div>"
+                f"<div style='opacity:0.72;font-size:0.9rem;margin-top:0.15rem;'>{esc(entry.body)}</div>"
                 if entry.body
                 else ""
             )
@@ -1275,10 +1287,10 @@ def render_activity_timeline(
                             border-bottom:1px solid #eceff3;'>
                     <div style='font-size:1.05rem;line-height:1.4;'>{entry.icon}</div>
                     <div style='flex:1;'>
-                        <div style='font-weight:600;font-size:0.95rem;'>{entry.title}</div>
+                        <div style='font-weight:600;font-size:0.95rem;'>{esc(entry.title)}</div>
                         {corpo}
                         <div style='opacity:0.45;font-size:0.75rem;margin-top:0.2rem;'>
-                            {entry.event_type or 'interação'}{autor}
+                            {esc(entry.event_type or 'interação')}{autor}
                         </div>
                     </div>
                 </div>
@@ -1305,9 +1317,9 @@ def render_related_records(
             marca = "🔴 " if row.get("deal_id") in stale else ""
             st.markdown(
                 f"<div style='padding:0.4rem 0;border-bottom:1px solid #eceff3;'>"
-                f"{marca}<strong>{row.get('name','')}</strong><br>"
+                f"{marca}<strong>{esc(row.get('name',''))}</strong><br>"
                 f"<span style='opacity:0.65;font-size:0.85rem;'>"
-                f"{format_brl(row.get('value'))} · {row.get('stage','')}</span></div>",
+                f"{format_brl(row.get('value'))} · {esc(row.get('stage',''))}</span></div>",
                 unsafe_allow_html=True,
             )
 
@@ -1327,9 +1339,9 @@ def render_related_records(
         marca = "🔴 " if estourado else ""
         st.markdown(
             f"<div style='padding:0.4rem 0;border-bottom:1px solid #eceff3;'>"
-            f"{marca}<strong>{row.get('subject','')}</strong><br>"
+            f"{marca}<strong>{esc(row.get('subject',''))}</strong><br>"
             f"<span style='opacity:0.65;font-size:0.85rem;'>"
-            f"{row.get('status','')} · {row.get('channel','')}</span></div>",
+            f"{esc(row.get('status',''))} · {esc(row.get('channel',''))}</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -1477,18 +1489,26 @@ def queue_position_label(index: int, total: int) -> str:
 LOGIN_ENDPOINT = "streamlit/login"
 
 
-def login_throttle_subject(username: str | None) -> str:
+def login_throttle_subject(username: str | None, client_ip: str | None = None) -> str:
     """Identifica quem está tentando entrar, para efeito de throttle.
 
     Usa o nome informado, normalizado. Quando o campo vem vazio, cai num
     rótulo fixo para que rajadas de submissões em branco também sejam
     contabilizadas em vez de escaparem do controle.
 
+    Com ``client_ip``, compõe ``user:<nome>|<ip>`` — o mesmo formato do
+    serviço de webhook. Chavear só pelo usuário permitia duas coisas ruins:
+    um atacante bloquear o login do admin de propósito errando 5 vezes
+    (lockout DoS) e password spraying sem custo, já que trocar de usuário
+    zerava o contador. Sem IP disponível, mantém o comportamento antigo.
+
     Mora aqui, e não em crm_app.py, porque crm_app só é importável dentro do
     runtime do Streamlit — o que deixaria esta função sem teste unitário.
     """
     normalized = (username or "").strip().lower()
-    return f"user:{normalized}" if normalized else "user:<vazio>"
+    base = f"user:{normalized}" if normalized else "user:<vazio>"
+    ip = (client_ip or "").strip()
+    return f"{base}|{ip}" if ip else base
 
 
 # ---------------------------------------------------------------------------

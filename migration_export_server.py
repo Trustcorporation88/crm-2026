@@ -10,12 +10,17 @@ exportar, rode explicitamente, com token novo, e desligue ao terminar.
 Set CRM_MIGRATION_TOKEN and run on PORT (replaces Streamlit temporarily):
   CRM_MIGRATION_TOKEN=... python migration_export_server.py
 
-Download:
-  curl -fsSL "http://host/export?token=TOKEN" -o crm.sqlite3
+Download (token no header Authorization — NUNCA na URL, que vaza em log,
+histórico e Referer):
+  curl -fsSL -H "Authorization: Bearer TOKEN" "http://host/export" -o crm.sqlite3
+
+Por padrão escuta só em 127.0.0.1; para exportar de outro hospedeiro, defina
+CRM_MIGRATION_BIND=0.0.0.0 conscientemente e desligue ao terminar.
 """
 
 from __future__ import annotations
 
+import hmac
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -46,7 +51,17 @@ def main() -> None:
                 self.wfile.write(b"ok")
                 return
 
-            if self.path != f"/export?token={token}":
+            if self.path != "/export":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            # Token no header, comparado em tempo constante. A versão antiga
+            # comparava o path com o token embutido na URL — vazava o segredo
+            # em logs e era vulnerável a timing.
+            auth = self.headers.get("Authorization", "")
+            supplied = auth[7:] if auth.startswith("Bearer ") else ""
+            if not supplied or not hmac.compare_digest(supplied, token):
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -64,8 +79,9 @@ def main() -> None:
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    print(f"Migration export server on 0.0.0.0:{port} (db={DB_PATH})", flush=True)
+    bind = os.getenv("CRM_MIGRATION_BIND", "127.0.0.1").strip() or "127.0.0.1"
+    server = HTTPServer((bind, port), Handler)
+    print(f"Migration export server on {bind}:{port} (db={DB_PATH})", flush=True)
     server.serve_forever()
 
 

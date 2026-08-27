@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import json
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from crm_backend import (
@@ -17,7 +19,6 @@ from crm_backend import (
     get_auth_throttle_metrics,
     get_user_by_username,
     get_rbac_matrix,
-    get_webhook_hmac_secret,
     get_webhook_verify_token,
     has_permission,
     init_database,
@@ -150,10 +151,11 @@ def health() -> dict[str, str]:
 
 @app.get("/webhook/whatsapp/hmac-info")
 def hmac_info() -> dict[str, str]:
+    # Sem preview do segredo aqui: este endpoint é público e expor os
+    # primeiros caracteres do HMAC reduzia a entropia efetiva do segredo.
     return {
         "algorithm": "HMAC-SHA256",
         "header": "X-Hub-Signature-256",
-        "secret_preview": f"{get_webhook_hmac_secret()[:8]}...",
     }
 
 
@@ -162,9 +164,15 @@ def verify_webhook(
     hub_mode: str | None = Query(default=None, alias="hub.mode"),
     hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
     hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
-) -> dict[str, str]:
-    if hub_mode == "subscribe" and hub_verify_token == get_webhook_verify_token() and hub_challenge:
-        return {"challenge": hub_challenge}
+) -> PlainTextResponse:
+    # A Meta exige o corpo da resposta com o challenge em TEXTO PURO.
+    # Devolver JSON ({"challenge": ...}) fazia a comparação da Meta falhar e
+    # a verificação do webhook nunca passava no painel real.
+    token_ok = bool(hub_verify_token) and hmac.compare_digest(
+        hub_verify_token, get_webhook_verify_token()
+    )
+    if hub_mode == "subscribe" and token_ok and hub_challenge:
+        return PlainTextResponse(hub_challenge)
     raise HTTPException(status_code=403, detail="Webhook verification failed")
 
 
@@ -176,7 +184,12 @@ async def ingest_whatsapp(
     raw_body = await request.body()
     if not verify_webhook_hmac(raw_body, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        # Corpo com HMAC válido mas JSON inválido é erro do remetente, não
+        # nosso: 400 explícito, em vez de 500 que faria a Meta reentregar.
+        raise HTTPException(status_code=400, detail="Malformed JSON body")
     result = process_whatsapp_webhook(payload)
     return {
         "status": result["status"],
