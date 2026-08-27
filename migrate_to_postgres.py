@@ -55,11 +55,11 @@ TABLE_ORDER = [
     "audit_log",
     "webhook_events",
     "refresh_tokens",
+    "ui_sessions",
     "auth_throttle",
     "user_preferences",
     "aci_connections",
     "aci_tool_calls",
-    "aci_policies",
     "cadences",
     "cadence_steps",
     "cadence_enrollments",
@@ -88,17 +88,21 @@ CONFLICT_KEYS = {
     "audit_log": "id",
     "webhook_events": "id",
     "refresh_tokens": "token_id",
+    "ui_sessions": "token_hash",
     "auth_throttle": "subject, endpoint",
     "aci_connections": "connection_id",
-    "aci_policies": "policy_id",
-    "cadences": "cadence_id",
-    "cadence_steps": "step_id",
-    "cadence_enrollments": "enrollment_id",
-    "cadence_actions": "action_id",
-    "lead_scoring_rules": "rule_id",
+    # Chaves conferidas contra o CREATE TABLE de cada módulo. As anteriores
+    # (cadence_id, step_id, rule_id, template_id, snapshot_id...) não existiam
+    # no schema real e faziam o Postgres rejeitar o ON CONFLICT logo na
+    # primeira execução — nenhuma migração de banco real chegava ao fim.
+    "cadences": "key",
+    "cadence_steps": "id",
+    "cadence_enrollments": "id",
+    "cadence_actions": "id",
+    "lead_scoring_rules": "rule_key",
     "lead_scores": "customer_id",
-    "message_templates": "template_id",
-    "health_snapshots": "snapshot_id",
+    "message_templates": "key",
+    "health_snapshots": "customer_id",
     # meta_state fica de fora de propósito: é apenas o carimbo de versão dos
     # dados, regenerado na primeira escrita após a migração. Migrá-lo não traz
     # ganho e o deixaria fora de TABLE_ORDER, quebrando o invariante testado.
@@ -330,6 +334,23 @@ def migrate(
         rows = read_rows(source, table, columns)
         plan[table] = (columns, rows)
         log(f"  {table:<20} {len(rows):>6} linhas  checksum={checksum(rows)}")
+
+    # Valida as chaves de conflito contra o schema real ANTES de escrever.
+    # Uma coluna inexistente faria o Postgres rejeitar o ON CONFLICT no meio
+    # da cópia — melhor abortar aqui, com a lista completa do que corrigir.
+    invalid = [
+        f"{table}: {CONFLICT_KEYS[table]}"
+        for table in ordered
+        if table in CONFLICT_KEYS
+        and not all(
+            key.strip() in plan[table][0]
+            for key in CONFLICT_KEYS[table].split(",")
+        )
+    ]
+    if invalid:
+        raise MigrationError(
+            "CONFLICT_KEYS com coluna inexistente no schema: " + "; ".join(invalid)
+        )
 
     total = sum(len(rows) for _, rows in plan.values())
     log(f"\nTotal na origem: {total} linhas")

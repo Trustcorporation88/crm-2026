@@ -1,6 +1,7 @@
 """Customer health score."""
 from __future__ import annotations
 import json
+from crm_domain import LOST_STAGE, WON_STAGE
 from crm_backend import _connect
 from scoring_datas import carimbo_utc, limiar_de_dias
 
@@ -31,7 +32,7 @@ def _signals(c, cust):
         AND status NOT IN ('Resolvido','Fechado') AND priority IN ('Alta','Critica')""",(cid,)).fetchone()
     cs = c.execute("SELECT AVG(csat) AS a FROM tickets WHERE customer_id=? AND csat>0",(cid,)).fetchone()
     ac = cs["a"] or 0.0
-    op = c.execute("SELECT COUNT(*) AS t FROM deals WHERE customer_id=? AND stage NOT IN ('Fechado ganho','Perdido')",(cid,)).fetchone()
+    op = c.execute("SELECT COUNT(*) AS t FROM deals WHERE customer_id=? AND stage NOT IN (?,?)",(cid, WON_STAGE, LOST_STAGE)).fetchone()
     p = {"recent_interaction":bool(rec["t"]),"no_open_critical_ticket":not bool(crit["t"]),
         "csat_above_4":ac>=4.0,"active_pipeline":bool(op["t"]),
         "owner_assigned":bool(cust.get("owner")),

@@ -869,6 +869,15 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (username) REFERENCES users(username)
         );
 
+        CREATE TABLE IF NOT EXISTS ui_sessions (
+            token_hash TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            issued_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (username) REFERENCES users(username)
+        );
+
         CREATE TABLE IF NOT EXISTS auth_throttle (
             subject TEXT NOT NULL,
             endpoint TEXT NOT NULL,
@@ -1336,7 +1345,11 @@ def init_database() -> str:
 
 def _next_code(connection: sqlite3.Connection, table_name: str, column_name: str, prefix: str) -> str:
     row = connection.execute(
-        f"SELECT {column_name} AS code FROM {table_name} WHERE {column_name} LIKE ? ORDER BY {column_name} DESC LIMIT 1",
+        # LENGTH antes da ordenação lexicográfica: sem isso, "C999" ordena
+        # acima de "C1000" e o próximo código gerado colide com um existente
+        # a partir do registro nº 1000.
+        f"SELECT {column_name} AS code FROM {table_name} WHERE {column_name} LIKE ? "
+        f"ORDER BY LENGTH({column_name}) DESC, {column_name} DESC LIMIT 1",
         (f"{prefix}%",),
     ).fetchone()
     if row is None or row["code"] is None:
@@ -2001,6 +2014,71 @@ def _issue_refresh_token_record(
         )
         connection.commit()
     return token_id, refresh_token
+
+
+# ---------------------------------------------------------------------------
+# Sessões da interface Streamlit
+#
+# Antes, o app gravava o PRÓPRIO JWT de acesso na URL (?auth=) para a sessão
+# sobreviver ao F5. Isso expunha um token com claims e 12h de validade em
+# histórico de navegador, Referer e links compartilhados, sem revogação no
+# logout. Agora a URL carrega apenas um token OPACO aleatório; o registro fica
+# no servidor (com hash, não o token), expira, e o logout revoga de verdade.
+# O risco residual de a URL vazar existe, mas o token não carrega claims e
+# morre no logout ou na expiração.
+# ---------------------------------------------------------------------------
+
+UI_SESSION_TTL_MINUTES = int(os.getenv("CRM_UI_SESSION_TTL_MINUTES", "720"))
+
+
+def create_ui_session(username: str) -> str:
+    """Cria uma sessão de interface e devolve o token opaco (não armazenado)."""
+    token = secrets.token_urlsafe(32)
+    now = _utcnow()
+    expires_at = now + timedelta(minutes=max(5, UI_SESSION_TTL_MINUTES))
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO ui_sessions (token_hash, username, issued_at, expires_at, revoked_at)
+            VALUES (?, ?, ?, ?, NULL)
+            """,
+            (_hash_token(token), username, now.isoformat(), expires_at.isoformat()),
+        )
+        connection.commit()
+    return token
+
+
+def resolve_ui_session(token: str) -> dict[str, str] | None:
+    """Devolve o usuário da sessão, ou None se inválida/expirada/revogada.
+
+    O usuário vem do banco (não de claims), então mudança de papel ou
+    desativação da conta faz efeito já na próxima restauração de sessão.
+    """
+    if not token:
+        return None
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT username, expires_at, revoked_at FROM ui_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()
+    if row is None or row["revoked_at"]:
+        return None
+    expires_at = _parse_iso_datetime(row["expires_at"])
+    if expires_at is None or expires_at <= _utcnow():
+        return None
+    return get_user_by_username(row["username"])
+
+
+def revoke_ui_session(token: str) -> None:
+    """Revoga a sessão no servidor — chamada pelo logout."""
+    if not token:
+        return
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE ui_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+            (_utcnow().isoformat(), _hash_token(token)),
+        )
+        connection.commit()
 
 
 def create_refresh_token(
@@ -3128,8 +3206,8 @@ def update_deal_stage(
         connection.commit()
 
 
-WON_STAGE = "Fechado ganho"
-LOST_STAGE = "Fechado perdido"
+# Fonte única das etapas terminais — ver crm_domain.py.
+from crm_domain import LOST_STAGE, WON_STAGE  # noqa: E402
 
 
 def close_deal(

@@ -250,15 +250,43 @@ def split_script(script: str) -> list[str]:
 class _Result:
     """Resultado de execute() com a mesma superfície nos dois backends."""
 
-    def __init__(self, cursor: Any, owns_cursor: bool = False) -> None:
+    def __init__(
+        self,
+        cursor: Any,
+        owns_cursor: bool = False,
+        raw_conn: Any = None,
+        postgres: bool = False,
+    ) -> None:
         self._cursor = cursor
         self._owns_cursor = owns_cursor
+        self._raw_conn = raw_conn
+        self._postgres = postgres
 
     def fetchone(self) -> Any:
         return self._cursor.fetchone()
 
     def fetchall(self) -> list[Any]:
         return self._cursor.fetchall()
+
+    @property
+    def lastrowid(self) -> int:
+        """Id gerado pelo último INSERT, nos dois backends.
+
+        No SQLite é o ``lastrowid`` nativo do cursor. No Postgres o
+        ``lastrowid`` do psycopg2 não devolve o valor do SERIAL, então
+        consultamos ``lastval()`` na mesma sessão — válido apenas logo
+        após um INSERT que consumiu uma sequência (o único uso que o
+        backend faz desta propriedade).
+        """
+        if not self._postgres:
+            return int(self._cursor.lastrowid or 0)
+        cursor = self._raw_conn.cursor()
+        try:
+            cursor.execute("SELECT lastval()")
+            row = cursor.fetchone()
+            return int(row[0])
+        finally:
+            cursor.close()
 
     @property
     def rowcount(self) -> int:
@@ -285,14 +313,14 @@ class Connection:
             return _Result(self._raw.execute(sql, params))
         cursor = self._raw.cursor()
         cursor.execute(translate_statement(sql), params or None)
-        return _Result(cursor, owns_cursor=True)
+        return _Result(cursor, owns_cursor=True, raw_conn=self._raw, postgres=True)
 
     def executemany(self, sql: str, seq: Iterable[Any]) -> _Result:
         if not self._postgres:
             return _Result(self._raw.executemany(sql, seq))
         cursor = self._raw.cursor()
         cursor.executemany(translate_statement(sql), list(seq))
-        return _Result(cursor, owns_cursor=True)
+        return _Result(cursor, owns_cursor=True, raw_conn=self._raw, postgres=True)
 
     def executescript(self, script: str) -> None:
         """Executa um script DDL inteiro."""
