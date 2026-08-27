@@ -380,17 +380,56 @@ st.markdown(
         opacity: 1; color: #4ade80;
     }
 
-    /* Selectbox e expanders sobre o fundo escuro */
+    /* Selectbox e expanders sobre o fundo escuro.
+       Este CSS foi escrito para o Select antigo do Streamlit (BaseWeb,
+       `div[data-baseweb="select"]`) — mantido abaixo por segurança, mas na
+       versão do Streamlit hoje em produção o `st.selectbox` já não usa mais
+       essa estrutura: virou um React Aria ComboBox (`.react-aria-ComboBox`,
+       `input` + `button` dentro de um `div[role="group"]`). Nenhum seletor
+       `data-baseweb="select"` bate mais em nada, então a caixa "Mais
+       módulos" ficava com o fundo claro padrão do Streamlit — e como o
+       texto do input também vem escuro por padrão, a leitura ficava ruim
+       e a caixa clara destoava (era o "módulos escondido/feio" relatado).
+       Os seletores abaixo miram a estrutura real hoje. */
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
     [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
         background: rgba(255, 255, 255, 0.07) !important;
         border-color: rgba(255, 255, 255, 0.2) !important;
         color: #f4f6f8 !important;
     }
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] div {
+        background: transparent !important;
+        color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox [role="group"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox input {
+        background: transparent !important;
+        color: #f4f6f8 !important;
+        -webkit-text-fill-color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox input::placeholder {
+        color: rgba(238, 242, 247, 0.6) !important;
+        -webkit-text-fill-color: rgba(238, 242, 247, 0.6) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox button { background: transparent !important; }
     [data-testid="stSidebar"] .stSelectbox svg { fill: #d9e0ea; }
+    /* Mesmo problema no corpo do expander: `details` fica transparente, mas
+       o conteúdo interno (stExpanderDetails) é outro elemento, com fundo
+       claro próprio, que nunca era tocado — daí o painel branco ao abrir
+       "Minha conta" por cima do resto do menu. */
     [data-testid="stSidebar"] [data-testid="stExpander"] details {
         background: transparent;
         border: 1px solid rgba(255, 255, 255, 0.16);
         border-radius: 8px;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+        background: transparent !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #e8edf4 !important; }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover { color: #ffffff !important; }
