@@ -106,7 +106,6 @@ COMPETITORS: list[dict[str, Any]] = [
             "Produto pensado para o jeito brasileiro de vender",
         ],
         "limitations": [
-            "Empresa passou por forte reestruturação em 2026 — atenção à continuidade",
             "Sem emissão de propostas nativa",
             "Base de usuários menor que a dos líderes",
         ],
@@ -168,7 +167,7 @@ COMPETITORS: list[dict[str, Any]] = [
         "brazilian": False,
         "origin": "Rússia (forte operação no Brasil)",
         "audience": "Quem vende por mensagem (WhatsApp, Instagram, Telegram)",
-        "price": "US$ 15/usuário/mês (Básico) — sobe para US$ 25 em set/2026 · mínimo 6 meses",
+        "price": "US$ 15/usuário/mês (Básico) — sobe para US$ 20 em set/2026 · mínimo 6 meses",
         "price_source": "kommo.com/br/precos",
         "strengths": [
             "CRM construído em torno de mensageiros",
@@ -382,6 +381,43 @@ CAPABILITY_MATRIX: list[dict[str, str]] = [
         "market": "R$ 59 a R$ 175+ por usuário/mês",
         "verdict": "vantagem",
     },
+    {
+        "capability": "Login em duas etapas (2FA/TOTP)",
+        "trust": "✅ Nativo (app autenticador)",
+        "market": "Recurso comum entre concorrentes brasileiros e globais, não é diferencial",
+        "verdict": "empate",
+    },
+    {
+        "capability": "Relatórios configuráveis (Visão Executiva)",
+        "trust": "✅ Usuário monta o próprio painel",
+        "market": "Padrão nos globais (Pipedrive, HubSpot, Zoho); Ploomes e Nectar também têm BI avançado",
+        "verdict": "empate",
+    },
+    {
+        "capability": "Jornadas automáticas de nutrição (sequência multi-etapa)",
+        "trust": "✅ Sequência automática por estágio do lead",
+        "market": "Pipedrive (Growth+), HubSpot e RD Station têm isso nativo",
+        "verdict": "empate",
+    },
+    {
+        "capability": "Lead scoring / saúde da conta",
+        "trust": "✅ Modelo treinado no histórico real de conversão",
+        "market": "Zoho (Zia) e Salesforce (Einstein) têm scoring preditivo; RD Station, Agendor, "
+        "Ploomes, Moskit, Nectar e Meets usam pontuação fixa por regra",
+        "verdict": "parcial",
+    },
+    {
+        "capability": "IA que rascunha resposta e resume atendimento",
+        "trust": "✅ Rascunha resposta e resume o atendimento",
+        "market": "HubSpot, Salesforce e Zoho já oferecem o mesmo, geralmente em planos superiores",
+        "verdict": "empate",
+    },
+    {
+        "capability": "Instalável no celular (app)",
+        "trust": "⚠️ Instalável como PWA, sem loja",
+        "market": "Concorrentes maiores têm app nativo (iOS/Android), com push e uso offline de verdade",
+        "verdict": "atras",
+    },
 ]
 
 TRUST_POSITION = {
@@ -396,9 +432,14 @@ TRUST_POSITION = {
         "**E-mail** — não enviamos nem sincronizamos; todo concorrente faz. É a maior lacuna.",
         "**Ecossistema** — eles têm centenas de integrações prontas; aqui é sob medida.",
         "**Multiempresa** — não dá para vender como SaaS a terceiros hoje.",
+        "**Aplicativo nativo** — o nosso é instalável (PWA), mas sem loja iOS/Android, sem "
+        "notificação push e sem uso offline de verdade, algo que os concorrentes maiores já "
+        "entregam.",
     ],
     "empate": [
         "Funil kanban, previsão ponderada, cliente 360, importação de dados e automações básicas.",
+        "Login em duas etapas, relatórios configuráveis, jornadas de nutrição e IA que rascunha "
+        "resposta e resume atendimento, recursos novos aqui e comuns nos concorrentes maiores.",
     ],
 }
 
