@@ -309,6 +309,148 @@ class TestHealthScore:
 
 
 # ---------------------------------------------------------------------------
+# Pesos aprendidos do histórico real (Fase 2 do roadmap)
+# ---------------------------------------------------------------------------
+
+def _semear_clientes_e_negocios(backend, linhas):
+    """Substitui clientes e negócios do seed padrão por um cenário controlado.
+
+    `linhas` é uma lista de (customer_id, canal, status, ganhou_negocio).
+    """
+    with backend._connect() as c:
+        c.execute("DELETE FROM deals")
+        c.execute("DELETE FROM customers")
+        for cid, canal, status, ganhou in linhas:
+            c.execute(
+                """INSERT INTO customers (customer_id, name, segment, city, country, owner, status,
+                   health_score, lifetime_value, last_purchase, channel, next_action, source)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cid, cid, "SaaS", "Sao Paulo", "Brasil", "Rafael", status, 70, 1000,
+                 "2026-01-01", canal, "", "manual"),
+            )
+            c.execute(
+                """INSERT INTO deals (deal_id, customer_id, name, stage, value, probability,
+                   owner, close_date, source) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (f"D-{cid}", cid, f"Negocio {cid}",
+                 "Fechado ganho" if ganhou else "Fechado perdido",
+                 1000, 100 if ganhou else 0, "Rafael", "2026-01-01", "manual"),
+            )
+        c.commit()
+
+
+class TestLeadScoringPesosAprendidos:
+    def test_sinal_que_sempre_ganha_recebe_peso_alto(self, crm):
+        import lead_scoring
+
+        linhas = (
+            [(f"W{i}", "WhatsApp", "Ativo", True) for i in range(5)]
+            + [(f"L{i}", "Email", "Ativo", False) for i in range(5)]
+        )
+        _semear_clientes_e_negocios(crm, linhas)
+
+        r = lead_scoring.learn_rule_weights(min_sample=5)
+        assert "has_whatsapp" in r["learned"]
+        assert r["weights"]["has_whatsapp"] == 35
+        assert r["sample_size"] == 10
+
+    def test_amostra_insuficiente_mantem_peso_padrao(self, crm):
+        import lead_scoring
+
+        linhas = [("A", "WhatsApp", "Ativo", True), ("B", "Email", "Ativo", False)]
+        _semear_clientes_e_negocios(crm, linhas)
+
+        r = lead_scoring.learn_rule_weights(min_sample=5)
+        assert r["learned"] == []
+        assert r["weights"] == lead_scoring.DEFAULT_RULES
+
+    def test_apply_learned_weights_grava_na_tabela_de_regras(self, crm):
+        import lead_scoring
+
+        linhas = (
+            [(f"W{i}", "WhatsApp", "Ativo", True) for i in range(5)]
+            + [(f"L{i}", "Email", "Ativo", False) for i in range(5)]
+        )
+        _semear_clientes_e_negocios(crm, linhas)
+
+        lead_scoring.apply_learned_weights(actor={"username": "admin", "role": "admin"}, min_sample=5)
+        rules = lead_scoring.get_active_rules()
+        assert rules["has_whatsapp"] == 35
+
+
+class TestHealthScorePesosAprendidos:
+    def test_sinal_de_owner_aprende_pesos_coerentes_com_o_risco(self, crm):
+        import health_score
+
+        with crm._connect() as c:
+            c.execute("DELETE FROM deals")
+            c.execute("DELETE FROM customers")
+            for i in range(5):
+                c.execute(
+                    """INSERT INTO customers (customer_id, name, segment, city, country, owner,
+                       status, health_score, lifetime_value, last_purchase, channel, next_action, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"COM{i}", f"COM{i}", "SaaS", "SP", "Brasil", "Rafael", "Ativo",
+                     70, 1000, "2026-01-01", "WhatsApp", "", "manual"),
+                )
+                c.execute(
+                    """INSERT INTO customers (customer_id, name, segment, city, country, owner,
+                       status, health_score, lifetime_value, last_purchase, channel, next_action, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"SEM{i}", f"SEM{i}", "SaaS", "SP", "Brasil", "", "Risco",
+                     70, 1000, "2026-01-01", "WhatsApp", "", "manual"),
+                )
+            c.commit()
+
+        r = health_score.learn_weights(min_sample=5)
+        assert "owner_assigned" in r["learned"]
+        assert r["pos"]["owner_assigned"] == 30
+        assert "no_owner" in r["learned"]
+        assert r["neg"]["no_owner"] == -30
+
+    def test_amostra_insuficiente_mantem_pesos_padrao(self, crm):
+        import health_score
+
+        linhas = [("A", "WhatsApp", "Ativo", True), ("B", "Email", "Risco", False)]
+        _semear_clientes_e_negocios(crm, linhas)
+
+        r = health_score.learn_weights(min_sample=5)
+        assert r["learned"] == []
+        assert r["pos"] == health_score.POS
+        assert r["neg"] == health_score.NEG
+
+    def test_apply_e_reset_alternam_entre_pesos_aprendidos_e_padrao(self, crm):
+        import health_score
+
+        with crm._connect() as c:
+            for i in range(5):
+                c.execute(
+                    """INSERT INTO customers (customer_id, name, segment, city, country, owner,
+                       status, health_score, lifetime_value, last_purchase, channel, next_action, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"COM{i}", f"COM{i}", "SaaS", "SP", "Brasil", "Rafael", "Ativo",
+                     70, 1000, "2026-01-01", "WhatsApp", "", "manual"),
+                )
+                c.execute(
+                    """INSERT INTO customers (customer_id, name, segment, city, country, owner,
+                       status, health_score, lifetime_value, last_purchase, channel, next_action, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"SEM{i}", f"SEM{i}", "SaaS", "SP", "Brasil", "", "Risco",
+                     70, 1000, "2026-01-01", "WhatsApp", "", "manual"),
+                )
+            c.commit()
+
+        assert health_score.current_weights() == (health_score.POS, health_score.NEG)
+
+        health_score.apply_learned_weights(actor={"username": "admin", "role": "admin"}, min_sample=5)
+        pos, neg = health_score.current_weights()
+        assert pos["owner_assigned"] == 30
+        assert neg != health_score.NEG
+
+        health_score.reset_learned_weights(actor={"username": "admin", "role": "admin"})
+        assert health_score.current_weights() == (health_score.POS, health_score.NEG)
+
+
+# ---------------------------------------------------------------------------
 # forecast
 # ---------------------------------------------------------------------------
 

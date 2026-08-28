@@ -220,6 +220,62 @@ components.html(
     height=0,
 )
 
+# PWA: manifest, ícone de tela inicial e registro do service worker.
+# Os arquivos vêm da pasta static/ (server.enableStaticServing=true no
+# config.toml), servida pelo Streamlit em "/app/static/...". O CRM segue
+# sendo uma página só: isso não cria funcionamento offline (o Streamlit
+# depende de WebSocket vivo para cada interação) — o objetivo é só deixar
+# o app "instalável" no celular/desktop, com ícone e janela próprios.
+# Ver o comentário no topo de static/service-worker.js para o porquê da
+# limitação de escopo do service worker.
+components.html(
+    """
+<script>
+  const doc = window.parent.document;
+  const head = doc.head;
+
+  function ensureLink(rel, href, extra) {
+    let el = head.querySelector(`link[rel="${rel}"]`);
+    if (!el) {
+      el = doc.createElement("link");
+      el.rel = rel;
+      head.appendChild(el);
+    }
+    el.href = href;
+    if (extra) Object.entries(extra).forEach(([k, v]) => el.setAttribute(k, v));
+  }
+
+  ensureLink("manifest", "/app/static/manifest.json");
+  ensureLink("apple-touch-icon", "/app/static/icons/icon-180.png");
+  ensureLink("icon", "/app/static/icons/icon-32.png", {sizes: "32x32"});
+
+  let themeColor = head.querySelector('meta[name="theme-color"]');
+  if (!themeColor) {
+    themeColor = doc.createElement("meta");
+    themeColor.name = "theme-color";
+    head.appendChild(themeColor);
+  }
+  themeColor.content = "#08a742";
+
+  let appleCapable = head.querySelector('meta[name="apple-mobile-web-app-capable"]');
+  if (!appleCapable) {
+    appleCapable = doc.createElement("meta");
+    appleCapable.name = "apple-mobile-web-app-capable";
+    appleCapable.content = "yes";
+    head.appendChild(appleCapable);
+  }
+
+  const parentNav = window.parent.navigator;
+  if (parentNav && "serviceWorker" in parentNav) {
+    parentNav.serviceWorker
+      .register("/app/static/service-worker.js")
+      .catch(() => {});
+  }
+</script>
+""",
+    height=0,
+)
+
 st.markdown(
     """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -3534,12 +3590,13 @@ elif section == "Funil Comercial":
 
 elif section == "Cadências":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_cadences(user, customers_df)
+    _cad_last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
+    render_cadences(user, customers_df, deals_df, _cad_last_activity)
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Saúde da Conta":
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_health()
+    render_health(user, can_manage(user["role"], "admin"))
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif section == "Modelos de Mensagem":
