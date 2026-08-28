@@ -32,9 +32,16 @@ black==23.12.0
 ruff==0.1.8
 
 # AWS (optional, for cloud deployment)
-boto3==1.33.12
+# Precisa ser >= 1.35 para o botocore aceitar urllib3>=2.7.0 (piso de
+# segurança do requirements.txt, PYSEC-2026-141/142). A versão antiga
+# (1.33.12) prendia o botocore a urllib3<2.1, o que quebra a resolução
+# assim que os dois arquivos são instalados juntos.
+boto3==1.43.82
 
 # Data & Utilities
-python-dotenv==1.0.0
+# Precisa ficar >= 1.2.2 (PYSEC-2026-2270, o mesmo piso de requirements.txt).
+# Um pin exato abaixo disso faz o pip falhar a resolução assim que os dois
+# arquivos são instalados juntos (web_requirements.txt referencia os dois).
+python-dotenv==1.2.3
 pydantic>=2.9.0,<3
 pydantic-settings>=2.6.0
