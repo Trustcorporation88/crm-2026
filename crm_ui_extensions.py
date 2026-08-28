@@ -12,9 +12,13 @@ def _currency(v):
         return "R$ 0"
 
 
-def render_cadences(user, customers_df):
+def render_cadences(user, customers_df, deals_df=None, last_activity=None):
     from cadences import (list_cadences, list_active_enrollments, list_pending_actions,
-                          enroll, mark_action_done)
+                          enroll, mark_action_done, get_active_enrollment_keys,
+                          get_cadence_titles, enroll_proposals)
+    from nurture_rules import (RULES_CATALOG as NURTURE_RULES,
+                               evaluate_rules as evaluate_nurture_rules,
+                               summarize_proposals as summarize_nurture_proposals)
     owner_options = sorted([o for o in customers_df["owner"].dropna().unique().tolist() if o])
     st.subheader("Cadências de follow-up automático")
     st.caption("Sequencias programadas de toques (mensagens, ligacoes, emails) para nao deixar lead esfriar.")
@@ -28,6 +32,77 @@ def render_cadences(user, customers_df):
                     st.caption(cd["key"])
                     st.markdown("**" + cd["title"] + "**")
                     st.caption(str(cd["step_count"]) + " toques")
+
+    st.divider()
+    st.subheader("🌱 Jornadas automáticas")
+    st.caption(
+        "O sistema detecta sozinho quem deveria entrar em cada cadência, em vez de "
+        "alguém precisar lembrar de inscrever um por um. Revise a prévia antes de aplicar."
+    )
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Gatilhos ativos</div>', unsafe_allow_html=True)
+        _escolhidas_nurture = []
+        for _regra in NURTURE_RULES:
+            _ligada = st.checkbox(
+                f"**{_regra['name']}**",
+                value=True,
+                key=f"nurture-{_regra['id']}",
+                help=_regra["description"],
+            )
+            st.caption(_regra["description"])
+            if _ligada:
+                _escolhidas_nurture.append(_regra["id"])
+
+    _active_keys = get_active_enrollment_keys()
+    _titles = get_cadence_titles()
+    _propostas_nurture = evaluate_nurture_rules(
+        customers=customers_df,
+        deals=deals_df,
+        last_activity=last_activity or {},
+        active_enrollments=_active_keys,
+        cadence_titles=_titles,
+        enabled=set(_escolhidas_nurture),
+    )
+
+    st.markdown(" ")
+    with st.container(border=True):
+        st.markdown('<div class="section-title">Prévia — quem entra agora</div>', unsafe_allow_html=True)
+        if not _propostas_nurture:
+            st.success("Nada novo: ninguém precisa entrar em uma cadência agora. 🎉")
+        else:
+            _resumo_nurture = summarize_nurture_proposals(_propostas_nurture)
+            _nomes_nurture = {r["id"]: r["name"] for r in NURTURE_RULES}
+            _cols_n = st.columns(len(_resumo_nurture) or 1)
+            for _col, (_rid, _qtd) in zip(_cols_n, _resumo_nurture.items()):
+                _col.metric(_nomes_nurture.get(_rid, _rid).split("→")[0].strip(), _qtd)
+
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Cliente": p.customer_name,
+                            "Cadência": p.cadence_title,
+                            "Responsável": p.owner or "Sem owner",
+                            "Por quê": p.reason,
+                        }
+                        for p in _propostas_nurture
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+            if st.button(f"🌱 Iniciar jornadas ({len(_propostas_nurture)})", key="run_nurture", type="primary"):
+                resultado = enroll_proposals(_propostas_nurture, actor=user)
+                criadas, puladas = len(resultado["created"]), len(resultado["skipped"])
+                if criadas:
+                    st.success(
+                        f"{criadas} cliente(s) inscrito(s) em jornada."
+                        + (f" {puladas} já estavam." if puladas else "")
+                    )
+                else:
+                    st.info("Tudo já estava inscrito — nada duplicado.")
+                st.rerun()
 
     st.divider()
     st.subheader("Inscrever cliente em uma cadencia")
@@ -120,16 +195,44 @@ def render_templates(user, customers_df, can_admin):
                     st.error(str(exc))
 
 
-def render_health():
-    from health_score import recalculate_all_health, get_at_risk_customers, get_health_overview
+def render_health(user=None, can_admin=False):
+    from health_score import (recalculate_all_health, get_at_risk_customers, get_health_overview,
+                              apply_learned_weights, reset_learned_weights, _load_learned_weights)
     st.subheader("Saúde da conta e risco de cancelamento")
     st.caption("Score 0-100 por cliente baseado em uso, suporte, NPS e tempo de relacionamento.")
-    if st.button("Recalcular saude da carteira", type="primary",
-                 help="Recalcula o score de todos os clientes. Pode demorar com base grande."):
-        s = recalculate_all_health()
-        st.success("Recalculado " + str(s["total"]) + " contas. Critico:" + str(s["critical"])
-                   + " Alto:" + str(s["high_risk"]) + " Medio:" + str(s["medium_risk"])
-                   + " Saudavel:" + str(s["healthy"]) + ". Score medio: " + str(s["avg_score"]) + "/100")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Recalcular saude da carteira", type="primary", width="stretch",
+                     help="Recalcula o score de todos os clientes. Pode demorar com base grande."):
+            s = recalculate_all_health()
+            st.success("Recalculado " + str(s["total"]) + " contas. Critico:" + str(s["critical"])
+                       + " Alto:" + str(s["high_risk"]) + " Medio:" + str(s["medium_risk"])
+                       + " Saudavel:" + str(s["healthy"]) + ". Score medio: " + str(s["avg_score"]) + "/100")
+    with c2:
+        if can_admin and st.button(
+            "🧠 Aprender pesos com o histórico real", width="stretch",
+            help="Compara, para cada sinal, a proporção de contas com status «Risco» entre "
+                 "quem tem o sinal e quem não tem — em vez de usar pontos fixos digitados "
+                 "manualmente. Sinal sem histórico suficiente mantém o peso atual.",
+        ):
+            r = apply_learned_weights(actor=user)
+            s = recalculate_all_health()
+            if r["learned"]:
+                st.success(
+                    f"{len(r['learned'])} sinal(is) aprendido(s) de {r['sample_size']} conta(s): "
+                    + ", ".join(r["learned"]) + f". {len(r['kept_default'])} mantido(s) no peso atual. "
+                    f"Scores recalculados ({s['total']} contas)."
+                )
+            else:
+                st.info(
+                    f"Base ainda pequena ({r['sample_size']} conta(s)) — nenhum sinal tinha "
+                    "amostra suficiente (mínimo 5 dos dois lados), os pesos continuam como estavam."
+                )
+    if can_admin and _load_learned_weights() is not None:
+        st.caption("🧠 Usando pesos aprendidos do histórico.")
+        if st.button("↺ Voltar aos pesos padrão", key="reset_health_weights"):
+            reset_learned_weights(actor=user)
+            st.rerun()
     overview = get_health_overview()
     if overview:
         cols = st.columns(4)
@@ -157,14 +260,39 @@ def render_health():
 
 
 def render_lead_scoring(user, can_admin):
-    from lead_scoring import recalculate_all_scores, get_lead_scores, get_active_rules, update_rule
+    from lead_scoring import (recalculate_all_scores, get_lead_scores, get_active_rules,
+                              update_rule, apply_learned_weights)
     st.subheader("Qualificação de leads")
     st.caption("Pontuacao 0-100 que prioriza onde o time deve focar. Tier A = quente, D = frio.")
-    if st.button("Recalcular scores", type="primary",
-                 help="Roda as regras ativas para todos os leads. Use apos editar regras."):
-        s = recalculate_all_scores(actor=user)
-        st.success(str(s["total"]) + " contas. A:" + str(s["tier_a"]) + " B:" + str(s["tier_b"])
-                   + " C:" + str(s["tier_c"]) + " D:" + str(s["tier_d"]) + ". Medio:" + str(s["avg_score"]) + "/100")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Recalcular scores", type="primary", width="stretch",
+                     help="Roda as regras ativas para todos os leads. Use apos editar regras."):
+            s = recalculate_all_scores(actor=user)
+            st.success(str(s["total"]) + " contas. A:" + str(s["tier_a"]) + " B:" + str(s["tier_b"])
+                       + " C:" + str(s["tier_c"]) + " D:" + str(s["tier_d"]) + ". Medio:" + str(s["avg_score"]) + "/100")
+    with c2:
+        if can_admin and st.button(
+            "🧠 Aprender pesos com o histórico real", width="stretch",
+            help="Recalcula o peso de cada sinal comparando a taxa de vitória de negócios "
+                 "fechados entre quem tem o sinal e quem não tem, em vez de usar pontos fixos "
+                 "digitados manualmente. Sinal sem histórico suficiente mantém o peso atual.",
+        ):
+            r = apply_learned_weights(actor=user)
+            s = recalculate_all_scores(actor=user)
+            if r["learned"]:
+                st.success(
+                    f"{len(r['learned'])} sinal(is) aprendido(s) do histórico de "
+                    f"{r['sample_size']} negócio(s) fechado(s): " + ", ".join(r["learned"]) + ". "
+                    f"{len(r['kept_default'])} mantido(s) no peso atual por falta de amostra. "
+                    f"Scores recalculados ({s['total']} contas)."
+                )
+            else:
+                st.info(
+                    f"Histórico ainda pequeno ({r['sample_size']} negócio(s) fechado(s)) — "
+                    "nenhum sinal tinha amostra suficiente (mínimo 5 dos dois lados), "
+                    "os pesos continuam como estavam."
+                )
     st.divider()
     st.subheader("Carteira priorizada")
     tier = st.selectbox("Filtrar tier", ["Todos", "A", "B", "C", "D"],

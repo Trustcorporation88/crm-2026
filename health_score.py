@@ -1,8 +1,9 @@
 """Customer health score."""
 from __future__ import annotations
 import json
+from typing import Any
 from crm_domain import LOST_STAGE, WON_STAGE
-from crm_backend import _connect
+from crm_backend import _connect, log_audit_event
 from scoring_datas import carimbo_utc, limiar_de_dias
 
 POS = {"recent_interaction":20,"no_open_critical_ticket":15,"csat_above_4":15,
@@ -56,6 +57,7 @@ def _action(cust, p, n):
     return "Agendar contato de relacionamento"
 
 def calculate_health(cid: str) -> dict:
+    pos_w, neg_w = current_weights()
     with _connect() as c:
         row = c.execute("SELECT * FROM customers WHERE customer_id=?",(cid,)).fetchone()
         if row is None: raise ValueError(f"Customer {cid} not found")
@@ -63,10 +65,10 @@ def calculate_health(cid: str) -> dict:
         p, n = _signals(c, cust)
         score = 50
         for k, f in p.items():
-            if f and k in POS: score += POS[k]
+            if f and k in pos_w: score += pos_w[k]
         for k, f in n.items():
-            if f and k in NEG: score += NEG[k]
-        mx = 50 + sum(POS.values())
+            if f and k in neg_w: score += neg_w[k]
+        mx = 50 + sum(pos_w.values())
         norm = max(0, min(100, int((score/mx)*100) if mx else score))
         if norm >= 75: risk = "Baixo"
         elif norm >= 50: risk = "Medio"
@@ -114,3 +116,129 @@ def get_health_overview() -> dict:
     with _connect() as c:
         rows = c.execute("SELECT churn_risk, COUNT(*) AS total, AVG(health_score) AS avg_score FROM health_snapshots GROUP BY churn_risk").fetchall()
     return {r["churn_risk"]:{"total":r["total"],"avg_score":int(r["avg_score"] or 0)} for r in rows}
+
+# ---------------------------------------------------------------------------
+# Pesos aprendidos do histórico real (Fase 2 do roadmap).
+#
+# POS/NEG acima são pontos fixos, escolhidos por quem escreveu o código —
+# igual ao problema que o lead_scoring tinha antes desta fase. A diferença
+# aqui é que não existe uma "venda ganha ou perdida" para comparar: o rótulo
+# de risco mais próximo que a base já guarda é o próprio status do cliente.
+# `status == "Risco"` é o alvo que se quer aprender a prever a partir dos
+# sinais; `learn_weights` compara, para cada sinal, a proporção de contas em
+# risco entre quem tem o sinal e quem não tem, e usa a diferença como peso.
+#
+# Sem tabela própria para isso — meta_state já existe exatamente para
+# guardar um valor único por chave (mesmo padrão de bump_data_version em
+# crm_backend.py), então os pesos aprendidos ficam lá como JSON, e
+# reset_learned_weights() volta a usar POS/NEG puros a qualquer momento.
+# ---------------------------------------------------------------------------
+
+MIN_LEARNING_SAMPLE = 5
+_WEIGHTS_META_KEY = "health_score_weights"
+AT_RISK_STATUS = "Risco"
+
+
+def _load_learned_weights() -> dict[str, Any] | None:
+    with _connect() as c:
+        row = c.execute("SELECT value FROM meta_state WHERE key=?", (_WEIGHTS_META_KEY,)).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row["value"])
+        if isinstance(data.get("pos"), dict) and isinstance(data.get("neg"), dict):
+            return data
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def current_weights() -> tuple[dict[str, int], dict[str, int]]:
+    """Pesos em uso agora: aprendidos, se existirem, senão POS/NEG padrão.
+
+    Só sobrescreve as chaves que o aprendizado realmente calculou — qualquer
+    sinal novo adicionado depois em POS/NEG continua valendo com o peso
+    padrão até o próximo aprendizado.
+    """
+    learned = _load_learned_weights()
+    if not learned:
+        return dict(POS), dict(NEG)
+    pos = {**POS, **{k: v for k, v in learned["pos"].items() if k in POS}}
+    neg = {**NEG, **{k: v for k, v in learned["neg"].items() if k in NEG}}
+    return pos, neg
+
+
+def learn_weights(min_sample: int = MIN_LEARNING_SAMPLE) -> dict[str, Any]:
+    """Calcula pesos a partir da relação real entre cada sinal e o cliente
+    estar hoje com status «Risco» — o rótulo de risco mais próximo que a
+    base guarda, na ausência de um evento explícito de cancelamento.
+
+    Sinal sem pelo menos `min_sample` contas dos dois lados (com e sem o
+    sinal) mantém o peso padrão de POS/NEG.
+    """
+    with _connect() as c:
+        customers = [dict(r) for r in c.execute("SELECT * FROM customers").fetchall()]
+        amostras: list[tuple[dict[str, bool], dict[str, bool], bool]] = []
+        for cust in customers:
+            p, n = _signals(c, cust)
+            em_risco = cust.get("status") == AT_RISK_STATUS
+            amostras.append((p, n, em_risco))
+
+    def _aprender_lado(pesos_base: dict[str, int], positivo: bool) -> tuple[dict[str, int], list[str], list[str]]:
+        pesos: dict[str, int] = {}
+        aprendidos: list[str] = []
+        mantidos: list[str] = []
+        for key, base in pesos_base.items():
+            com_sinal = [risco for p, n, risco in amostras if (p if positivo else n).get(key)]
+            sem_sinal = [risco for p, n, risco in amostras if not (p if positivo else n).get(key)]
+            if len(com_sinal) < min_sample or len(sem_sinal) < min_sample:
+                pesos[key] = base
+                mantidos.append(key)
+                continue
+            taxa_com = sum(com_sinal) / len(com_sinal)
+            taxa_sem = sum(sem_sinal) / len(sem_sinal)
+            if positivo:
+                # Sinal positivo deveria reduzir risco: efeito = quanto o
+                # risco cai por ter o sinal. Nunca negativo — um sinal
+                # positivo não vira penalidade por amostra ruidosa.
+                efeito = taxa_sem - taxa_com
+                pesos[key] = max(0, min(30, round(efeito * 100)))
+            else:
+                # Sinal negativo deveria aumentar risco: efeito = quanto o
+                # risco sobe por ter o sinal. O peso continua negativo.
+                efeito = taxa_com - taxa_sem
+                pesos[key] = -max(0, min(30, round(efeito * 100)))
+            aprendidos.append(key)
+        return pesos, aprendidos, mantidos
+
+    pos_pesos, pos_aprendidos, pos_mantidos = _aprender_lado(POS, True)
+    neg_pesos, neg_aprendidos, neg_mantidos = _aprender_lado(NEG, False)
+    return {
+        "pos": pos_pesos, "neg": neg_pesos,
+        "learned": pos_aprendidos + neg_aprendidos,
+        "kept_default": pos_mantidos + neg_mantidos,
+        "sample_size": len(amostras),
+    }
+
+
+def apply_learned_weights(actor=None, min_sample: int = MIN_LEARNING_SAMPLE) -> dict[str, Any]:
+    """Aprende os pesos do histórico real e grava (meta_state)."""
+    resultado = learn_weights(min_sample=min_sample)
+    with _connect() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO meta_state (key, value) VALUES (?, ?)",
+            (_WEIGHTS_META_KEY, json.dumps({"pos": resultado["pos"], "neg": resultado["neg"]})),
+        )
+        c.commit()
+    if actor:
+        log_audit_event(actor, "health_score.learn", "weights", "all", resultado, "health-score")
+    return resultado
+
+
+def reset_learned_weights(actor=None) -> None:
+    """Volta a usar os pesos fixos POS/NEG, descartando o que foi aprendido."""
+    with _connect() as c:
+        c.execute("DELETE FROM meta_state WHERE key=?", (_WEIGHTS_META_KEY,))
+        c.commit()
+    if actor:
+        log_audit_event(actor, "health_score.reset_weights", "weights", "all", {}, "health-score")

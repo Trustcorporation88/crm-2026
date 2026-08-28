@@ -142,3 +142,40 @@ def resume_enrollment(eid: int, actor=None) -> None:
         c.execute("UPDATE cadence_enrollments SET paused=0 WHERE id=?", (eid,))
         c.commit()
     if actor: log_audit_event(actor, "cadence.resume", "enrollment", str(eid), {}, "cadences")
+
+def get_active_enrollment_keys() -> set[tuple[str, str]]:
+    """(customer_id, cadence_key) de toda matrícula ainda não concluída.
+
+    Usado por nurture_rules.evaluate_rules para nunca propor uma jornada em
+    que o cliente já está — é a checagem de idempotência da automação.
+    """
+    with _connect() as c:
+        rows = c.execute(
+            "SELECT DISTINCT customer_id, cadence_key FROM cadence_enrollments WHERE completed_at IS NULL"
+        ).fetchall()
+    return {(r["customer_id"], r["cadence_key"]) for r in rows}
+
+def get_cadence_titles() -> dict[str, str]:
+    with _connect() as c:
+        rows = c.execute("SELECT key, title FROM cadences").fetchall()
+    return {r["key"]: r["title"] for r in rows}
+
+def enroll_proposals(proposals, actor=None) -> dict:
+    """Aplica uma lista de nurture_rules.ProposedEnrollment de uma vez.
+
+    Reconfere a matrícula ativa no momento da aplicação (não só na prévia) —
+    entre o usuário ver a tela e clicar no botão, outra coisa pode ter
+    inscrito o mesmo cliente na mesma cadência. Quem já está entra em
+    `skipped`, sem duplicar.
+    """
+    already = get_active_enrollment_keys()
+    created, skipped = [], []
+    for p in proposals:
+        combo = (p.customer_id, p.cadence_key)
+        if combo in already:
+            skipped.append(p)
+            continue
+        eid = enroll(p.cadence_key, p.customer_id, p.owner or "Sem owner", deal_id=p.deal_id, actor=actor)
+        created.append(eid)
+        already.add(combo)
+    return {"created": created, "skipped": skipped}
