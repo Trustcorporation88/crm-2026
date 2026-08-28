@@ -6,7 +6,7 @@ import hashlib
 import io
 import os
 from datetime import date
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import qrcode
@@ -138,6 +138,15 @@ from crm_backend import (
     start_totp_enrollment,
     confirm_totp_enrollment,
     disable_totp,
+    get_exec_report_config,
+    set_exec_report_config,
+    EXEC_REPORT_DEFAULT_KPIS,
+    EXEC_REPORT_DEFAULT_GROUP_BY,
+)
+from deepseek_assistant import (
+    deepseek_configured,
+    summarize_ticket_interaction,
+    draft_ticket_reply,
 )
 
 
@@ -2310,6 +2319,27 @@ avg_csat = round(filtered_tickets[filtered_tickets["csat"] > 0]["csat"].mean(), 
 pipeline_open = filtered_deals[~filtered_deals["stage"].isin(["Fechado ganho", "Fechado perdido"])]["value"].sum() if not filtered_deals.empty else 0
 won_value = filtered_deals[filtered_deals["stage"] == "Fechado ganho"]["value"].sum() if not filtered_deals.empty else 0
 
+# Catálogo de KPIs da Visão Executiva: cada usuário escolhe quais aparecem e
+# em que ordem (ver `_render_exec_report_settings`), em vez de um recorte
+# fixo igual para todo mundo. As funções são lazy (lambda) porque nem todo
+# KPI precisa ser calculado sempre — só os que a pessoa escolheu mostrar.
+EXEC_KPI_CATALOG: dict[str, tuple[str, Callable[[], str], str]] = {
+    "clientes": ("Clientes monitorados", lambda: str(len(filtered_customers)), "Base com owner e saúde."),
+    "tickets_abertos": ("Tickets abertos", lambda: str(len(open_tickets)), "Fila de atendimento."),
+    "funil_aberto": ("Funil aberto", lambda: currency(pipeline_open), "Oportunidades em curso."),
+    "saude_media": ("Saúde média", lambda: f"{avg_health}/100", "Carteira filtrada."),
+    "csat_medio": ("CSAT médio", lambda: str(avg_csat), "Experiência atual do atendimento."),
+    "sla_risco": ("SLA em risco", lambda: str(len(sla_breached)), "Tickets acima do prazo alvo."),
+    "receita_ganha": ("Receita ganha", lambda: currency(won_value), "Negócios ganhos no recorte."),
+    "interacoes": ("Interações", lambda: str(len(filtered_interactions)), "Histórico 360 registrado."),
+}
+EXEC_GROUP_BY_OPTIONS: dict[str, tuple[str, str]] = {
+    "owner": ("Responsável", "owner"),
+    "channel": ("Canal", "channel"),
+    "category": ("Categoria", "category"),
+    "priority": ("Prioridade", "priority"),
+}
+
 render_top_bar(section)
 
 # O aviso acompanha o visitante para dentro: quem entrou pela vitrine precisa
@@ -2351,12 +2381,14 @@ if section == "Visão Executiva":
 """,
         unsafe_allow_html=True,
     )
+    _exec_report_config = get_exec_report_config(user["username"])
+    _exec_selected_kpis = [
+        kpi_id for kpi_id in _exec_report_config["kpis"] if kpi_id in EXEC_KPI_CATALOG
+    ] or list(EXEC_REPORT_DEFAULT_KPIS)
     render_metric_cards(
         [
-            ("Clientes monitorados", str(len(filtered_customers)), "Base com owner e saúde."),
-            ("Tickets abertos", str(len(open_tickets)), "Fila de atendimento."),
-            ("Funil aberto", currency(pipeline_open), "Oportunidades em curso."),
-            ("Saúde média", f"{avg_health}/100", "Carteira filtrada."),
+            (EXEC_KPI_CATALOG[kpi_id][0], EXEC_KPI_CATALOG[kpi_id][1](), EXEC_KPI_CATALOG[kpi_id][2])
+            for kpi_id in _exec_selected_kpis
         ]
     )
 elif section != "Serviços":
@@ -2464,22 +2496,61 @@ elif section == "Serviços":
     render_services_catalog()
 
 elif section == "Visão Executiva":
+    with st.expander("⚙️ Personalizar relatório", expanded=False):
+        st.caption(
+            "Escolha quais indicadores aparecem em destaque no topo da tela e por "
+            "qual campo agrupar o gráfico de carga. Fica salvo na sua conta."
+        )
+        _kpi_labels = {kpi_id: catalog_entry[0] for kpi_id, catalog_entry in EXEC_KPI_CATALOG.items()}
+        _group_labels = {key: entry[0] for key, entry in EXEC_GROUP_BY_OPTIONS.items()}
+        with st.form("exec-report-settings"):
+            _chosen_kpi_labels = st.multiselect(
+                "Indicadores em destaque",
+                options=list(_kpi_labels.values()),
+                default=[_kpi_labels[k] for k in _exec_selected_kpis if k in _kpi_labels],
+            )
+            _current_group_label = _group_labels.get(
+                _exec_report_config["group_by"], _group_labels["owner"]
+            )
+            _chosen_group_label = st.selectbox(
+                "Agrupar gráfico de carga por",
+                options=list(_group_labels.values()),
+                index=list(_group_labels.values()).index(_current_group_label),
+            )
+            _save_clicked = st.form_submit_button("Salvar preferências", type="primary")
+        if _save_clicked:
+            _label_to_kpi_id = {label: kpi_id for kpi_id, label in _kpi_labels.items()}
+            _new_kpis = [_label_to_kpi_id[label] for label in _chosen_kpi_labels] or list(
+                EXEC_REPORT_DEFAULT_KPIS
+            )
+            _group_label_to_key = {label: key for key, label in _group_labels.items()}
+            _new_group_by = _group_label_to_key.get(_chosen_group_label, EXEC_REPORT_DEFAULT_GROUP_BY)
+            set_exec_report_config(user, _new_kpis, _new_group_by)
+            queue_toast("Preferências da Visão Executiva salvas.", icon="⚙️")
+            st.rerun()
+
     left, right = st.columns([1.2, 0.8])
     with left, st.container(border=True):
         st.markdown('<div class="section-title">Panorama operacional</div>', unsafe_allow_html=True)
         summary = pd.DataFrame(
             [
-                {"KPI": "CSAT medio", "Valor": avg_csat, "Leitura": "Experiencia atual do atendimento"},
-                {"KPI": "SLA em risco", "Valor": len(sla_breached), "Leitura": "Tickets acima do prazo alvo"},
-                {"KPI": "Receita ganha", "Valor": currency(won_value), "Leitura": "Negocios ganhos no recorte"},
-                {"KPI": "Interacoes", "Valor": len(filtered_interactions), "Leitura": "Historico 360 registrado"},
+                {"KPI": label, "Valor": compute(), "Leitura": caption}
+                for label, compute, caption in EXEC_KPI_CATALOG.values()
             ]
         )
         st.dataframe(summary, width="stretch", hide_index=True)
-        owner_load = filtered_tickets.groupby("owner").size().reset_index(name="tickets") if not filtered_tickets.empty else pd.DataFrame(columns=["owner", "tickets"])
+        _group_label, _group_field = EXEC_GROUP_BY_OPTIONS.get(
+            _exec_report_config["group_by"], EXEC_GROUP_BY_OPTIONS["owner"]
+        )
+        st.caption(f"Carga de tickets por {_group_label.lower()}")
+        owner_load = (
+            filtered_tickets.groupby(_group_field).size().reset_index(name="tickets")
+            if not filtered_tickets.empty and _group_field in filtered_tickets.columns
+            else pd.DataFrame(columns=[_group_field, "tickets"])
+        )
         if not owner_load.empty:
             st.bar_chart(
-                owner_load.set_index("owner"),
+                owner_load.set_index(_group_field),
                 horizontal=True,
                 color="#2f6fe4",
                 height=max(160, 56 * len(owner_load)),
@@ -2551,6 +2622,61 @@ elif section == "Atendimento":
         st.info(f"Ticket aberto em {ticket['opened_at']} | SLA alvo: {ticket['sla_hours']}h | Tempo corrido: {ticket['age_hours']}h")
         st.markdown(f"**Resumo do caso:** {ticket['subject']}")
         st.markdown(f"**Proxima acao sugerida:** {customer['next_action']}")
+
+        st.divider()
+        st.markdown("**Assistente IA para este atendimento**")
+        if not deepseek_configured():
+            st.caption(
+                "Configure DEEPSEEK_API_KEY para resumir o atendimento ou gerar "
+                "sugestão de resposta automaticamente."
+            )
+        else:
+            # A IA olha para o histórico DESTE cliente, não só deste ticket — o
+            # atendimento raramente é uma troca isolada, e o contexto de
+            # interações anteriores (outros tickets, negócios, contatos) ajuda
+            # a IA a responder de forma coerente com o relacionamento inteiro.
+            _ticket_history = (
+                interactions_df[interactions_df["customer_id"] == ticket["customer_id"]]
+                .sort_values("event_at")
+                .to_dict("records")
+            )
+            _summary_key = f"ai_ticket_summary_{selected_ticket}"
+            _draft_key = f"ai_ticket_draft_{selected_ticket}"
+
+            ai_col1, ai_col2 = st.columns(2)
+            with ai_col1:
+                if st.button(
+                    "Resumir atendimento", key=f"ai-summary-btn-{selected_ticket}", use_container_width=True
+                ):
+                    with st.spinner("Resumindo com IA..."):
+                        _summary, _summary_err = summarize_ticket_interaction(
+                            ticket, customer, _ticket_history
+                        )
+                    if _summary_err:
+                        st.error(_summary_err)
+                    else:
+                        st.session_state[_summary_key] = _summary
+            with ai_col2:
+                if st.button(
+                    "Sugerir resposta ao cliente", key=f"ai-draft-btn-{selected_ticket}", use_container_width=True
+                ):
+                    with st.spinner("Gerando sugestão de resposta..."):
+                        _draft, _draft_err = draft_ticket_reply(ticket, customer, _ticket_history)
+                    if _draft_err:
+                        st.error(_draft_err)
+                    else:
+                        st.session_state[_draft_key] = _draft
+
+            if st.session_state.get(_summary_key):
+                st.info(st.session_state[_summary_key])
+            if st.session_state.get(_draft_key):
+                st.text_area(
+                    "Rascunho sugerido — revise antes de enviar ao cliente",
+                    value=st.session_state[_draft_key],
+                    height=180,
+                    key=f"ai-draft-area-{selected_ticket}",
+                )
+                st.caption("A IA pode errar. Confira dados, prazos e promessas antes de enviar.")
 
 elif section == "Canais":
     if not can_manage(user["role"], "channel"):

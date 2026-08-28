@@ -1485,6 +1485,22 @@ def _migrate_totp_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def _migrate_exec_report_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona a coluna que guarda a preferência de relatório da Visão Executiva.
+
+    Fica só na conta de quem configurou — não é um "modo do sistema" global,
+    é "como EU quero ver o meu painel", igual a uma visão salva.
+    """
+    columns = _table_columns(connection, "users")
+    if not columns:
+        return
+    if "exec_report_config" not in columns:
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN exec_report_config TEXT NOT NULL DEFAULT ''"
+        )
+        connection.commit()
+
+
 def _migrate_admin_display_name(connection: sqlite3.Connection) -> None:
     connection.execute(
         "UPDATE users SET full_name = ? WHERE username = 'admin'",
@@ -1523,6 +1539,7 @@ def init_database() -> str:
             _migrate_tasks_schema(connection)
             _migrate_deals_schema(connection)
             _migrate_totp_schema(connection)
+            _migrate_exec_report_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -2709,6 +2726,55 @@ def change_own_password(actor: dict[str, Any], old_password: str, new_password: 
         {"username": username},
         "ui-change-password",
     )
+
+
+EXEC_REPORT_DEFAULT_KPIS = ["clientes", "tickets_abertos", "funil_aberto", "saude_media"]
+EXEC_REPORT_DEFAULT_GROUP_BY = "owner"
+
+
+def get_exec_report_config(username: str) -> dict[str, Any]:
+    """Devolve a preferência de relatório salva na Visão Executiva do usuário.
+
+    Quando não há nada salvo (conta nova, ou nunca personalizou), devolve o
+    recorte padrão — os mesmos 4 KPIs e o agrupamento por responsável que a
+    tela sempre mostrou.
+    """
+    default = {"kpis": list(EXEC_REPORT_DEFAULT_KPIS), "group_by": EXEC_REPORT_DEFAULT_GROUP_BY}
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT exec_report_config FROM users WHERE username = ?", (username,)
+        ).fetchone()
+    raw = str(row["exec_report_config"] or "") if row is not None else ""
+    if not raw:
+        return default
+    try:
+        data = json.loads(raw)
+        kpis = [str(item) for item in data.get("kpis", [])]
+        group_by = str(data.get("group_by") or EXEC_REPORT_DEFAULT_GROUP_BY)
+    except (TypeError, ValueError, AttributeError):
+        return default
+    if not kpis:
+        return default
+    return {"kpis": kpis, "group_by": group_by}
+
+
+def set_exec_report_config(actor: dict[str, Any], kpis: list[str], group_by: str) -> None:
+    """Salva a preferência de relatório da Visão Executiva para o usuário logado.
+
+    É preferência pessoal de tela, não um dado de negócio — por isso não gera
+    evento de auditoria (o mesmo padrão de outras configurações de UI, como a
+    visão salva de filtros).
+    """
+    username = str(actor.get("username", "")).strip()
+    if not username:
+        raise ValueError("Actor username is required")
+    payload = json.dumps({"kpis": list(kpis), "group_by": str(group_by)})
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE users SET exec_report_config = ? WHERE username = ?",
+            (payload, username),
+        )
+        connection.commit()
 
 
 def get_role_sections(role: str) -> list[str]:
