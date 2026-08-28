@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from datetime import date
 from typing import Any
 
 import pandas as pd
+import qrcode
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -29,6 +31,7 @@ from crm_views import (
 import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
+    TOTP_LOGIN_ENDPOINT,
     esc,
     login_throttle_subject,
     nome_exibido,
@@ -130,6 +133,11 @@ from crm_backend import (
     register_auth_failure,
     register_auth_success,
     seed_password_for,
+    totp_is_enabled,
+    verify_totp_login,
+    start_totp_enrollment,
+    confirm_totp_enrollment,
+    disable_totp,
 )
 
 
@@ -1280,6 +1288,139 @@ def faixa_de_demonstracao() -> None:
     )
 
 
+def _show_totp_challenge(user: dict[str, Any]) -> None:
+    """Segunda etapa do login, quando a conta tem 2FA ativo.
+
+    Fica numa tela própria, separada do formulário de senha: assim a senha
+    já validada não fica boiando em `st.session_state` como texto, e um
+    `Cancelar` aqui sempre volta pro início limpo, sem sessão nenhuma aberta.
+    """
+    with st.container(border=True):
+        st.markdown('<p class="login-gate-title">Confirmação em duas etapas</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="login-gate-hint">Digite o código de 6 dígitos do seu app '
+            f"autenticador para entrar como <strong>{esc(user.get('full_name') or user['username'])}</strong>.</p>",
+            unsafe_allow_html=True,
+        )
+        with st.form("crm-login-2fa"):
+            code = st.text_input("Código", placeholder="000000", max_chars=12)
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                confirmed = st.form_submit_button("Confirmar", width="stretch", type="primary")
+            with col_cancel:
+                cancelled = st.form_submit_button("Cancelar", width="stretch")
+        st.caption(
+            "Sem acesso ao app agora? Use um dos seus códigos de backup no lugar "
+            "do código de 6 dígitos."
+        )
+
+    if cancelled:
+        st.session_state.pop("pending_2fa_user", None)
+        st.rerun()
+
+    if confirmed:
+        subject = login_throttle_subject(user["username"], _client_ip_do_streamlit())
+        try:
+            consume_auth_attempt(subject, TOTP_LOGIN_ENDPOINT)
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            if verify_totp_login(user["username"], code):
+                register_auth_success(subject, TOTP_LOGIN_ENDPOINT)
+                st.session_state.pop("pending_2fa_user", None)
+                start_user_session(user)
+            else:
+                register_auth_failure(subject, TOTP_LOGIN_ENDPOINT)
+                st.error("Código inválido.")
+
+
+def _render_totp_settings(user: dict[str, Any]) -> None:
+    """Ativação e desativação de 2FA (TOTP) dentro de "Minha conta".
+
+    Quatro estados possíveis, nesta ordem de prioridade: já ativado (mostra
+    como desativar); acabou de confirmar agora mesmo (mostra os códigos de
+    backup, a única vez que existem em texto puro); ativação em andamento
+    (mostra o QR code e pede o primeiro código para confirmar); ou nada disso,
+    e então só o botão para começar.
+    """
+    st.markdown("**Autenticação em duas etapas (2FA)**")
+
+    # Prioridade máxima: os códigos de backup recém-gerados. Nesse instante
+    # `totp_is_enabled` já é True (a ativação acabou de ser confirmada), então
+    # esta checagem tem que vir ANTES da checagem de "já ativado" — senão a
+    # tela "já ativado" toma a frente e os códigos somem sem nunca aparecer.
+    backup_codes_pending = st.session_state.get("totp_new_backup_codes")
+    if backup_codes_pending:
+        st.warning(
+            "2FA ativado! Anote estes códigos de backup agora, eles não "
+            "aparecem de novo. Cada um funciona uma única vez, para o caso "
+            "de você perder o acesso ao app autenticador.",
+            icon="⚠️",
+        )
+        st.code("\n".join(backup_codes_pending))
+        if st.button("Já anotei, fechar", key="totp-ack-backup", use_container_width=True):
+            st.session_state.pop("totp_new_backup_codes", None)
+            st.rerun()
+        return
+
+    if totp_is_enabled(user["username"]):
+        st.success("2FA ativado nesta conta.", icon="🔒")
+        with st.form("totp-disable-form"):
+            pw = st.text_input("Confirme sua senha para desativar", type="password")
+            disable_clicked = st.form_submit_button("Desativar 2FA", use_container_width=True)
+        if disable_clicked:
+            try:
+                disable_totp(user, pw)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                queue_toast("2FA desativado.", icon="🔓")
+                st.rerun()
+        return
+
+    if st.session_state.get("totp_enroll_secret"):
+        secret = st.session_state["totp_enroll_secret"]
+        uri = st.session_state["totp_enroll_uri"]
+        qr_buffer = io.BytesIO()
+        qrcode.make(uri).save(qr_buffer, format="PNG")
+        st.image(qr_buffer.getvalue(), caption="Escaneie com o app autenticador", width=200)
+        st.caption(f"Ou digite o segredo manualmente: `{secret}`")
+        with st.form("totp-confirm-form"):
+            code = st.text_input("Código de 6 dígitos do app", max_chars=12)
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                confirm_clicked = st.form_submit_button(
+                    "Confirmar ativação", use_container_width=True, type="primary"
+                )
+            with col_cancel:
+                cancel_clicked = st.form_submit_button("Cancelar", use_container_width=True)
+        if cancel_clicked:
+            st.session_state.pop("totp_enroll_secret", None)
+            st.session_state.pop("totp_enroll_uri", None)
+            st.rerun()
+        if confirm_clicked:
+            try:
+                backup_codes = confirm_totp_enrollment(user, code)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state.pop("totp_enroll_secret", None)
+                st.session_state.pop("totp_enroll_uri", None)
+                st.session_state["totp_new_backup_codes"] = backup_codes
+                st.rerun()
+        return
+
+    st.caption(
+        "Desativado. Ativar exige um app autenticador no celular "
+        "(Google Authenticator, Authy, 1Password ou similar)."
+    )
+    if st.button("Ativar 2FA agora", key="totp-start-enroll", use_container_width=True):
+        secret, uri = start_totp_enrollment(user)
+        st.session_state["totp_enroll_secret"] = secret
+        st.session_state["totp_enroll_uri"] = uri
+        st.rerun()
+
+
 def show_login() -> None:
     """Porta de entrada do CRM.
 
@@ -1313,60 +1454,69 @@ def show_login() -> None:
         unsafe_allow_html=True,
     )
 
-    with st.container(border=True):
-        st.markdown('<p class="login-gate-title">Entrar</p>', unsafe_allow_html=True)
-        st.markdown(
-            '<p class="login-gate-hint">Acesso restrito. Use as credenciais fornecidas '
-            "pela administração.</p>",
-            unsafe_allow_html=True,
-        )
-        # A vitrine se anuncia antes de pedir credencial: é a primeira tela que
-        # um cliente em prospecção vê, e é onde o aviso custa menos.
-        faixa_de_demonstracao()
-        with st.form("crm-login"):
-            username = st.text_input("Usuário", placeholder="Digite seu usuário")
-            password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
-        if submitted:
-            # O backend já tinha throttle progressivo com bloqueio, mas ele
-            # só estava ligado no serviço de webhook. A tela de login — o
-            # caminho que de fato está exposto ao público — chamava
-            # verify_login() direto, sem limite algum de tentativas.
-            subject = login_throttle_subject(username, _client_ip_do_streamlit())
-            try:
-                consume_auth_attempt(subject, LOGIN_ENDPOINT)
-            except ValueError as exc:
-                st.error(str(exc))
-            else:
-                user = verify_login(username.strip(), password)
-                if user:
-                    register_auth_success(subject, LOGIN_ENDPOINT)
-                    start_user_session(user)
-                else:
-                    register_auth_failure(subject, LOGIN_ENDPOINT)
-                    st.error("Credenciais inválidas.")
+    pending_2fa_user = st.session_state.get("pending_2fa_user")
 
-    # O acesso de demonstração aparece apenas quando está de fato ligado.
-    # Desligado, a tela não deve sequer mencionar que ele existe.
-    if demo_login_enabled():
+    if pending_2fa_user is not None:
+        _show_totp_challenge(pending_2fa_user)
+    else:
         with st.container(border=True):
+            st.markdown('<p class="login-gate-title">Entrar</p>', unsafe_allow_html=True)
             st.markdown(
-                '<p class="login-gate-title">Entrar sem senha (demonstração)</p>',
+                '<p class="login-gate-hint">Acesso restrito. Use as credenciais fornecidas '
+                "pela administração.</p>",
                 unsafe_allow_html=True,
             )
-            st.warning(
-                "Modo demonstração ativo: qualquer visitante entra sem senha. "
-                "Não use em ambiente com dado real.",
-                icon="⚠️",
-            )
-            for label, demo_username in DEMO_ACCOUNTS:
-                if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
-                    demo_user = verify_login(demo_username, seed_password_for(demo_username))
-                    if demo_user:
-                        queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
-                        start_user_session(demo_user)
+            # A vitrine se anuncia antes de pedir credencial: é a primeira tela que
+            # um cliente em prospecção vê, e é onde o aviso custa menos.
+            faixa_de_demonstracao()
+            with st.form("crm-login"):
+                username = st.text_input("Usuário", placeholder="Digite seu usuário")
+                password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                submitted = st.form_submit_button("Acessar", width="stretch", type="primary")
+            if submitted:
+                # O backend já tinha throttle progressivo com bloqueio, mas ele
+                # só estava ligado no serviço de webhook. A tela de login — o
+                # caminho que de fato está exposto ao público — chamava
+                # verify_login() direto, sem limite algum de tentativas.
+                subject = login_throttle_subject(username, _client_ip_do_streamlit())
+                try:
+                    consume_auth_attempt(subject, LOGIN_ENDPOINT)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    user = verify_login(username.strip(), password)
+                    if user:
+                        register_auth_success(subject, LOGIN_ENDPOINT)
+                        if totp_is_enabled(user["username"]):
+                            st.session_state["pending_2fa_user"] = user
+                            st.rerun()
+                        else:
+                            start_user_session(user)
                     else:
-                        st.error("Conta de demonstração indisponível.")
+                        register_auth_failure(subject, LOGIN_ENDPOINT)
+                        st.error("Credenciais inválidas.")
+
+        # O acesso de demonstração aparece apenas quando está de fato ligado.
+        # Desligado, a tela não deve sequer mencionar que ele existe.
+        if demo_login_enabled():
+            with st.container(border=True):
+                st.markdown(
+                    '<p class="login-gate-title">Entrar sem senha (demonstração)</p>',
+                    unsafe_allow_html=True,
+                )
+                st.warning(
+                    "Modo demonstração ativo: qualquer visitante entra sem senha. "
+                    "Não use em ambiente com dado real.",
+                    icon="⚠️",
+                )
+                for label, demo_username in DEMO_ACCOUNTS:
+                    if st.button(label, key=f"demo-login-{demo_username}", use_container_width=True):
+                        demo_user = verify_login(demo_username, seed_password_for(demo_username))
+                        if demo_user:
+                            queue_toast(f"Bem-vindo(a), {demo_user['full_name']}!", icon="👋")
+                            start_user_session(demo_user)
+                        else:
+                            st.error("Conta de demonstração indisponível.")
 
     st.markdown(
         '<p class="login-foot"><strong>Trust Corporation</strong><br>'
@@ -2104,6 +2254,9 @@ with st.sidebar:
                     queue_toast("Senha atualizada com sucesso.", icon="✅")
                     # Opcionalmente, força novo login
                     # end_user_session()
+        st.divider()
+        _render_totp_settings(user)
+        st.divider()
         if st.button("Rever tour de boas-vindas", use_container_width=True, key="rever-tour"):
             st.session_state["tour_step"] = 0
             st.session_state["show_tour"] = True
