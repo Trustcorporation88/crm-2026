@@ -45,6 +45,72 @@ def build_general_system_prompt() -> str:
     )
 
 
+def build_ticket_context(
+    ticket: dict[str, Any],
+    customer: dict[str, Any],
+    interactions: list[dict[str, Any]],
+) -> str:
+    """Monta o contexto de um atendimento (ticket + cliente + histórico) para a IA.
+
+    Usado tanto no resumo quanto no rascunho de resposta — as duas tarefas
+    precisam do mesmo pano de fundo, só muda o que se pede no final.
+    """
+    linhas = [
+        f"Cliente: {customer.get('name', '')}",
+        f"Segmento: {customer.get('segment', '')}",
+        f"Assunto do ticket: {ticket.get('subject', '')}",
+        f"Canal: {ticket.get('channel', '')}",
+        f"Prioridade: {ticket.get('priority', '')}",
+        f"Status: {ticket.get('status', '')}",
+    ]
+    if interactions:
+        linhas.append("")
+        linhas.append("Histórico de interações com este cliente (mais antigas primeiro):")
+        for item in interactions[-20:]:
+            linhas.append(
+                f"- [{item.get('event_at', '')}] ({item.get('channel', '')}) "
+                f"{item.get('title', '')}: {item.get('body', '')}"
+            )
+    return "\n".join(linhas)
+
+
+def summarize_ticket_interaction(
+    ticket: dict[str, Any],
+    customer: dict[str, Any],
+    interactions: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """Resume um atendimento: o que o cliente precisa, o que já foi feito, próximo passo."""
+    context = build_ticket_context(ticket, customer, interactions)
+    system_prompt = (
+        "Você é o assistente do TRUST CRM. Resuma o atendimento a seguir em português do "
+        "Brasil, em até 5 frases objetivas: o que o cliente precisa, o que já foi feito até "
+        "agora e qual é o próximo passo recomendado. Não invente nada que não esteja no "
+        "histórico — se faltar informação, diga que falta."
+    )
+    return chat_completion(
+        [{"role": "user", "content": context}], system_prompt=system_prompt, temperature=0.2
+    )
+
+
+def draft_ticket_reply(
+    ticket: dict[str, Any],
+    customer: dict[str, Any],
+    interactions: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """Rascunha uma resposta ao cliente para o atendente revisar antes de enviar."""
+    context = build_ticket_context(ticket, customer, interactions)
+    system_prompt = (
+        "Você é o assistente do TRUST CRM, ajudando um atendente a responder um cliente. "
+        "Com base no histórico a seguir, escreva um rascunho de resposta ao cliente em "
+        "português do Brasil: tom profissional e cordial, direto ao ponto, pronto para o "
+        "atendente revisar e ajustar antes de enviar. Não prometa prazos, descontos ou "
+        "qualquer coisa que não esteja respaldada pelo histórico."
+    )
+    return chat_completion(
+        [{"role": "user", "content": context}], system_prompt=system_prompt, temperature=0.4
+    )
+
+
 def chat_completion(
     messages: list[dict[str, str]],
     *,

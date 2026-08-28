@@ -25,3 +25,7 @@ click>=8.3.3  # PYSEC-2026-2132 (transitiva)
 # definir DATABASE_URL derruba o app no primeiro acesso ao banco.
 psycopg2-binary>=2.9.9
 streamlit-sortables==0.3.1
+# Gera o QR code de ativação do 2FA (TOTP). O cálculo do código em si usa só
+# a biblioteca padrão (hmac/hashlib) — esta dependência é só para desenhar o
+# QR, e usa o Pillow que o Streamlit já traz.
+qrcode>=8.0

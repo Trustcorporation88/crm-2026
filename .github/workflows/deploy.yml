@@ -21,8 +21,14 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run Trivy vulnerability scanner
-        # Referência mutável numa ação de segurança é risco de cadeia de suprimentos.
-        uses: aquasecurity/trivy-action@0.28.0
+        # A 0.28.0 tinha um bug conhecido ("Retrieving the default branch name...
+        # Not Found") que derrubava o job em segundos, antes mesmo do scan começar.
+        # Além disso, em 19/03/2026 quase todas as tags do trivy-action foram
+        # comprometidas num ataque à cadeia de suprimentos (roubo de credenciais
+        # via push forçado nas tags). A v0.35.0 é a única tag confirmada limpa;
+        # fixando pelo hash do commit em vez da tag para não depender de uma tag
+        # que pode ser reescrita de novo no futuro.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -311,6 +317,10 @@ jobs:
           fi
       
       - name: Slack Notification
+        # Sem o secret SLACK_WEBHOOK configurado no repositório, essa ação falha
+        # imediatamente. Como nem todo mundo usa Slack, o passo só roda quando o
+        # secret existe — assim o job não fica vermelho à toa.
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
         uses: slackapi/slack-github-action@v1.24.0
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK }}

@@ -14,6 +14,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote as _url_quote
 
 import bcrypt
 import jwt
@@ -595,6 +596,178 @@ def _password_matches(stored_hash: str, password: str) -> bool:
 
     # Fallback: antigo SHA-256
     return stored_hash == _legacy_sha256(password)
+
+
+# ---------------------------------------------------------------------------
+# TOTP (autenticação de dois fatores) — RFC 6238, implementado só com a
+# biblioteca padrão para não somar mais uma dependência de terceiros a algo
+# tão pequeno. Compatível com Google Authenticator, Authy, 1Password etc.,
+# que seguem o mesmo padrão.
+# ---------------------------------------------------------------------------
+
+_TOTP_STEP_SECONDS = 30
+_TOTP_DIGITS = 6
+_TOTP_ISSUER = "Trust CRM"
+
+
+def _generate_totp_secret() -> str:
+    """Gera um segredo de 160 bits em base32 (o tamanho recomendado pela RFC)."""
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def _totp_code_at(secret_b32: str, timestamp: float) -> str:
+    padded = secret_b32.strip().replace(" ", "").upper()
+    padded += "=" * (-len(padded) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int(timestamp // _TOTP_STEP_SECONDS)
+    counter_bytes = counter.to_bytes(8, byteorder="big")
+    digest = hmac.new(key, counter_bytes, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    truncated = digest[offset : offset + 4]
+    code_int = (int.from_bytes(truncated, byteorder="big") & 0x7FFFFFFF)
+    return str(code_int % (10**_TOTP_DIGITS)).zfill(_TOTP_DIGITS)
+
+
+def _verify_totp(secret_b32: str, code: str, *, window: int = 1) -> bool:
+    """Confere o código contra o passo atual, com tolerância de +-1 passo (30s)
+    para conta de relógios que não estão perfeitamente sincronizados."""
+    code = (code or "").strip().replace(" ", "")
+    if not code or not code.isdigit() or not secret_b32:
+        return False
+    now = time.time()
+    for offset in range(-window, window + 1):
+        candidate = _totp_code_at(secret_b32, now + offset * _TOTP_STEP_SECONDS)
+        if hmac.compare_digest(candidate, code):
+            return True
+    return False
+
+
+def _totp_provisioning_uri(username: str, secret_b32: str) -> str:
+    label = _url_quote(f"{_TOTP_ISSUER}:{username}")
+    issuer = _url_quote(_TOTP_ISSUER)
+    return (
+        f"otpauth://totp/{label}?secret={secret_b32}&issuer={issuer}"
+        f"&algorithm=SHA1&digits={_TOTP_DIGITS}&period={_TOTP_STEP_SECONDS}"
+    )
+
+
+def _generate_backup_codes(count: int = 8) -> list[str]:
+    return ["-".join([secrets.token_hex(2), secrets.token_hex(2)]) for _ in range(count)]
+
+
+def totp_is_enabled(username: str) -> bool:
+    """Diz se o usuário tem 2FA ativo — usado no login para decidir se pede o código."""
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT totp_enabled FROM users WHERE username = ?", (username,)
+        ).fetchone()
+    return bool(row and int(row["totp_enabled"] or 0))
+
+
+def start_totp_enrollment(actor: dict[str, Any]) -> tuple[str, str]:
+    """Gera um segredo pendente e devolve (segredo_base32, uri_para_qrcode).
+
+    O segredo só passa a valer para login depois que ``confirm_totp_enrollment``
+    validar um código gerado a partir dele — assim uma ativação abandonada no
+    meio do caminho nunca deixa a conta com um segredo que o dono não chegou a
+    configurar de verdade no app autenticador.
+    """
+    username = str(actor["username"])
+    secret = _generate_totp_secret()
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE users SET totp_pending_secret = ? WHERE username = ?",
+            (secret, username),
+        )
+        connection.commit()
+    return secret, _totp_provisioning_uri(username, secret)
+
+
+def confirm_totp_enrollment(actor: dict[str, Any], code: str) -> list[str]:
+    """Confirma a ativação do 2FA com um código do app autenticador.
+
+    Devolve os códigos de backup em texto puro — a única vez que eles existem
+    fora de um hash. Só o próprio usuário os vê, e só agora.
+    """
+    username = str(actor["username"])
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT totp_pending_secret FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        pending = str(row["totp_pending_secret"] or "") if row else ""
+        if not pending:
+            raise ValueError("Nenhuma ativação de 2FA pendente. Comece de novo.")
+        if not _verify_totp(pending, code):
+            raise ValueError("Código inválido. Confira o horário do seu celular e tente de novo.")
+
+        backup_codes = _generate_backup_codes()
+        hashed_codes = json.dumps([hash_password(c) for c in backup_codes])
+        connection.execute(
+            """
+            UPDATE users
+            SET totp_secret = ?, totp_enabled = 1, totp_pending_secret = '', totp_backup_codes = ?
+            WHERE username = ?
+            """,
+            (pending, hashed_codes, username),
+        )
+        log_audit_event(
+            actor, "user.totp_enable", "user", username, {}, "streamlit", connection=connection
+        )
+        connection.commit()
+    return backup_codes
+
+
+def disable_totp(actor: dict[str, Any], current_password: str) -> None:
+    """Desliga o 2FA. Exige a senha atual de novo, por ser uma redução de segurança."""
+    username = str(actor["username"])
+    if verify_login(username, current_password) is None:
+        raise ValueError("Senha incorreta.")
+    with _connect() as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET totp_secret = '', totp_enabled = 0, totp_pending_secret = '', totp_backup_codes = ''
+            WHERE username = ?
+            """,
+            (username,),
+        )
+        log_audit_event(
+            actor, "user.totp_disable", "user", username, {}, "streamlit", connection=connection
+        )
+        connection.commit()
+
+
+def verify_totp_login(username: str, code: str) -> bool:
+    """Segundo fator no login: aceita o código do app autenticador OU, se ele
+    não estiver à mão, um código de backup (de uso único — é consumido ao
+    ser aceito)."""
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT totp_secret, totp_backup_codes FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if row is None:
+            return False
+        secret = str(row["totp_secret"] or "")
+        if secret and _verify_totp(secret, code):
+            return True
+
+        entered = (code or "").strip()
+        if not entered:
+            return False
+        try:
+            backups = json.loads(row["totp_backup_codes"] or "[]")
+        except (TypeError, ValueError):
+            backups = []
+        for index, hashed in enumerate(backups):
+            if _password_matches(hashed, entered):
+                del backups[index]
+                connection.execute(
+                    "UPDATE users SET totp_backup_codes = ? WHERE username = ?",
+                    (json.dumps(backups), username),
+                )
+                connection.commit()
+                return True
+        return False
 
 
 def _connect() -> crm_db.Connection:
@@ -1285,6 +1458,49 @@ def _migrate_auth_throttle_schema(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def _migrate_totp_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona as colunas de autenticação de dois fatores (TOTP).
+
+    `totp_pending_secret` guarda o segredo gerado durante o cadastro, ainda
+    não confirmado — só vira `totp_secret` (o segredo ativo, usado no login)
+    depois que o usuário prova que configurou o app autenticador corretamente,
+    digitando um código válido. `totp_backup_codes` guarda uma lista JSON de
+    hashes bcrypt de códigos de uso único, para quando o celular não estiver
+    à mão.
+    """
+    columns = _table_columns(connection, "users")
+    if not columns:
+        return
+    if "totp_secret" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+    if "totp_enabled" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0")
+        connection.commit()
+    if "totp_pending_secret" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN totp_pending_secret TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+    if "totp_backup_codes" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN totp_backup_codes TEXT NOT NULL DEFAULT ''")
+        connection.commit()
+
+
+def _migrate_exec_report_schema(connection: sqlite3.Connection) -> None:
+    """Adiciona a coluna que guarda a preferência de relatório da Visão Executiva.
+
+    Fica só na conta de quem configurou — não é um "modo do sistema" global,
+    é "como EU quero ver o meu painel", igual a uma visão salva.
+    """
+    columns = _table_columns(connection, "users")
+    if not columns:
+        return
+    if "exec_report_config" not in columns:
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN exec_report_config TEXT NOT NULL DEFAULT ''"
+        )
+        connection.commit()
+
+
 def _migrate_admin_display_name(connection: sqlite3.Connection) -> None:
     connection.execute(
         "UPDATE users SET full_name = ? WHERE username = 'admin'",
@@ -1322,6 +1538,8 @@ def init_database() -> str:
             _migrate_owner_username(connection)
             _migrate_tasks_schema(connection)
             _migrate_deals_schema(connection)
+            _migrate_totp_schema(connection)
+            _migrate_exec_report_schema(connection)
     except sqlite3.OperationalError as exc:
         if "readonly" in str(exc).lower():
             raise PermissionError(
@@ -2508,6 +2726,55 @@ def change_own_password(actor: dict[str, Any], old_password: str, new_password: 
         {"username": username},
         "ui-change-password",
     )
+
+
+EXEC_REPORT_DEFAULT_KPIS = ["clientes", "tickets_abertos", "funil_aberto", "saude_media"]
+EXEC_REPORT_DEFAULT_GROUP_BY = "owner"
+
+
+def get_exec_report_config(username: str) -> dict[str, Any]:
+    """Devolve a preferência de relatório salva na Visão Executiva do usuário.
+
+    Quando não há nada salvo (conta nova, ou nunca personalizou), devolve o
+    recorte padrão — os mesmos 4 KPIs e o agrupamento por responsável que a
+    tela sempre mostrou.
+    """
+    default = {"kpis": list(EXEC_REPORT_DEFAULT_KPIS), "group_by": EXEC_REPORT_DEFAULT_GROUP_BY}
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT exec_report_config FROM users WHERE username = ?", (username,)
+        ).fetchone()
+    raw = str(row["exec_report_config"] or "") if row is not None else ""
+    if not raw:
+        return default
+    try:
+        data = json.loads(raw)
+        kpis = [str(item) for item in data.get("kpis", [])]
+        group_by = str(data.get("group_by") or EXEC_REPORT_DEFAULT_GROUP_BY)
+    except (TypeError, ValueError, AttributeError):
+        return default
+    if not kpis:
+        return default
+    return {"kpis": kpis, "group_by": group_by}
+
+
+def set_exec_report_config(actor: dict[str, Any], kpis: list[str], group_by: str) -> None:
+    """Salva a preferência de relatório da Visão Executiva para o usuário logado.
+
+    É preferência pessoal de tela, não um dado de negócio — por isso não gera
+    evento de auditoria (o mesmo padrão de outras configurações de UI, como a
+    visão salva de filtros).
+    """
+    username = str(actor.get("username", "")).strip()
+    if not username:
+        raise ValueError("Actor username is required")
+    payload = json.dumps({"kpis": list(kpis), "group_by": str(group_by)})
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE users SET exec_report_config = ? WHERE username = ?",
+            (payload, username),
+        )
+        connection.commit()
 
 
 def get_role_sections(role: str) -> list[str]:

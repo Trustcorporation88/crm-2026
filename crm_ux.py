@@ -1488,6 +1488,12 @@ def queue_position_label(index: int, total: int) -> str:
 # Chave usada nas linhas de auth_throttle originadas da tela de login.
 LOGIN_ENDPOINT = "streamlit/login"
 
+# Segunda etapa do login, quando a conta tem 2FA ativo — throttle em separado
+# porque um código de 6 dígitos tem um espaço de tentativas muito menor que
+# uma senha, e precisa de um limite dedicado para não virar um jeito mais
+# fácil de forçar entrada em quem já passou pela senha.
+TOTP_LOGIN_ENDPOINT = "streamlit/login-2fa"
+
 
 def login_throttle_subject(username: str | None, client_ip: str | None = None) -> str:
     """Identifica quem está tentando entrar, para efeito de throttle.
