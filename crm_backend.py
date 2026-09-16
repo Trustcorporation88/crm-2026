@@ -1145,10 +1145,16 @@ def _create_schema(connection: sqlite3.Connection) -> None:
         );
 
         -- Agente de pesquisa de lead: pesquisa pública sobre um lead antes de
-        -- alguém do time falar com ele. Uma "run" é uma tentativa de pesquisa
-        -- (pode não achar nada); os "findings" são só fatos que a IA
+        -- alguém do time falar com ele. Uma run é uma tentativa de pesquisa,
+        -- que pode não achar nada. Os findings são só fatos que a IA
         -- confirmou nos resultados de busca, cada um com a fonte. Nunca
-        -- grava palpite como finding — ver lead_research.py.
+        -- grava palpite como finding, ver lead_research.py.
+        --
+        -- ATENÇÃO: não escreva ponto e vírgula dentro de comentário aqui.
+        -- split_script() quebra o script em todo ponto e vírgula e não
+        -- entende comentário, então sobraria um comando só de comentário,
+        -- que o Postgres recusa com "can't execute an empty query".
+        -- O teste test_schema_sem_comando_vazio protege contra isso.
         CREATE TABLE IF NOT EXISTS lead_research_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id TEXT NOT NULL,

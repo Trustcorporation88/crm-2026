@@ -230,3 +230,40 @@ def test_verify_instagram_webhook_hmac(tmp_path, monkeypatch):
     assert backend.verify_instagram_webhook_hmac(body, assinatura) is True
     assert backend.verify_instagram_webhook_hmac(body, "sha256=assinatura-errada") is False
     assert backend.verify_instagram_webhook_hmac(body, None) is False
+
+
+def test_schema_sem_comando_vazio():
+    """Nenhum comando do schema pode virar 'query vazia' no Postgres.
+
+    split_script() quebra o script em todo ponto e vírgula e não entende
+    comentário SQL. Um ponto e vírgula dentro de um comentário gera um
+    "comando" que é só comentário: o SQLite ignora, mas o psycopg2 recusa
+    com "can't execute an empty query" e derruba init_database() inteiro.
+
+    Este teste roda sem Postgres e cobre o schema todo, não só as tabelas
+    do agente de pesquisa.
+    """
+    import inspect
+    import re
+
+    import crm_backend
+    import crm_db
+
+    fonte = inspect.getsource(crm_backend._create_schema)
+    bloco = re.search(r'executescript\(\s*"""(.*?)"""', fonte, re.S)
+    assert bloco, "nao encontrei o script DDL em _create_schema"
+
+    vazios = []
+    for comando in crm_db.split_script(bloco.group(1)):
+        sql = "\n".join(
+            linha
+            for linha in comando.split("\n")
+            if not linha.strip().startswith("--")
+        ).strip()
+        if not sql:
+            vazios.append(comando.strip()[:120])
+
+    assert not vazios, (
+        "comando(s) do schema sem SQL, so comentario. Provavel ponto e virgula "
+        f"dentro de comentario: {vazios}"
+    )
