@@ -66,11 +66,13 @@ services:
       - crm-network
     restart: unless-stopped
 
-  # Serviço oficial: recebe o webhook do WhatsApp e expõe a API de entidades.
+  # Recebe webhook (WhatsApp, Instagram) e expõe a API de entidades.
   #
   # Substitui o antigo serviço "api" (crm_api.py), aposentado por duplicar
-  # autenticação e não ter consumidor. Este é o serviço com amarras externas
-  # reais — o provedor de WhatsApp e o callback OAuth do ACI apontam para ele.
+  # autenticação e não ter consumidor. É pensado para ser o serviço com
+  # amarras externas reais (provedor de WhatsApp, Meta, callback OAuth do
+  # ACI), mas até 28/08/2026 não havia nenhuma instância dele publicada no
+  # Railway do projeto — confirme antes de assumir que já está em produção.
   servico:
     build:
       context: .
@@ -81,6 +83,10 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-crm_admin}:${DB_PASSWORD:-changeme123}@postgres:5432/${DB_NAME:-crm_db}
       CRM_API_JWT_SECRET: ${CRM_API_JWT_SECRET:?defina CRM_API_JWT_SECRET}
       CRM_WHATSAPP_HMAC_SECRET: ${CRM_WHATSAPP_HMAC_SECRET:?defina CRM_WHATSAPP_HMAC_SECRET}
+      CRM_INSTAGRAM_APP_SECRET: ${CRM_INSTAGRAM_APP_SECRET:-}
+      CRM_INSTAGRAM_VERIFY_TOKEN: ${CRM_INSTAGRAM_VERIFY_TOKEN:-}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

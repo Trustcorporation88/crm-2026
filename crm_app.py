@@ -142,12 +142,14 @@ from crm_backend import (
     set_exec_report_config,
     EXEC_REPORT_DEFAULT_KPIS,
     EXEC_REPORT_DEFAULT_GROUP_BY,
+    get_lead_research_history,
 )
 from deepseek_assistant import (
     deepseek_configured,
     summarize_ticket_interaction,
     draft_ticket_reply,
 )
+from lead_research import research_lead, serper_configured
 
 
 PRIMARY_NAV_ORDER = [
@@ -3111,6 +3113,46 @@ elif section == "Clientes 360":
                     on_click=_registrar_envio_wa,
                     width="stretch",
                 )
+
+            st.markdown(" ")
+            with st.container(border=True):
+                st.markdown('<div class="section-title">Agente de pesquisa</div>', unsafe_allow_html=True)
+                st.caption(
+                    "Pesquisa pública sobre este lead antes de alguém do time falar com ele. "
+                    "Só registra o que confirmar, com a fonte — se não achar nada confiável, diz isso."
+                )
+                if not serper_configured() or not deepseek_configured():
+                    st.caption(
+                        "Configure SERPER_API_KEY e DEEPSEEK_API_KEY para habilitar a pesquisa automática."
+                    )
+                else:
+                    if st.button(
+                        "Pesquisar este lead", key=f"agent-research-btn-{account_id}", width="stretch"
+                    ):
+                        with st.spinner("Pesquisando fontes públicas..."):
+                            _resultado = research_lead(account_id, name=customer["name"])
+                        if _resultado["error"]:
+                            st.error(_resultado["error"])
+                        elif not _resultado["facts"]:
+                            st.info("Nada confiável encontrado nas fontes públicas para este lead.")
+                        else:
+                            queue_toast(f"{len(_resultado['facts'])} fato(s) confirmado(s).", icon="🔎")
+                        st.rerun()
+
+                _historico_pesquisa = get_lead_research_history(account_id)
+                if _historico_pesquisa:
+                    for _run in _historico_pesquisa[:5]:
+                        _quando = format_date_br(_run["created_at"][:10]) if _run.get("created_at") else ""
+                        if _run["facts"]:
+                            with st.expander(f"{_quando} · {_run['facts_count']} fato(s) confirmado(s)"):
+                                for _fato in _run["facts"]:
+                                    st.markdown(f"- {esc(_fato['fact'])}")
+                                    if _fato.get("source_url"):
+                                        st.caption(f"Fonte: {_fato['source_url']}")
+                        elif _run["status"] == "erro":
+                            st.caption(f"{_quando} · pesquisa falhou: {_run.get('error_message', '')}")
+                        else:
+                            st.caption(f"{_quando} · nada confiável encontrado")
 
             st.markdown(" ")
             with st.container(border=True):

@@ -1143,6 +1143,36 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- Agente de pesquisa de lead: pesquisa pública sobre um lead antes de
+        -- alguém do time falar com ele. Uma "run" é uma tentativa de pesquisa
+        -- (pode não achar nada); os "findings" são só fatos que a IA
+        -- confirmou nos resultados de busca, cada um com a fonte. Nunca
+        -- grava palpite como finding — ver lead_research.py.
+        CREATE TABLE IF NOT EXISTS lead_research_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            query TEXT NOT NULL,
+            status TEXT NOT NULL,
+            facts_count INTEGER NOT NULL,
+            error_message TEXT,
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS lead_research_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            customer_id TEXT NOT NULL,
+            fact TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            source_title TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES lead_research_runs(id),
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_lead_research_runs_customer ON lead_research_runs(customer_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_lead_research_findings_run ON lead_research_findings(run_id);
         """
     )
     connection.commit()
@@ -3921,6 +3951,246 @@ def process_whatsapp_webhook(payload: dict[str, Any], source: str = "whatsapp-we
             str(exc),
         )
         raise
+
+
+def get_instagram_webhook_verify_token() -> str:
+    """Token de verificação do webhook do Instagram (challenge da Meta).
+
+    Segue o mesmo padrão do WhatsApp, mas com segredo próprio — são apps
+    diferentes na Meta, não faz sentido compartilhar o token entre eles.
+    """
+    token = os.getenv("CRM_INSTAGRAM_VERIFY_TOKEN", "")
+    if token:
+        return token
+    secret_file = os.path.join(DATA_DIR, ".instagram_webhook_token")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(secret_file):
+        with open(secret_file, "r", encoding="utf-8") as file:
+            content = file.read().strip()
+            if content:
+                return content
+    generated = secrets.token_urlsafe(24)
+    with open(secret_file, "w", encoding="utf-8") as file:
+        file.write(generated)
+    return generated
+
+
+def get_instagram_app_secret() -> str:
+    """App Secret do app da Meta usado para assinar (HMAC) o webhook do Instagram."""
+    secret = os.getenv("CRM_INSTAGRAM_APP_SECRET", "")
+    if secret:
+        return secret
+    secret_file = os.path.join(DATA_DIR, ".instagram_app_secret")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(secret_file):
+        with open(secret_file, "r", encoding="utf-8") as file:
+            content = file.read().strip()
+            if content:
+                return content
+    generated = secrets.token_urlsafe(48)
+    with open(secret_file, "w", encoding="utf-8") as file:
+        file.write(generated)
+    return generated
+
+
+def verify_instagram_webhook_hmac(raw_body: bytes, signature_header: str | None) -> bool:
+    if not signature_header:
+        return False
+    value = signature_header.strip()
+    if value.startswith("sha256="):
+        value = value.split("=", 1)[1]
+    expected = hmac.new(
+        key=get_instagram_app_secret().encode("utf-8"),
+        msg=raw_body,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, value)
+
+
+def _instagram_events_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extrai eventos (DM ou comentário) do formato de webhook da Meta.
+
+    A Meta manda um envelope `entry[]` com `messaging[]` (DM) ou `changes[]`
+    (comentário/menção). Um único POST pode trazer mais de um evento —
+    devolve todos, cada um já normalizado para o que `process_instagram_webhook`
+    precisa.
+    """
+    events: list[dict[str, Any]] = []
+    for entry in payload.get("entry", []) or []:
+        for message_event in entry.get("messaging", []) or []:
+            message = message_event.get("message", {}) or {}
+            if message.get("is_echo"):
+                # Eco da própria conta respondendo — não é lead novo.
+                continue
+            text = str(message.get("text", "")).strip()
+            if not text:
+                continue
+            events.append(
+                {
+                    "kind": "dm",
+                    "source_id": str(message.get("mid", "")) or str(message_event.get("timestamp", "unknown")),
+                    "from_id": str(message_event.get("sender", {}).get("id", "")),
+                    "text": text,
+                }
+            )
+        for change in entry.get("changes", []) or []:
+            if change.get("field") not in {"comments", "mentions"}:
+                continue
+            value = change.get("value", {}) or {}
+            text = str(value.get("text", "")).strip()
+            if not text:
+                continue
+            from_obj = value.get("from", {}) or {}
+            events.append(
+                {
+                    "kind": "comment",
+                    "source_id": str(value.get("id", "")) or "unknown",
+                    "from_id": str(from_obj.get("id", "")),
+                    "from_username": str(from_obj.get("username", "")),
+                    "text": text,
+                }
+            )
+    return events
+
+
+def process_instagram_webhook(payload: dict[str, Any], source: str = "instagram-webhook") -> dict[str, Any]:
+    """Transforma DM/comentário do Instagram em lead + ticket no CRM.
+
+    Espelha process_whatsapp_webhook, mas parseando o formato real de webhook
+    da Meta (entry/messaging/changes), já que este webhook vai receber
+    payload de verdade — o do WhatsApp nunca chegou a ser ligado em produção.
+    """
+    actor = {"username": "system", "full_name": "Webhook Bot", "role": "admin"}
+    events = _instagram_events_from_payload(payload)
+    results: list[dict[str, str]] = []
+
+    if not events:
+        log_webhook_event(
+            "Instagram", "message", "ignored", "no-events", payload, "Nenhum evento reconhecido no payload"
+        )
+        return {"status": "ignored", "processed": []}
+
+    for event in events:
+        handle = event.get("from_username") or event.get("from_id") or "lead-instagram"
+        customer_name = f"Instagram @{handle}" if not event.get("from_username") else f"@{event['from_username']}"
+        subject = "Comentário no Instagram" if event["kind"] == "comment" else "Mensagem no Instagram"
+        try:
+            customer_id, ticket_id = create_channel_ticket(
+                {
+                    "customer_name": customer_name,
+                    "subject": subject,
+                    "channel": "Instagram",
+                    "priority": "Media",
+                    "owner": os.getenv("CRM_INSTAGRAM_DEFAULT_OWNER", "Amanda Souza"),
+                    "sla_hours": 4,
+                    "category": "Relacionamento",
+                    "message": event["text"],
+                    "city": "Nao informado",
+                    "country": "Brasil",
+                    "segment": "Lead inbound",
+                },
+                actor=actor,
+                source=source,
+            )
+            log_webhook_event(
+                "Instagram", event["kind"], "processed", event["source_id"], payload,
+                f"ticket={ticket_id}; customer={customer_id}",
+            )
+            results.append({"customer_id": customer_id, "ticket_id": ticket_id, "handle": handle})
+        except Exception as exc:
+            log_webhook_event(
+                "Instagram", event["kind"], "error", event["source_id"], payload, str(exc)
+            )
+            raise
+
+    return {"status": "processed", "processed": results}
+
+
+def get_serper_api_key() -> str:
+    return os.getenv("SERPER_API_KEY", "").strip()
+
+
+def save_lead_research_run(
+    customer_id: str,
+    query: str,
+    facts: list[dict[str, str]],
+    error_message: str | None = None,
+) -> int:
+    """Grava uma rodada de pesquisa do agente e seus fatos confirmados.
+
+    `facts` vazio não é erro — significa que a IA não achou nada confiável
+    para afirmar, e isso também é registrado (status "sem_fatos"), para
+    diferenciar de "nunca pesquisamos este lead".
+    """
+    status = "erro" if error_message else ("com_fatos" if facts else "sem_fatos")
+    now = _utcnow().isoformat()
+    with _connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO lead_research_runs
+                (customer_id, created_at, query, status, facts_count, error_message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (customer_id, now, query, status, len(facts), error_message),
+        )
+        run_id = cursor.lastrowid
+        for fact in facts:
+            connection.execute(
+                """
+                INSERT INTO lead_research_findings (run_id, customer_id, fact, source_url, source_title)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (run_id, customer_id, fact["fact"], fact.get("source_url", ""), fact.get("source_title", "")),
+            )
+        if facts:
+            resumo = "\n".join(f"- {f['fact']} ({f.get('source_url', 'sem fonte')})" for f in facts)
+        elif error_message:
+            resumo = f"Pesquisa falhou: {error_message}"
+        else:
+            resumo = "Nenhum fato confiável encontrado nas fontes públicas."
+        add_interaction(
+            customer_id,
+            "Agente pesquisou este lead",
+            resumo,
+            channel="Agente IA",
+            owner="Agente IA",
+            event_type="agent_research",
+            connection=connection,
+        )
+        bump_data_version(connection)
+        connection.commit()
+    return run_id
+
+
+def get_lead_research_history(customer_id: str) -> list[dict[str, Any]]:
+    """Runs de pesquisa do agente para este lead, mais recentes primeiro, com os fatos de cada uma."""
+    with _connect() as connection:
+        runs = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT id, created_at, query, status, facts_count, error_message
+                FROM lead_research_runs
+                WHERE customer_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (customer_id,),
+            ).fetchall()
+        ]
+        for run in runs:
+            run["facts"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT fact, source_url, source_title
+                    FROM lead_research_findings
+                    WHERE run_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (run["id"],),
+                ).fetchall()
+            ]
+    return runs
 
 
 def _now_iso() -> str:

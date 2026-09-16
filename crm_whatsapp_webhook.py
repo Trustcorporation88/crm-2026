@@ -5,8 +5,9 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
@@ -17,11 +18,13 @@ from crm_backend import (
     create_refresh_token,
     get_auth_throttle_page,
     get_auth_throttle_metrics,
+    get_instagram_webhook_verify_token,
     get_user_by_username,
     get_rbac_matrix,
     get_webhook_verify_token,
     has_permission,
     init_database,
+    process_instagram_webhook,
     process_whatsapp_webhook,
     revoke_refresh_token,
     revoke_all_refresh_tokens_for_user,
@@ -32,6 +35,7 @@ from crm_backend import (
     delete_entity,
     update_entity,
     verify_access_token,
+    verify_instagram_webhook_hmac,
     verify_webhook_hmac,
     start_aci_connection,
     complete_aci_connection,
@@ -39,6 +43,7 @@ from crm_backend import (
     execute_aci_tool_call,
     get_aci_tool_calls,
 )
+from lead_research import research_lead
 
 
 init_database()
@@ -196,6 +201,50 @@ async def ingest_whatsapp(
         "customer_id": result["customer_id"],
         "ticket_id": result["ticket_id"],
     }
+
+
+@app.get("/webhook/instagram")
+def verify_instagram_webhook(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+) -> PlainTextResponse:
+    # Mesma exigência da Meta que o webhook do WhatsApp: challenge em texto puro.
+    token_ok = bool(hub_verify_token) and hmac.compare_digest(
+        hub_verify_token, get_instagram_webhook_verify_token()
+    )
+    if hub_mode == "subscribe" and token_ok and hub_challenge:
+        return PlainTextResponse(hub_challenge)
+    raise HTTPException(status_code=403, detail="Webhook verification failed")
+
+
+def _research_lead_background(customer_id: str, handle: str) -> None:
+    # Roda depois da resposta ao webhook: a Meta espera 200 rápido, e a
+    # pesquisa (busca + IA) pode levar alguns segundos. Falha aqui não perde
+    # o lead, o research_lead já grava o próprio erro em lead_research_runs.
+    try:
+        research_lead(customer_id, name=handle, instagram_handle=handle)
+    except Exception:
+        pass
+
+
+@app.post("/webhook/instagram")
+async def ingest_instagram(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: str | None = Header(default=None),
+) -> dict[str, Any]:
+    raw_body = await request.body()
+    if not verify_instagram_webhook_hmac(raw_body, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed JSON body")
+    result = process_instagram_webhook(payload)
+    for item in result.get("processed", []):
+        background_tasks.add_task(_research_lead_background, item["customer_id"], item["handle"])
+    return {"status": result["status"], "processed": result.get("processed", [])}
 
 
 def _actor_from_header(actor_username: str | None) -> dict[str, str]:

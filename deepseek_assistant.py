@@ -116,10 +116,15 @@ def chat_completion(
     *,
     system_prompt: str | None = None,
     temperature: float = 0.4,
+    json_mode: bool = False,
 ) -> tuple[str | None, str | None]:
     """
     Retorna (texto_resposta, erro).
     erro é None em sucesso.
+
+    `json_mode` pede à API para devolver um JSON válido (a DeepSeek é
+    compatível com o formato da OpenAI). Quem chama ainda precisa validar o
+    conteúdo — "JSON válido" não é o mesmo que "JSON no formato esperado".
     """
     key = _api_key()
     if not key:
@@ -132,6 +137,15 @@ def chat_completion(
         payload_messages.append({"role": "system", "content": system_prompt})
     payload_messages.extend(messages)
 
+    request_body: dict[str, Any] = {
+        "model": DEEPSEEK_MODEL,
+        "messages": payload_messages,
+        "temperature": temperature,
+        "max_tokens": 1200,
+    }
+    if json_mode:
+        request_body["response_format"] = {"type": "json_object"}
+
     try:
         response = httpx.post(
             DEEPSEEK_API_URL,
@@ -139,12 +153,7 @@ def chat_completion(
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": DEEPSEEK_MODEL,
-                "messages": payload_messages,
-                "temperature": temperature,
-                "max_tokens": 1200,
-            },
+            json=request_body,
             timeout=90.0,
         )
         response.raise_for_status()

@@ -26,12 +26,27 @@ CRM_WHATSAPP_HMAC_SECRET=mesmo-segredo-configurado-no-provedor
 # Token de verificação exigido pelo provedor no GET inicial do webhook.
 CRM_WHATSAPP_VERIFY_TOKEN=token-combinado-com-o-provedor
 
+# Validação HMAC do webhook do Instagram (App Secret do app da Meta usado
+# para o Instagram — normalmente um app diferente do WhatsApp).
+CRM_INSTAGRAM_APP_SECRET=app-secret-do-app-da-meta-para-instagram
+
+# Token de verificação exigido pela Meta no GET inicial do webhook do Instagram.
+CRM_INSTAGRAM_VERIFY_TOKEN=token-combinado-no-painel-da-meta
+
+# Owner padrão dos leads que chegam pelo Instagram (opcional).
+# CRM_INSTAGRAM_DEFAULT_OWNER=Amanda Souza
+
 # --- Aplicação ------------------------------------------------------------
 CRM_PUBLIC_URL=https://crm.trustcorp.com.br
 
 # Assistente de IA (opcional). Sem a chave, o painel de chat não aparece.
 DEEPSEEK_API_KEY=sua-chave-deepseek-aqui
 DEEPSEEK_MODEL=deepseek-chat
+
+# Busca na web usada pelo Agente de pesquisa (Clientes 360). Sem a chave, o
+# botão "Pesquisar este lead" fica desabilitado. serper.dev — plano grátis
+# para testar.
+SERPER_API_KEY=sua-chave-serper-aqui
 
 # --- Senhas iniciais ------------------------------------------------------
 # ATENÇÃO: só têm efeito quando a tabela de usuários está VAZIA — ou seja, no
