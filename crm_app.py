@@ -3119,11 +3119,22 @@ elif section == "Clientes 360":
                 st.markdown('<div class="section-title">Agente de pesquisa</div>', unsafe_allow_html=True)
                 st.caption(
                     "Pesquisa pública sobre este lead antes de alguém do time falar com ele. "
-                    "Só registra o que confirmar, com a fonte — se não achar nada confiável, diz isso."
+                    "Só registra o que confirmar, sempre com a fonte. Se não achar nada "
+                    "confiável, diz isso em vez de inventar."
                 )
-                if not serper_configured() or not deepseek_configured():
+                # Cita só a chave que realmente falta: mandar configurar uma que já
+                # existe faz a pessoa perder tempo procurando problema onde não há.
+                _faltando = [
+                    _nome
+                    for _nome, _ok in (
+                        ("SERPER_API_KEY", serper_configured()),
+                        ("DEEPSEEK_API_KEY", deepseek_configured()),
+                    )
+                    if not _ok
+                ]
+                if _faltando:
                     st.caption(
-                        "Configure SERPER_API_KEY e DEEPSEEK_API_KEY para habilitar a pesquisa automática."
+                        f"Configure {' e '.join(_faltando)} para habilitar a pesquisa."
                     )
                 else:
                     if st.button(
