@@ -28,6 +28,7 @@ from crm_views import (
     load_views,
     save_view,
 )
+import crm_backend as crm_backend_module
 import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
@@ -2033,7 +2034,24 @@ def render_services_catalog() -> None:
     render_benchmark_comparison(compact=True)
 
 
-init_database()
+
+@st.cache_resource(show_spinner=False)
+def _inicializar_banco(identidade: str) -> str:
+    """Cria/migra o schema uma vez por processo e por banco.
+
+    `init_database()` executa dezenas de DDL e migrações idempotentes. Chamada
+    no corpo do script, rodava a cada rerun do Streamlit — a cada clique —
+    abrindo conexões e percorrendo o catálogo do Postgres à toa. A chave é a
+    identidade do banco (URL, schema e arquivo SQLite), então trocar de banco
+    no mesmo processo (como os testes fazem) inicializa de novo. Exceção não
+    entra no cache: se falhar, a próxima execução tenta outra vez.
+    """
+    return init_database()
+
+
+_inicializar_banco(
+    "|".join((crm_db.database_url(), crm_db.pg_schema(), str(getattr(crm_backend_module, "DB_PATH", ""))))
+)
 
 # Vitrine pública (democrm.trustcorp.com.br).
 #

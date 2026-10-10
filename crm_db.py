@@ -26,6 +26,8 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
+import time
 from typing import Any, Iterable, Sequence
 
 
@@ -303,9 +305,11 @@ class Connection:
     linhas acessíveis por nome e ``with`` que confirma a transação.
     """
 
-    def __init__(self, raw: Any, postgres: bool) -> None:
+    def __init__(self, raw: Any, postgres: bool, release: Any = None) -> None:
         self._raw = raw
         self._postgres = postgres
+        # Quando a conexão veio do pool, `release(raw)` a devolve em vez de fechar.
+        self._release = release
 
     # -- API usada pelo backend -------------------------------------------
     def execute(self, sql: str, params: Sequence[Any] | dict[str, Any] = ()) -> _Result:
@@ -343,7 +347,11 @@ class Connection:
         self._raw.rollback()
 
     def close(self) -> None:
-        self._raw.close()
+        if self._release is not None:
+            release, self._release = self._release, None
+            release(self._raw)
+        else:
+            self._raw.close()
 
     @property
     def raw(self) -> Any:
@@ -358,11 +366,17 @@ class Connection:
             if exc_type is None:
                 self._raw.commit()
             else:
-                self._raw.rollback()
+                try:
+                    self._raw.rollback()
+                except Exception:
+                    # Conexão já morta: o erro que importa é o original, que
+                    # continua propagando. O pool descarta a conexão no close().
+                    pass
         finally:
             # Contra um Postgres remoto, não fechar aqui vaza conexão a cada
-            # requisição — o SQLite perdoava isso, o Postgres não.
-            self._raw.close()
+            # requisição — o SQLite perdoava isso, o Postgres não. Com o pool
+            # ligado, "fechar" é devolver a conexão (já sem transação aberta).
+            self.close()
         return False
 
 
@@ -381,24 +395,162 @@ def pg_schema() -> str:
     return os.getenv("CRM_PG_SCHEMA", "").strip()
 
 
-def _connect_postgres(url: str) -> Connection:
+def _apply_schema(raw: Any, schema: str) -> None:
+    """Aponta a sessão para o schema configurado (vazio = padrão do servidor)."""
+    with raw.cursor() as cursor:
+        if schema:
+            if not schema.isidentifier():
+                raise ValueError(f"Nome de schema inválido: {schema!r}")
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            cursor.execute(f'SET search_path TO "{schema}"')
+        else:
+            cursor.execute("SET search_path TO DEFAULT")
+    raw.commit()
+
+
+def _open_postgres(url: str) -> Any:
     import psycopg2
     from psycopg2.extras import DictCursor
 
     # psycopg2 não entende o sufixo de driver do SQLAlchemy.
     clean = url.replace("postgresql+psycopg2://", "postgresql://")
-    raw = psycopg2.connect(clean, cursor_factory=DictCursor)
+    return psycopg2.connect(clean, cursor_factory=DictCursor)
 
+
+# ---------------------------------------------------------------------------
+# Pool de conexões Postgres
+#
+# Sem pool, cada `with _connect()` abria uma conexão nova — TCP + TLS +
+# autenticação SCRAM até o Supabase, dezenas de milissegundos cada — e uma
+# tela do app faz várias consultas por clique. O pool reaproveita conexões
+# já autenticadas. Desligue com CRM_PG_POOL=0.
+# ---------------------------------------------------------------------------
+_POOL_LOCK = threading.Lock()
+_POOLS: dict[str, "_PgPool"] = {}
+# id(raw) -> schema aplicado na sessão; evita repetir SET search_path.
+_SESSION_SCHEMA: dict[int, str] = {}
+
+
+def _pool_enabled() -> bool:
+    return os.getenv("CRM_PG_POOL", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+class _PgPool:
+    """Pool simples e thread-safe: pilha de conexões ociosas por URL."""
+
+    def __init__(self, url: str, max_idle: int, max_idle_seconds: float) -> None:
+        self.pid = os.getpid()
+        self.url = url
+        self.max_idle = max_idle
+        self.max_idle_seconds = max_idle_seconds
+        self._idle: list[tuple[Any, float]] = []
+        self._lock = threading.Lock()
+
+    def acquire(self) -> Any:
+        while True:
+            with self._lock:
+                item = self._idle.pop() if self._idle else None
+            if item is None:
+                return _open_postgres(self.url)
+            raw, idle_since = item
+            if raw.closed:
+                _SESSION_SCHEMA.pop(id(raw), None)
+                continue
+            # Conexão parada há muito pode ter sido derrubada pelo servidor ou
+            # pelo pooler do Supabase; um ping barato evita entregar conexão morta.
+            if time.monotonic() - idle_since > self.max_idle_seconds:
+                try:
+                    with raw.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                    raw.rollback()
+                except Exception:
+                    self._discard(raw)
+                    continue
+            return raw
+
+    def release(self, raw: Any) -> None:
+        import psycopg2.extensions as ext
+
+        try:
+            if raw.closed:
+                _SESSION_SCHEMA.pop(id(raw), None)
+                return
+            # Nunca devolve conexão com transação aberta ou abortada.
+            if raw.get_transaction_status() != ext.TRANSACTION_STATUS_IDLE:
+                raw.rollback()
+            if raw.get_transaction_status() != ext.TRANSACTION_STATUS_IDLE:
+                raise RuntimeError("conexão em estado inesperado")
+        except Exception:
+            self._discard(raw)
+            return
+        with self._lock:
+            if len(self._idle) < self.max_idle:
+                self._idle.append((raw, time.monotonic()))
+                return
+        self._discard(raw)
+
+    def _discard(self, raw: Any) -> None:
+        _SESSION_SCHEMA.pop(id(raw), None)
+        try:
+            raw.close()
+        except Exception:
+            pass
+
+    def close_all(self) -> None:
+        with self._lock:
+            idle, self._idle = self._idle, []
+        for raw, _ in idle:
+            self._discard(raw)
+
+
+def _get_pool(url: str) -> "_PgPool":
+    with _POOL_LOCK:
+        pool = _POOLS.get(url)
+        if pool is not None and pool.pid != os.getpid():
+            # Processo filho (fork) herdou o pool: o socket é do pai. Fechar
+            # aqui mandaria "terminate" na conexão dele — só abandonamos.
+            pool._idle = []
+            pool = None
+        if pool is None:
+            pool = _PgPool(
+                url,
+                max_idle=max(1, int(os.getenv("CRM_PG_POOL_SIZE", "8"))),
+                max_idle_seconds=float(os.getenv("CRM_PG_POOL_PING_AFTER", "60")),
+            )
+            _POOLS[url] = pool
+        return pool
+
+
+def close_pools() -> None:
+    """Fecha todas as conexões ociosas (testes e desligamento)."""
+    with _POOL_LOCK:
+        pools = list(_POOLS.values())
+        _POOLS.clear()
+    for pool in pools:
+        pool.close_all()
+
+
+def _connect_postgres(url: str) -> Connection:
     schema = pg_schema()
-    if schema:
-        if not schema.isidentifier():
-            raise ValueError(f"Nome de schema inválido: {schema!r}")
-        with raw.cursor() as cursor:
-            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-            cursor.execute(f'SET search_path TO "{schema}"')
-        raw.commit()
 
-    return Connection(raw, postgres=True)
+    if not _pool_enabled():
+        raw = _open_postgres(url)
+        if schema:
+            _apply_schema(raw, schema)
+        return Connection(raw, postgres=True)
+
+    pool = _get_pool(url)
+    raw = pool.acquire()
+    try:
+        # O pool é por URL; o schema pode mudar entre usos (os testes trocam
+        # CRM_PG_SCHEMA a cada caso). Só reaplica quando muda.
+        if _SESSION_SCHEMA.get(id(raw), "") != schema:
+            _apply_schema(raw, schema)
+            _SESSION_SCHEMA[id(raw)] = schema
+    except Exception:
+        pool._discard(raw)
+        raise
+    return Connection(raw, postgres=True, release=pool.release)
 
 
 def connect(sqlite_path: str | None = None) -> Connection:
