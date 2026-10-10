@@ -189,7 +189,8 @@ class TestDadosDaVitrine:
         """
         from pathlib import Path
 
-        fonte = (Path(__file__).resolve().parent.parent / "crm_app.py").read_text(encoding="utf-8")
+        # As etapas do kanban são declaradas na seção do funil.
+        fonte = (Path(__file__).resolve().parent.parent / "crm_sections" / "funil.py").read_text(encoding="utf-8")
         trecho = fonte.split("ordered_stages = [", 1)[1].split("]", 1)[0]
         reconhecidas = {p.strip().strip('"').strip("'") for p in trecho.split(",") if p.strip()}
 

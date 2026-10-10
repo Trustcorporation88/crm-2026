@@ -1,0 +1,659 @@
+
+<style>
+    /* ==================================================================
+       TRUST CRM — tema claro profissional
+       Linguagem visual dos CRMs líderes (referência: Pipedrive):
+       fundo branco, texto quase-preto, barra lateral escura, ação
+       primária VERDE, ações e links em AZUL, bordas cinza sutis.
+       Paleta: azul, verde, preto e branco.
+       ================================================================== */
+    :root {
+        --bg: #f4f6f8;
+        --surface: #ffffff;
+        --surface-soft: #f8fafc;
+        --ink: #1a1f2b;
+        --muted: #5b6472;
+        --line: #e3e8ee;
+        --line-strong: #cfd7e0;
+        --green: #08a742;
+        --green-dark: #078c38;
+        --blue: #2f6fe4;
+        --blue-dark: #2159c4;
+        --sidebar: #131a26;
+        --success: #15803d;
+        --success-soft: #e6f6ec;
+        --warning: #b45309;
+        --warning-soft: #fdf1de;
+        --danger: #dc2626;
+        --danger-soft: #fdecec;
+        --shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+    }
+
+    .stApp {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Inter", "Instrument Sans", "Segoe UI", sans-serif;
+    }
+
+    [data-testid="stHeader"] { background: transparent; }
+
+    /* ---- Barra lateral escura (padrão Pipedrive/HubSpot) ---- */
+    [data-testid="stSidebarContent"] {
+        background: var(--sidebar);
+        color: #f4f6f8;
+        border-right: 1px solid #0d1420;
+    }
+    [data-testid="stSidebarContent"] .stRadio label,
+    [data-testid="stSidebarContent"] .stSelectbox label,
+    [data-testid="stSidebarContent"] p,
+    [data-testid="stSidebarContent"] span,
+    [data-testid="stSidebarContent"] div {
+        color: #eef2f7 !important;
+    }
+    [data-testid="stSidebar"] .stButton button {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: #f4f6f8 !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stSidebar"] .stButton button:disabled {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border-color: rgba(255, 255, 255, 0.10) !important;
+        color: rgba(244, 246, 248, 0.4) !important;
+    }
+    [data-testid="stSidebar"] .stButton button:hover {
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-color: rgba(255, 255, 255, 0.32) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stTextInputRootElement"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.22) !important;
+    }
+    [data-testid="stSidebar"] .stTextInput input {
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: #f4f6f8 !important;
+        -webkit-text-fill-color: #f4f6f8 !important;
+        border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    }
+    [data-testid="stSidebar"] .stTextInput input::placeholder {
+        color: rgba(238, 242, 247, 0.55) !important;
+        -webkit-text-fill-color: rgba(238, 242, 247, 0.55) !important;
+    }
+
+    /* O componente que declara o idioma não deve ocupar espaço na página. */
+    .stElementContainer:has(> iframe[title="streamlit.components.v1.html"][height="0"]),
+    div[data-testid="stCustomComponentV1"][height="0"] {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* ---- Lateral: marca, navegação e rodapé de usuário ---- */
+    [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.55rem; }
+    [data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.12); margin: 6px 0; }
+
+    .side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
+    .side-brand-logo {
+        width: 34px; height: 34px; flex: 0 0 34px; object-fit: contain;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+    }
+    .side-brand-name {
+        font-size: 1.2rem; letter-spacing: -0.02em; font-weight: 400; color: #f4f6f8 !important;
+    }
+    .side-brand-name strong { font-weight: 800; }
+
+    .side-label {
+        font-size: 0.67rem; font-weight: 700; letter-spacing: 0.12em;
+        text-transform: uppercase; color: rgba(238, 242, 247, 0.5) !important;
+        margin: 8px 2px 0;
+    }
+
+    /* Os ícones do menu são renderizados pelo Streamlit com o NOME da ligadura
+       como texto do elemento — enquanto a fonte não chega, o nome aparece na
+       tela («support_agent Atendimento»). Zeramos o texto e injetamos o glifo
+       pelo codepoint, então não há nome para vazar. */
+    [data-testid="stSidebar"] span[role="img"][aria-label="today icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="today icon"]::before { content: "\e8df"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="apps icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="apps icon"]::before { content: "\e5c3"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="monitoring icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="monitoring icon"]::before { content: "\f190"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="support_agent icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="support_agent icon"]::before { content: "\f0e2"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="group icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="group icon"]::before { content: "\ea21"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="filter_alt icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="filter_alt icon"]::before { content: "\ef4f"; font-size: 1.15rem; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="forum icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label="forum icon"]::before { content: "\e8af"; font-size: 1.15rem; }
+
+    /* Navegação: o st.radio vira um menu — sem círculos, linhas inteiras
+       clicáveis, hover suave e item ativo com barra verde (padrão Pipedrive). */
+    [data-testid="stSidebar"] [data-testid="stRadioGroup"] {
+        display: flex; flex-direction: column; gap: 2px;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] {
+        display: flex; align-items: center; margin: 0; padding: 8px 10px;
+        border-radius: 8px; cursor: pointer;
+        transition: background 0.12s ease;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+    /* Esconde o círculo do radio (primeiro filho estrutural; o texto vem no
+       stMarkdownContainer ao lado) */
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div > div:first-child:not([data-testid="stMarkdownContainer"]) {
+        display: none;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] { width: 100%; }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p {
+        font-size: 0.93rem; font-weight: 500; color: #d9e0ea !important;
+        display: flex; align-items: center; gap: 10px;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p span[role="img"] {
+        font-size: 1.15rem; opacity: 0.85;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {
+        background: rgba(8, 167, 66, 0.16);
+        box-shadow: inset 3px 0 0 var(--green);
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p {
+        color: #ffffff !important; font-weight: 600;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p span[role="img"] {
+        opacity: 1; color: #4ade80;
+    }
+
+    /* Selectbox e expanders sobre o fundo escuro.
+       Este CSS foi escrito para o Select antigo do Streamlit (BaseWeb,
+       `div[data-baseweb="select"]`) — mantido abaixo por segurança, mas na
+       versão do Streamlit hoje em produção o `st.selectbox` já não usa mais
+       essa estrutura: virou um React Aria ComboBox (`.react-aria-ComboBox`,
+       `input` + `button` dentro de um `div[role="group"]`). Nenhum seletor
+       `data-baseweb="select"` bate mais em nada, então a caixa "Mais
+       módulos" ficava com o fundo claro padrão do Streamlit — e como o
+       texto do input também vem escuro por padrão, a leitura ficava ruim
+       e a caixa clara destoava (era o "módulos escondido/feio" relatado).
+       Os seletores abaixo miram a estrutura real hoje. */
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] div {
+        background: transparent !important;
+        color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox [role="group"] {
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox input {
+        background: transparent !important;
+        color: #f4f6f8 !important;
+        -webkit-text-fill-color: #f4f6f8 !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox input::placeholder {
+        color: rgba(238, 242, 247, 0.6) !important;
+        -webkit-text-fill-color: rgba(238, 242, 247, 0.6) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox button { background: transparent !important; }
+    [data-testid="stSidebar"] .stSelectbox svg { fill: #d9e0ea; }
+    /* Mesmo problema no corpo do expander: `details` fica transparente, mas
+       o conteúdo interno (stExpanderDetails) é outro elemento, com fundo
+       claro próprio, que nunca era tocado — daí o painel branco ao abrir
+       "Minha conta" por cima do resto do menu. */
+    [data-testid="stSidebar"] [data-testid="stExpander"] details {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+        background: transparent !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #e8edf4 !important; }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover { color: #ffffff !important; }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary svg { fill: #d9e0ea; }
+
+    /* Rodapé: chip do usuário logado */
+    .side-user {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px; border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.05);
+        margin-top: 6px;
+    }
+    .side-avatar {
+        width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px;
+        background: linear-gradient(135deg, var(--green), var(--blue));
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 0.85rem; color: #ffffff !important;
+    }
+    .side-user-name { font-size: 0.9rem; font-weight: 600; color: #ffffff !important; line-height: 1.25; }
+    .side-user-role {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: rgba(238, 242, 247, 0.6) !important;
+    }
+
+    /* ---- Rótulos de campos (área clara) ---- */
+    label[data-testid="stWidgetLabel"],
+    .stTextInput label, .stTextArea label, .stNumberInput label,
+    .stDateInput label, .stSelectbox label, .stMultiSelect label,
+    .stRadio label {
+        color: #333d4d !important;
+        font-weight: 600 !important;
+    }
+
+    /* ==================================================================
+       Login
+       ------------------------------------------------------------------
+       Registro visual diferente do resto do produto, de propósito. O CRM
+       interno é claro e denso, porque é ferramenta de trabalho; a porta de
+       entrada é escura e vazia, porque é a fachada de uma casa de
+       patrimônio. O ouro velho vem do próprio emblema.
+
+       A tela anterior espalhava marca, texto de vitrine e dois painéis por
+       980px de largura, num cinza que não pertencia a lugar nenhum. Aqui há
+       uma coluna estreita e um único cartão: numa tela de login não existe
+       segunda coisa para fazer.
+       ================================================================== */
+    .stApp:has(.login-shell) [data-testid="stSidebar"],
+    .stApp:has(.login-shell) [data-testid="stSidebarCollapsedControl"],
+    .stApp:has(.login-shell) [data-testid="stHeader"],
+    .stApp:has(.login-shell) [data-testid="stToolbar"] { display: none !important; }
+
+    .stApp:has(.login-shell) {
+        background:
+            radial-gradient(ellipse 70% 50% at 50% -10%, rgba(176, 141, 87, 0.20), transparent 60%),
+            radial-gradient(ellipse 90% 60% at 50% 110%, rgba(8, 167, 66, 0.10), transparent 60%),
+            linear-gradient(168deg, #0d1a14 0%, #0a1310 55%, #070d0b 100%) !important;
+    }
+
+    /* A coluna estreita é o que dá foco: sem ela, o formulário flutua num
+       vazio de mil pixels e a página parece inacabada.
+
+       Os três seletores são a mesma caixa em versões diferentes do Streamlit.
+       A primeira versão desta tela mirava só `section.main > div.block-container`,
+       que nesta versão não casa com nada — a largura simplesmente não era
+       aplicada, e o formulário atravessava a tela inteira. */
+    .stApp:has(.login-shell) [data-testid="stMainBlockContainer"],
+    .stApp:has(.login-shell) section.main > div.block-container,
+    .stApp:has(.login-shell) .block-container {
+        max-width: 452px;
+        padding-top: clamp(1.75rem, 6vh, 3.75rem); padding-bottom: 3rem;
+        /* O padding lateral padrão do Streamlit é de 80px de cada lado. Numa
+           coluna de 452px ele comeria um terço da largura e o cartão sairia
+           estreito demais. */
+        padding-left: 18px; padding-right: 18px;
+    }
+    /* Espaçamento entre marca e cartão: o padrão empurra os dois para longe
+       um do outro e a página fica com um buraco no meio. */
+    .stApp:has(.login-shell) [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+        gap: 0.75rem;
+    }
+
+    .login-brand { text-align: center; margin-bottom: 30px; }
+    .login-logo {
+        display: block; margin: 0 auto 18px; height: auto;
+        width: clamp(132px, 30vw, 158px);
+        filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.45));
+    }
+    /* O emblema já diz "TRUST CORPORATION". Repetir o nome em caixa alta
+       gigante competia com ele; aqui o texto só nomeia o sistema. */
+    .login-brand h1 {
+        font-family: 'Syne', 'Instrument Sans', sans-serif;
+        font-size: 1.5rem; font-weight: 700; letter-spacing: 0.16em;
+        text-transform: uppercase; line-height: 1.2;
+        color: #f4f1ea; margin: 0 0 10px;
+    }
+    .login-brand .tagline {
+        font-size: 0.86rem; line-height: 1.6; margin: 0 auto;
+        max-width: 30ch; color: rgba(233, 228, 217, 0.62);
+    }
+    /* Um <hr> aqui saía com 1px e quase invisível: o reset de estilo do
+       Streamlit tem precedência sobre a altura. Uma <div> não é alvo desse
+       reset e desenha o filete de fato. */
+    .login-rule {
+        width: 88px; height: 2px; margin: 20px auto 0; border: 0;
+        background: linear-gradient(90deg, transparent, #d9b378 45%, #d9b378 55%, transparent);
+    }
+
+    /* O cartão branco sobre o fundo escuro.
+       `stLayoutWrapper` é o que o st.container(border=True) gera nesta versão;
+       `stVerticalBlockBorderWrapper` era o nome antigo. Manter os dois evita
+       que o cartão desapareça numa atualização do Streamlit — e sem cartão o
+       texto escuro do formulário cai direto no fundo escuro, ilegível. */
+    .stApp:has(.login-shell) [data-testid="stLayoutWrapper"]:has(.login-gate-title),
+    .stApp:has(.login-shell) [data-testid="stVerticalBlockBorderWrapper"]:has(.login-gate-title) {
+        background: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        border-radius: 16px;
+        padding: 26px 26px 22px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+    /* O st.container(border=True) desenha a própria borda num bloco interno.
+       Com o cartão pintado por fora, ela virava uma segunda moldura dentro da
+       primeira — duas caixas concêntricas, que é o efeito de formulário
+       remendado que esta tela veio corrigir. */
+    .stApp:has(.login-shell) [data-testid="stLayoutWrapper"]:has(.login-gate-title)
+        [data-testid="stVerticalBlock"] {
+        border: 0 !important; border-radius: 0 !important; padding: 0 !important;
+    }
+    .login-gate-title {
+        font-size: 1.06rem; font-weight: 700; color: var(--ink);
+        margin: 0 0 4px; letter-spacing: -0.01em;
+    }
+    .login-gate-hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; line-height: 1.45; }
+
+    /* Os campos herdavam borda branca. Sobre o cinza claro da tela antiga isso
+       passava; sobre o cartão branco eles sumiam, e sobrava um retângulo de
+       nada onde se deveria digitar. */
+    .stApp:has(.login-shell) [data-testid="stTextInputRootElement"] {
+        border: 1px solid var(--line-strong) !important;
+        background: #fdfdfe !important;
+    }
+    .stApp:has(.login-shell) [data-testid="stTextInputRootElement"]:focus-within {
+        border-color: var(--green) !important;
+        box-shadow: 0 0 0 3px rgba(8, 167, 66, 0.15) !important;
+    }
+    .stApp:has(.login-shell) .stTextInput input { padding: 11px 13px; }
+    .stApp:has(.login-shell) [data-testid="stForm"] { border: 0; padding: 0; }
+
+    /* Rodapé: quem é o dono da porta, e o aviso de que ela não é pública. */
+    .login-foot {
+        margin-top: 26px; text-align: center;
+        font-size: 0.74rem; line-height: 1.7; letter-spacing: 0.04em;
+        color: rgba(233, 228, 217, 0.40);
+    }
+    .login-foot strong { color: rgba(233, 228, 217, 0.62); font-weight: 600; }
+
+    @media (max-width: 480px) {
+        .stApp:has(.login-shell) section.main > div.block-container { padding-top: 1.5rem; }
+        .login-brand h1 { font-size: 1.28rem; letter-spacing: 0.12em; }
+    }
+
+    /* ---- Cabeçalho de página ---- */
+    .page-head h2 { color: var(--ink); margin: 0 0 4px; font-size: 1.5rem; letter-spacing: -0.02em; }
+    .page-head p { color: var(--muted); margin: 0 0 16px; font-size: 0.95rem; }
+
+    .top-nav-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 2px 0 14px; }
+    .top-nav-pill {
+        display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+        padding: 3px 10px; background: #e8effc; border: 1px solid #c4d5f5;
+        color: var(--blue-dark); font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    /* Barra superior: breadcrumb fino + ações discretas (padrão dos líderes) */
+    .section-crumb {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        color: var(--muted); font-size: 0.88rem; padding: 4px 0;
+    }
+    .section-crumb .crumb-root { color: var(--muted); font-weight: 500; }
+    .section-crumb .crumb-sep { color: #b6bfca; font-size: 1rem; line-height: 1; }
+    .section-crumb strong { color: var(--ink); font-weight: 700; font-size: 0.98rem; }
+    .top-rule { height: 1px; background: var(--line); margin: 0 0 16px; }
+    .stButton button[kind="tertiary"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: var(--muted) !important;
+        min-height: 34px !important;
+        padding: 4px 8px !important;
+        border-radius: 8px !important;
+    }
+    .stButton button[kind="tertiary"]:hover {
+        color: var(--blue-dark) !important;
+        background: #eef3fb !important;
+    }
+    .stButton button[kind="tertiary"]:disabled {
+        color: #c9d0d9 !important;
+        background: transparent !important;
+    }
+    .nav-secondary-hint { font-size: 0.78rem; color: var(--muted); margin: 4px 0 8px; }
+
+    /* ---- Hero (Visão Executiva) ---- */
+    .hero {
+        background: var(--sidebar);
+        border-radius: 14px; padding: 26px 30px; color: #ffffff;
+        box-shadow: var(--shadow); margin-bottom: 18px;
+        border: 1px solid #0d1420;
+    }
+    .hero-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: end; }
+    .hero h1 { font-size: 1.55rem; margin-bottom: 0.35rem; letter-spacing: -0.02em; line-height: 1.3; color: #ffffff; }
+    .hero p { color: rgba(244, 246, 248, 0.82); font-size: 1rem; max-width: 62ch; margin: 0; }
+    .hero-badges { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .badge {
+        display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+        border-radius: 999px; background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.22); font-size: 0.85rem; color: #ffffff;
+    }
+
+    /* ---- Painéis e cartões ---- */
+    .panel:empty { display: none; }
+    .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    div[data-testid="stLayoutWrapper"]:has(> div > div[data-testid="stVerticalBlockBorderWrapper"]) {
+        background: var(--surface);
+        border-color: var(--line) !important;
+        border-radius: 12px;
+    }
+    .section-title {
+        font-size: 1.02rem; font-weight: 700; margin-bottom: 0.8rem;
+        color: var(--ink); letter-spacing: -0.01em;
+    }
+    .mini-card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px; padding: 14px 16px; min-height: 110px;
+        margin-bottom: 10px; box-shadow: var(--shadow);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .mini-card:hover {
+        border-color: var(--blue);
+        box-shadow: 0 4px 12px rgba(47, 111, 228, 0.12);
+    }
+    .mini-label {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); font-weight: 600;
+    }
+    .mini-value { font-size: 1.7rem; font-weight: 700; color: var(--ink); margin: 0.2rem 0 0.3rem; }
+    .mini-caption { color: var(--muted); font-size: 0.9rem; }
+
+    /* ---- Cards do catálogo de Serviços ---- */
+    .svc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .svc-icon::before, .cat-icon::before, .svc-ready-icon::before { content: var(--ico); }
+    .svc-icon {
+        font-family: "Material Symbols Rounded";
+        font-size: 1.35rem; line-height: 1; font-weight: 400;
+        width: 38px; height: 38px; border-radius: 10px; flex: 0 0 38px;
+        display: flex; align-items: center; justify-content: center;
+        user-select: none;
+    }
+    .svc-title {
+        font-weight: 700; color: var(--ink); font-size: 1rem;
+        line-height: 1.3; letter-spacing: -0.01em;
+    }
+    .svc-when { color: var(--muted); font-size: 0.85rem; line-height: 1.45; min-height: 2.5em; }
+    .svc-stat { display: flex; align-items: baseline; gap: 8px; padding: 6px 0 2px; }
+    .svc-stat-num {
+        font-size: 1.45rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em;
+    }
+    .svc-stat-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+    .svc-ready {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 0.78rem; font-weight: 700; color: var(--success);
+        background: var(--success-soft); border: 1px solid #bfe6cd;
+        border-radius: 999px; padding: 4px 10px;
+    }
+    .svc-ready-icon {
+        font-family: "Material Symbols Rounded"; font-size: 1rem; line-height: 1;
+        --ico: "\f0be";
+    }
+
+    .cat-head { display: flex; align-items: center; gap: 10px; margin: 14px 0 2px; }
+    .cat-icon {
+        font-family: "Material Symbols Rounded";
+        font-size: 1.15rem; line-height: 1;
+        width: 32px; height: 32px; border-radius: 9px; flex: 0 0 32px;
+        display: flex; align-items: center; justify-content: center;
+        user-select: none;
+    }
+    .cat-title { font-size: 1.18rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }
+
+    /* ---- Pílulas de status ---- */
+    .status-pill {
+        display: inline-block; padding: 3px 10px; border-radius: 999px;
+        font-size: 0.76rem; font-weight: 600;
+    }
+    .status-open { background: var(--warning-soft); color: var(--warning); border: 1px solid #f5d9a8; }
+    .status-progress { background: #e8effc; color: var(--blue-dark); border: 1px solid #c4d5f5; }
+    .status-won { background: var(--success-soft); color: var(--success); border: 1px solid #bfe6cd; }
+    .status-lost { background: var(--danger-soft); color: var(--danger); border: 1px solid #f4c3c3; }
+    .status-active { background: #e8effc; color: var(--blue-dark); border: 1px solid #c4d5f5; }
+
+    .empty-state {
+        border-radius: 10px; padding: 15px 16px;
+        border: 1px dashed var(--line-strong);
+        background: var(--surface-soft); color: #333d4d;
+        font-weight: 600; margin: 8px 0;
+    }
+
+    /* ---- Linha do tempo (classes legadas) ---- */
+    .timeline-item { border-left: 2px solid var(--line-strong); padding-left: 14px; margin-left: 6px; margin-bottom: 14px; }
+    .timeline-date { font-size: 0.78rem; color: var(--muted); margin-bottom: 2px; }
+    .timeline-title { font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+    .timeline-copy { color: var(--muted); font-size: 0.92rem; }
+
+    /* ---- Campos de formulário ---- */
+    .stTextInput input, .stTextArea textarea, .stNumberInput input,
+    .stDateInput input, .stSelectbox div[data-baseweb="select"] > div {
+        background: var(--surface) !important;
+        color: var(--ink) !important;
+        -webkit-text-fill-color: var(--ink) !important;
+        caret-color: var(--blue) !important;
+        border: 1px solid var(--line-strong) !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+        color: #9aa4b2 !important;
+        -webkit-text-fill-color: #9aa4b2 !important;
+        opacity: 1 !important;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus,
+    .stDateInput input:focus, .stSelectbox div[data-baseweb="select"] > div:focus-within {
+        border-color: var(--blue) !important;
+        box-shadow: 0 0 0 3px rgba(47, 111, 228, 0.15) !important;
+    }
+
+    /* ---- Botões ----
+       Primário = VERDE (padrão Pipedrive: a ação principal é verde).
+       Secundário = branco com borda. Links/ações leves = AZUL. */
+    .stButton button, .stFormSubmitButton button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        min-height: 40px !important;
+        transition: background 0.15s ease, border-color 0.15s ease !important;
+    }
+    .stButton button {
+        background: var(--surface) !important;
+        border: 1px solid var(--line-strong) !important;
+        color: var(--ink) !important;
+        box-shadow: var(--shadow);
+    }
+    .stButton button:hover {
+        border-color: var(--blue) !important;
+        color: var(--blue-dark) !important;
+        background: #f6f9ff !important;
+    }
+    .stButton button[kind="primary"],
+    button[data-testid="stBaseButton-primary"],
+    .stFormSubmitButton button,
+    button[kind="primaryFormSubmit"],
+    button[data-testid="stBaseButton-primaryFormSubmit"] {
+        background: var(--green) !important;
+        border: 1px solid var(--green-dark) !important;
+        color: #ffffff !important;
+        box-shadow: 0 1px 2px rgba(7, 140, 56, 0.35) !important;
+    }
+    .stButton button[kind="primary"]:hover,
+    .stFormSubmitButton button:hover {
+        background: var(--green-dark) !important;
+        color: #ffffff !important;
+    }
+    .stLinkButton a {
+        background: var(--blue) !important;
+        border: 1px solid var(--blue-dark) !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+    .stLinkButton a:hover { background: var(--blue-dark) !important; }
+    .stDownloadButton button {
+        background: var(--surface) !important;
+        border: 1px solid var(--line-strong) !important;
+        color: var(--ink) !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+    .stDownloadButton button:hover { border-color: var(--blue) !important; color: var(--blue-dark) !important; }
+
+    /* ---- Métricas ---- */
+    div[data-testid="stMetric"] {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: var(--shadow);
+    }
+    div[data-testid="stMetricLabel"] * { color: var(--muted) !important; }
+    div[data-testid="stMetricValue"] * { color: var(--ink) !important; }
+
+    .stAlert { border-radius: 10px; border-width: 1px !important; }
+
+    /* ---- Cards lado a lado com a MESMA altura ---- */
+    div[data-testid="stHorizontalBlock"] { align-items: stretch; }
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] { height: 100%; }
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"],
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+        flex: 1 1 auto; display: flex; flex-direction: column;
+    }
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"] > div,
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] > div,
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"] {
+        flex: 1 1 auto; height: 100%;
+    }
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"]
+        > div:last-child:has(div[data-testid="stHorizontalBlock"]) {
+        margin-top: auto;
+    }
+
+    /* ---- Responsivo ---- */
+    @media (max-width: 980px) {
+        .hero-grid { grid-template-columns: 1fr; }
+        .hero-badges { justify-content: flex-start; }
+    }
+    @media (max-width: 640px) {
+        .hero { padding: 20px 18px; border-radius: 12px; }
+        .hero h1 { font-size: 1.3rem; }
+        .panel { padding: 14px; border-radius: 10px; }
+        .mini-card { min-height: auto; padding: 12px 14px; }
+        .mini-value { font-size: 1.4rem; }
+        .page-head h2 { font-size: 1.3rem; }
+        .stButton button { min-height: 46px !important; }
+        .top-nav-bar .section-crumb { padding-top: 0; font-size: 0.82rem; }
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+            flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important;
+        }
+    }
+</style>
