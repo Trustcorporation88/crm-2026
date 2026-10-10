@@ -702,7 +702,12 @@ def render_deal_card(deal: dict[str, Any], customer_name: str, health: DealHealt
     import streamlit as st
 
     color, icon = _HEALTH_STYLE.get(health.status, _HEALTH_STYLE["ok"])
-    probability = deal.get("probability", 0)
+    # Vai para HTML sem esc(): garante que é número (a coluna aceita qualquer
+    # coisa no SQLite e chega também por importação de planilha).
+    try:
+        probability = int(float(deal.get("probability") or 0))
+    except (TypeError, ValueError):
+        probability = 0
 
     st.markdown(
         f"""

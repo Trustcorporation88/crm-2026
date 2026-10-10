@@ -139,8 +139,9 @@ def render(ctx: dict[str, Any]) -> None:
                 containers, _header_etapa, _rotulo_deal = build_kanban_containers(
                     _deals_records, _nomes, ordered_stages, stale_ids=stale_ids
                 )
-                _assinatura = hashlib.md5(
-                    repr(sorted((str(d["deal_id"]), str(d["stage"])) for d in _deals_records)).encode()
+                _assinatura = hashlib.md5(  # assinatura do quadro para invalidar o componente; não é uso criptográfico
+                    repr(sorted((str(d["deal_id"]), str(d["stage"])) for d in _deals_records)).encode(),
+                    usedforsecurity=False,
                 ).hexdigest()[:10]
                 _nonce = int(st.session_state.get("kanban_nonce", 0))
                 _resultado = sort_items(

@@ -1,4 +1,5 @@
 
+<meta name="referrer" content="no-referrer">
 <style>
     /* ==================================================================
        TRUST CRM — tema claro profissional
@@ -656,4 +657,260 @@
             flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important;
         }
     }
+
+    /* =====================================================================
+       REFINAMENTO VISUAL (out/2026)
+       Camada final: corrige seletores que a versão atual do Streamlit
+       quebrou (o menu lateral perdeu o estilo quando `stRadioOption` deixou
+       de existir) e moderniza cartões, métricas, abas e botões. Fica no fim
+       para valer sobre as regras anteriores sem precisar reescrevê-las.
+       ===================================================================== */
+    :root {
+        --green-soft: rgba(8, 167, 66, 0.10);
+        --green-glow: rgba(8, 167, 66, 0.18);
+        --radius: 12px;
+        --radius-sm: 8px;
+        --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+        --shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.08);
+        --side-text: #c3ccd8;
+        --side-muted: #7d889a;
+    }
+
+    /* ---- Cromado do Streamlit: some o "Deploy" e o menu de desenvolvedor ---- */
+    [data-testid="stAppDeployButton"],
+    [data-testid="stMainMenu"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stDecoration"] { display: none !important; }
+    [data-testid="stHeader"] { background: transparent !important; box-shadow: none !important; }
+    [data-testid="stMainBlockContainer"], .block-container {
+        padding-top: 1.75rem !important;
+        max-width: 1320px;
+    }
+
+    /* ---- Menu lateral (estrutura atual: label[data-baseweb=radio]) ---- */
+    [data-testid="stSidebar"] [role="radiogroup"] { gap: 2px !important; }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"] {
+        width: 100%;
+        margin: 0 !important;
+        padding: 0.45rem 0.65rem !important;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: background 0.12s ease, box-shadow 0.12s ease;
+    }
+    /* a bolinha do rádio: o item inteiro já é o alvo do clique */
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"] > div:first-child {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"] > div:last-child {
+        padding-left: 0 !important;
+        margin-left: 0 !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"]:hover {
+        background: rgba(255, 255, 255, 0.06);
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) {
+        background: var(--green-glow);
+        box-shadow: inset 3px 0 0 var(--green);
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"]:has(input:focus-visible) {
+        outline: 2px solid var(--green);
+        outline-offset: 1px;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] p {
+        color: var(--side-text) !important;
+        font-size: 0.9rem !important;
+        font-weight: 500 !important;
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] p span[role="img"] {
+        color: var(--side-muted) !important;
+        width: 1.1rem;
+        text-align: center;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked) p {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked) p span[role="img"] {
+        color: #3ddc84 !important;
+    }
+
+    /* Campo de busca e "Mais módulos" legíveis no fundo escuro */
+    [data-testid="stSidebar"] [data-testid="stTextInputRootElement"],
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.10) !important;
+        border-radius: var(--radius-sm) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stTextInputRootElement"]:focus-within,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within {
+        border-color: var(--green) !important;
+        box-shadow: 0 0 0 3px var(--green-glow) !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] [value],
+    [data-testid="stSidebar"] [data-baseweb="select"] div,
+    [data-testid="stSidebar"] .stTextInput input {
+        color: var(--side-text) !important;
+        background: transparent !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] svg { fill: var(--side-muted) !important; }
+    [data-testid="stSidebar"] .stTextInput input::placeholder { color: var(--side-muted) !important; }
+
+    /* ---- Cabeçalho da página ---- */
+    .page-head h2 {
+        font-size: 1.65rem !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em;
+    }
+    .page-head p { font-size: 0.95rem !important; }
+
+    /* ---- Painéis (st.container(border=True)) ---- */
+    [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--surface);
+        border: 1px solid var(--line) !important;
+        border-radius: var(--radius) !important;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* ---- Métricas ---- */
+    [data-testid="stMain"] [data-testid="stMetric"] {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 0.9rem 1rem 0.8rem;
+        box-shadow: var(--shadow-card);
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+    }
+    [data-testid="stMain"] [data-testid="stMetric"]:hover {
+        box-shadow: var(--shadow-hover);
+        transform: translateY(-1px);
+    }
+    [data-testid="stMetricLabel"] p {
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted) !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.85rem !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em;
+        color: var(--ink) !important;
+    }
+    .mini-card { border-radius: var(--radius) !important; box-shadow: var(--shadow-card); }
+
+    /* ---- Títulos dentro das seções ---- */
+    [data-testid="stMain"] h3 {
+        font-size: 1.05rem !important;
+        font-weight: 650 !important;
+        letter-spacing: -0.01em;
+        margin-top: 0.4rem !important;
+    }
+
+    /* ---- Botões ---- */
+    [data-testid="stMain"] .stButton button,
+    [data-testid="stMain"] .stDownloadButton button,
+    [data-testid="stMain"] [data-testid="stFormSubmitButton"] button,
+    [data-testid="stMain"] .stLinkButton a {
+        border-radius: var(--radius-sm) !important;
+        font-weight: 600 !important;
+        transition: background 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    [data-testid="stMain"] button[kind="primary"],
+    [data-testid="stMain"] button[kind="primaryFormSubmit"] {
+        background: var(--green) !important;
+        border-color: var(--green) !important;
+        box-shadow: 0 1px 2px rgba(8, 167, 66, 0.25);
+    }
+    [data-testid="stMain"] button[kind="primary"]:hover,
+    [data-testid="stMain"] button[kind="primaryFormSubmit"]:hover {
+        background: var(--green-dark) !important;
+        border-color: var(--green-dark) !important;
+    }
+    [data-testid="stMain"] button[kind="secondary"]:hover,
+    [data-testid="stMain"] button[kind="secondaryFormSubmit"]:hover {
+        border-color: var(--green) !important;
+        color: var(--green-dark) !important;
+        background: var(--green-soft) !important;
+    }
+
+    /* ---- Abas ---- */
+    [data-testid="stMain"] [data-baseweb="tab-list"] {
+        gap: 0.25rem;
+        border-bottom: 1px solid var(--line);
+    }
+    [data-testid="stMain"] [data-baseweb="tab"] {
+        padding: 0.55rem 0.9rem !important;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        font-weight: 500;
+    }
+    [data-testid="stMain"] [data-baseweb="tab"]:hover { background: var(--surface-soft); }
+    [data-testid="stMain"] [data-baseweb="tab"][aria-selected="true"] p { color: var(--green-dark) !important; font-weight: 650; }
+    [data-testid="stMain"] [data-baseweb="tab-highlight"] { background-color: var(--green) !important; height: 2px !important; }
+
+    /* ---- Campos ---- */
+    [data-testid="stMain"] [data-testid="stTextInputRootElement"],
+    [data-testid="stMain"] [data-testid="stTextAreaRootElement"],
+    [data-testid="stMain"] [data-baseweb="select"] > div,
+    [data-testid="stMain"] [data-testid="stNumberInputContainer"],
+    [data-testid="stMain"] [data-testid="stDateInputField"] {
+        border-radius: var(--radius-sm) !important;
+    }
+    [data-testid="stMain"] [data-testid="stTextInputRootElement"]:focus-within,
+    [data-testid="stMain"] [data-testid="stTextAreaRootElement"]:focus-within,
+    [data-testid="stMain"] [data-baseweb="select"] > div:focus-within {
+        border-color: var(--green) !important;
+        box-shadow: 0 0 0 3px var(--green-soft) !important;
+    }
+
+    /* ---- Expansores, tabelas e alertas ---- */
+    [data-testid="stMain"] [data-testid="stExpander"] details {
+        border-radius: var(--radius) !important;
+        border-color: var(--line) !important;
+        background: var(--surface);
+    }
+    [data-testid="stMain"] [data-testid="stExpander"] summary:hover { color: var(--green-dark); }
+    [data-testid="stMain"] [data-testid="stDataFrame"],
+    [data-testid="stMain"] [data-testid="stTable"] {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+    [data-testid="stMain"] [data-testid="stAlertContainer"] { border-radius: var(--radius) !important; }
+
+    /* ---- Barra de rolagem discreta ---- */
+    * { scrollbar-width: thin; scrollbar-color: #c8d0da transparent; }
+    [data-testid="stSidebar"] * { scrollbar-color: rgba(255, 255, 255, 0.15) transparent; }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+    }
+
+    /* Ajustes finos da barra lateral */
+    [data-testid="stSidebar"] [data-testid="stRadio"],
+    [data-testid="stSidebar"] [data-testid="stRadio"] > div,
+    [data-testid="stSidebar"] [role="radiogroup"] { width: 100% !important; }
+    [data-testid="stSidebar"] [role="radiogroup"] > label[data-baseweb="radio"] {
+        display: flex !important;
+        box-sizing: border-box;
+    }
+    [data-testid="stSidebar"] [data-baseweb="base-input"],
+    [data-testid="stSidebar"] [data-baseweb="input"],
+    [data-testid="stSidebar"] [data-baseweb="input"] > div {
+        background: transparent !important;
+        border: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] [value] { opacity: 0.9; }
+
+    /* st.radio passou a usar width="content": o contêiner encolhia ao texto
+       e o destaque do item ativo não ocupava a largura do menu. */
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has([role="radiogroup"]),
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has([role="radiogroup"]) > div {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] { flex-direction: column; align-items: stretch !important; }
 </style>
