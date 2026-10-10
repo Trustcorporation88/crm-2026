@@ -60,8 +60,35 @@ class TestOrdemDasTabelas:
         assert posicao["customers"] < posicao["interactions"]
         assert posicao["customers"] < posicao["tickets"]
         assert posicao["customers"] < posicao["deals"]
-        # A ordem alfabética inverteria este par.
+        # A ordem alfabética inverteria estes pares.
         assert posicao["cadences"] < posicao["cadence_steps"]
+        assert posicao["lead_research_runs"] < posicao["lead_research_findings"]
+
+    def test_toda_tabela_do_schema_tem_lugar_na_ordem(self, tmp_path, monkeypatch):
+        """Tabela nova fora de TABLE_ORDER vai para o fim em ordem alfabética.
+
+        Foi assim que lead_research_findings passou a ser copiada antes de
+        lead_research_runs e a migração para o Postgres quebrou por FK.
+        """
+        import importlib
+        import sqlite3
+
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("CRM_DB_PATH", str(tmp_path / "schema.sqlite3"))
+        import crm_backend
+
+        importlib.reload(crm_backend)
+        crm_backend.init_database()
+        with sqlite3.connect(tmp_path / "schema.sqlite3") as conn:
+            tabelas = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+        # meta_state é só o carimbo de versão, regenerado após a migração.
+        faltando = sorted(tabelas - set(TABLE_ORDER) - {"meta_state"})
+        assert not faltando, f"tabelas sem posição em TABLE_ORDER: {faltando}"
 
     def test_sem_tabela_repetida(self):
         assert len(TABLE_ORDER) == len(set(TABLE_ORDER))

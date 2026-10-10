@@ -34,13 +34,10 @@ ADMIN = {"username": "admin", "role": "admin"}
 
 class TestIndices:
     def test_schema_declara_indices(self, backend):
+        from tests.conftest import listar_indices
+
         with backend._connect() as connection:
-            nomes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
-                ).fetchall()
-            }
+            nomes = {n for n in listar_indices(connection) if n.startswith("idx_")}
 
         # As colunas de junção e de ordenação são as que get_data() percorre.
         for esperado in (
@@ -54,14 +51,20 @@ class TestIndices:
 
     def test_consulta_da_timeline_usa_indice(self, backend):
         """Confirma no plano de execução, não por suposição."""
-        with backend._connect() as connection:
-            plano = connection.execute(
-                "EXPLAIN QUERY PLAN "
-                "SELECT * FROM interactions WHERE customer_id = ? ORDER BY event_at DESC",
-                ("C001",),
-            ).fetchall()
+        import crm_db
 
-        texto = " ".join(str(linha[-1]) for linha in plano)
+        consulta = "SELECT * FROM interactions WHERE customer_id = ? ORDER BY event_at DESC"
+        with backend._connect() as connection:
+            if crm_db.is_postgres():
+                # Com meia dúzia de linhas o planejador prefere varrer a tabela;
+                # desligar o seqscan pergunta só se existe índice utilizável.
+                connection.execute("SET LOCAL enable_seqscan = off")
+                plano = connection.execute("EXPLAIN " + consulta, ("C001",)).fetchall()
+                texto = " ".join(str(linha[0]) for linha in plano)
+            else:
+                plano = connection.execute("EXPLAIN QUERY PLAN " + consulta, ("C001",)).fetchall()
+                texto = " ".join(str(linha[-1]) for linha in plano)
+
         assert "idx_interactions" in texto, f"varredura completa: {texto}"
 
 

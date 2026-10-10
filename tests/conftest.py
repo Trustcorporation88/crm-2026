@@ -147,3 +147,31 @@ def _assinar_webhook(corpo: bytes) -> dict[str, str]:
 def assinar_webhook():
     """Exposto como fixture para ficar disponível sem importar o conftest."""
     return _assinar_webhook
+
+
+# ---------------------------------------------------------------------------
+# Catálogo portátil: os testes de schema rodam nos dois bancos.
+# `sqlite_master` só existe no SQLite; no Postgres o equivalente é o
+# information_schema / pg_indexes do schema corrente.
+# ---------------------------------------------------------------------------
+def listar_tabelas(connection) -> set[str]:
+    import crm_db
+
+    if crm_db.is_postgres():
+        sql = (
+            "SELECT table_name AS name FROM information_schema.tables "
+            "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+        )
+    else:
+        sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    return {row["name"] for row in connection.execute(sql).fetchall()}
+
+
+def listar_indices(connection) -> set[str]:
+    import crm_db
+
+    if crm_db.is_postgres():
+        sql = "SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema()"
+    else:
+        sql = "SELECT name FROM sqlite_master WHERE type='index'"
+    return {row["name"] for row in connection.execute(sql).fetchall()}

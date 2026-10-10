@@ -312,14 +312,31 @@ class TestHealthScore:
 # Pesos aprendidos do histórico real (Fase 2 do roadmap)
 # ---------------------------------------------------------------------------
 
+def _limpar_clientes(c):
+    """Apaga clientes e tudo que os referencia, filhos antes do pai.
+
+    O Postgres aplica as chaves estrangeiras que o SQLite (sem PRAGMA
+    foreign_keys) deixava passar — apagar só `customers` falhava lá.
+    """
+    from tests.conftest import listar_tabelas
+
+    existentes = listar_tabelas(c)
+    for tabela in (
+        "lead_research_findings", "lead_research_runs", "cadence_actions", "cadence_enrollments",
+        "health_snapshots", "lead_scores", "interactions", "tickets", "deals",
+    ):
+        if tabela in existentes:
+            c.execute(f"DELETE FROM {tabela}")
+    c.execute("DELETE FROM customers")
+
+
 def _semear_clientes_e_negocios(backend, linhas):
     """Substitui clientes e negócios do seed padrão por um cenário controlado.
 
     `linhas` é uma lista de (customer_id, canal, status, ganhou_negocio).
     """
     with backend._connect() as c:
-        c.execute("DELETE FROM deals")
-        c.execute("DELETE FROM customers")
+        _limpar_clientes(c)
         for cid, canal, status, ganhou in linhas:
             c.execute(
                 """INSERT INTO customers (customer_id, name, segment, city, country, owner, status,
@@ -382,8 +399,7 @@ class TestHealthScorePesosAprendidos:
         import health_score
 
         with crm._connect() as c:
-            c.execute("DELETE FROM deals")
-            c.execute("DELETE FROM customers")
+            _limpar_clientes(c)
             for i in range(5):
                 c.execute(
                     """INSERT INTO customers (customer_id, name, segment, city, country, owner,
@@ -612,14 +628,11 @@ class TestCadences:
     def test_schema_inicializa(self, crm):
         import cadences
 
+        from tests.conftest import listar_tabelas
+
         cadences.init_cadences_schema()
         with crm._connect() as c:
-            tabelas = {
-                r["name"]
-                for r in c.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
+            tabelas = listar_tabelas(c)
         assert "cadence_enrollments" in tabelas
 
     def test_inscricao_sem_passos_falha(self, crm):
