@@ -860,8 +860,34 @@ def seed_password_for(username: str) -> str:
 
 
 def _seed_passwords() -> None:
+    """Calcula o hash das senhas iniciais.
+
+    Só é chamada quando a tabela ``users`` está vazia (ver ``_seed_defaults``).
+    Antes rodava a cada ``init_database()`` — ou seja, a cada clique no app —
+    gastando ~0,3 s de bcrypt por conta, e ainda imprimia no log uma "senha
+    inicial gerada" que não valia para nada num banco já semeado.
+    """
     for user in DEFAULT_USERS:
         user["password_hash"] = hash_password(seed_password_for(user["username"]))
+
+
+# (usuário, hash gravado) -> o hash corresponde à senha pública?
+# bcrypt é lento de propósito (~0,3 s); o aviso de senha padrão roda a cada
+# clique do administrador. O resultado só muda quando o hash muda, então
+# memoizar pelo próprio hash é exato — trocar a senha gera outra chave.
+_DEFAULT_PASSWORD_CHECKS: dict[tuple[str, str], bool] = {}
+
+
+def _hash_is_default(username: str, stored_hash: str) -> bool:
+    default = KNOWN_WEAK_SEED_PASSWORDS.get(username)
+    if not default or not stored_hash:
+        return False
+    key = (username, stored_hash)
+    if key not in _DEFAULT_PASSWORD_CHECKS:
+        if len(_DEFAULT_PASSWORD_CHECKS) > 1000:
+            _DEFAULT_PASSWORD_CHECKS.clear()
+        _DEFAULT_PASSWORD_CHECKS[key] = _password_matches(stored_hash, default)
+    return _DEFAULT_PASSWORD_CHECKS[key]
 
 
 def uses_default_password(username: str) -> bool:
@@ -880,7 +906,7 @@ def uses_default_password(username: str) -> bool:
         ).fetchone()
     if row is None:
         return False
-    return _password_matches(row["password_hash"] or "", default)
+    return _hash_is_default(username, row["password_hash"] or "")
 
 
 def accounts_with_default_password() -> list[str]:
@@ -896,15 +922,18 @@ def accounts_with_default_password() -> list[str]:
     `uses_default_password` continua respondendo o fato isolado (o hash bate
     com uma senha pública?), sem opinar sobre risco.
     """
-    ativas = set()
+    hashes: dict[str, str] = {}
     with _connect() as connection:
-        for row in connection.execute("SELECT username FROM users WHERE is_active = 1").fetchall():
-            ativas.add(row["username"])
+        for row in connection.execute(
+            "SELECT username, password_hash FROM users WHERE is_active = 1"
+        ).fetchall():
+            hashes[row["username"]] = row["password_hash"] or ""
 
+    # Uma consulta só, em vez de uma conexão por conta.
     return [
         name
         for name in KNOWN_WEAK_SEED_PASSWORDS
-        if name in ativas and uses_default_password(name)
+        if name in hashes and _hash_is_default(name, hashes[name])
     ]
 
 
@@ -1205,6 +1234,7 @@ def _table_has_rows(connection: sqlite3.Connection, table_name: str) -> bool:
 
 def _seed_defaults(connection: sqlite3.Connection) -> None:
     if not _table_has_rows(connection, "users"):
+        _seed_passwords()
         connection.executemany(
             """
             INSERT INTO users (username, full_name, role, password_hash, is_active)
@@ -1561,7 +1591,6 @@ def init_database() -> str:
                 f"SQLite file is not writable: {DB_PATH}. "
                 "Check volume mount path and CRM_DATA_DIR=/data."
             ) from exc
-    _seed_passwords()
     try:
         with _connect() as connection:
             _create_schema(connection)

@@ -47,7 +47,9 @@ descrição do sistema — cada um traz um aviso no topo.
 ## Estrutura
 
 ```
-crm_app.py               interface Streamlit (aplicação principal)
+crm_app.py               interface Streamlit: login, barra lateral, filtros e roteamento
+crm_sections/            uma tela por módulo (Meu Dia, Clientes, Funil, Administração…)
+static/crm_app.css       tema visual do app
 crm_backend.py           lógica de domínio, autenticação, RBAC, auditoria
 crm_db.py                camada SQLite/Postgres
 crm_whatsapp_webhook.py  serviço oficial (webhook + API de entidades)

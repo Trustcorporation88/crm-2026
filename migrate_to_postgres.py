@@ -68,6 +68,11 @@ TABLE_ORDER = [
     "lead_scores",
     "message_templates",
     "health_snapshots",
+    # Agente de pesquisa de lead: findings referencia runs. Fora desta lista as
+    # duas iam para o fim em ordem alfabética — findings antes de runs — e o
+    # Postgres recusava a cópia por chave estrangeira.
+    "lead_research_runs",
+    "lead_research_findings",
 ]
 
 # Chave usada para ignorar duplicados em reexecução.
@@ -103,6 +108,8 @@ CONFLICT_KEYS = {
     "lead_scores": "customer_id",
     "message_templates": "key",
     "health_snapshots": "customer_id",
+    "lead_research_runs": "id",
+    "lead_research_findings": "id",
     # meta_state fica de fora de propósito: é apenas o carimbo de versão dos
     # dados, regenerado na primeira escrita após a migração. Migrá-lo não traz
     # ganho e o deixaria fora de TABLE_ORDER, quebrando o invariante testado.
@@ -175,6 +182,30 @@ def checksum(rows: Iterable[tuple]) -> str:
 # ---------------------------------------------------------------------------
 # Escrita no destino
 # ---------------------------------------------------------------------------
+
+def connect_postgres(postgres_url: str) -> Any:
+    """Abre o destino no mesmo schema em que ``ensure_schema`` cria as tabelas.
+
+    O backend aplica ``CRM_PG_SCHEMA`` (``SET search_path``) ao criar o schema;
+    uma conexão crua cairia no ``public`` e copiaria os dados para outro lugar
+    — ou falharia com "relation does not exist".
+    """
+    import psycopg2
+
+    import crm_db
+
+    conn = psycopg2.connect(postgres_url.replace("postgresql+psycopg2://", "postgresql://"))
+    schema = crm_db.pg_schema()
+    if schema:
+        if not schema.isidentifier():
+            conn.close()
+            raise MigrationError(f"Nome de schema inválido: {schema!r}")
+        with conn.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            cursor.execute(f'SET search_path TO "{schema}"')
+        conn.commit()
+    return conn
+
 
 def ensure_schema(postgres_url: str) -> None:
     """Cria o schema no destino usando o próprio backend da aplicação."""
@@ -313,7 +344,7 @@ def migrate(
     verify_only: bool = False,
     replace: bool = False,
 ) -> int:
-    import psycopg2
+    import psycopg2  # noqa: F401 — falha cedo, antes de ler a origem, se o driver faltar
 
     source = open_sqlite(sqlite_path)
     available = set(sqlite_tables(source))
@@ -361,7 +392,7 @@ def migrate(
 
     if not verify_only:
         # Antes de qualquer escrita: o destino já tem dados reais?
-        guard = psycopg2.connect(postgres_url)
+        guard = connect_postgres(postgres_url)
         try:
             preexisting = destination_row_count(guard, ordered)
         finally:
@@ -378,7 +409,7 @@ def migrate(
         log("\nCriando schema no destino…")
         ensure_schema(postgres_url)
 
-    pg_conn = psycopg2.connect(postgres_url)
+    pg_conn = connect_postgres(postgres_url)
     try:
         if not verify_only:
             # A criação do schema semeia dados de exemplo; eles não podem

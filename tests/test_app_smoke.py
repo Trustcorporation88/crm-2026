@@ -344,9 +344,11 @@ class TestMarcacaoDosPaineis:
         return Path(APP_PATH).read_text(encoding="utf-8")
 
     def test_meu_dia_usa_container(self):
-        fonte = self._fonte()
-        trecho = fonte[fonte.index('if section == "Meu Dia":'):]
-        trecho = trecho[:trecho.index('elif section == "Serviços":')]
+        from pathlib import Path
+
+        # A seção Meu Dia mora em crm_sections/meu_dia.py desde a divisão do app.
+        trecho = (Path(APP_PATH).parent / "crm_sections" / "meu_dia.py").read_text(encoding="utf-8")
+        assert 'meu_dia.render(globals())' in self._fonte()
 
         assert "st.container(border=True)" in trecho
         assert "'<div class=\"panel\">'" not in trecho, (

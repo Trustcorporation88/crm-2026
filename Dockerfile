@@ -14,6 +14,7 @@ COPY requirements-docker.txt requirements.txt ./
 RUN pip install --no-cache-dir -r requirements-docker.txt
 
 COPY *.py ./
+COPY crm_sections/ ./crm_sections/
 COPY .streamlit/ ./.streamlit/
 COPY templates/ ./templates/
 COPY static/ ./static/
