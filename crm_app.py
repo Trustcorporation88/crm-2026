@@ -28,6 +28,7 @@ from crm_views import (
     save_view,
 )
 import crm_backend as crm_backend_module
+import crm_components as ui
 import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
@@ -329,33 +330,18 @@ def go_back() -> None:
 
 
 def render_top_bar(active_section: str) -> None:
-    # Barra superior no padrão dos líderes: breadcrumb como elemento principal,
-    # ações discretas (tertiary, só ícone) — nada de botões-caixa antes do conteúdo.
-    col_back, col_crumb, col_home = st.columns([0.5, 6.2, 0.5], vertical_alignment="center")
+    # Faixa mínima: voltar / início à esquerda e o recorte de filtros ativo à
+    # direita. O título e a descrição vivem no cabeçalho da página.
+    col_back, col_home, col_filters = st.columns([0.45, 0.45, 9], vertical_alignment="center")
     with col_back:
-        can_back = active_section != "Serviços"
         if st.button(
             ":material/arrow_back:",
             key="nav-top-back",
             type="tertiary",
-            disabled=not can_back,
+            disabled=active_section == "Serviços",
             help="Voltar à tela anterior",
         ):
             go_back()
-    with col_crumb:
-        filter_bits = []
-        if st.session_state.get("filter_country", "Todos") != "Todos":
-            filter_bits.append(f"Mercado: {st.session_state['filter_country']}")
-        if st.session_state.get("filter_owner", "Todos") != "Todos":
-            filter_bits.append(f"Responsável: {esc(st.session_state['filter_owner'])}")
-        filters_html = (
-            f' <span class="top-nav-pill">{" · ".join(filter_bits)}</span>' if filter_bits else ""
-        )
-        st.markdown(
-            f'<div class="section-crumb"><span class="crumb-root">Trust CRM</span>'
-            f'<span class="crumb-sep">›</span><strong>{nome_exibido(active_section)}</strong>{filters_html}</div>',
-            unsafe_allow_html=True,
-        )
     with col_home:
         if st.button(
             ":material/home:",
@@ -364,23 +350,26 @@ def render_top_bar(active_section: str) -> None:
             help="Ir ao catálogo de serviços",
         ):
             navigate_to_section("Serviços")
-    st.markdown('<div class="top-rule"></div>', unsafe_allow_html=True)
+    with col_filters:
+        bits = []
+        if st.session_state.get("filter_country", "Todos") != "Todos":
+            bits.append(f"Mercado: {st.session_state['filter_country']}")
+        if st.session_state.get("filter_owner", "Todos") != "Todos":
+            bits.append(f"Responsável: {st.session_state['filter_owner']}")
+        if bits:
+            st.markdown(
+                '<div class="filter-strip">'
+                + "".join(f'<span class="chip chip--filter">{ui.icon("filter_alt")}{esc(b)}</span>' for b in bits)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
 
 def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
-    cols = st.columns(len(metrics))
-    for col, (label, value, caption) in zip(cols, metrics):
-        with col:
-            st.markdown(
-                f"""
-<div class="mini-card">
-    <div class="mini-label">{label}</div>
-    <div class="mini-value">{value}</div>
-    <div class="mini-caption">{caption}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        ui.kpi_grid({"label": label, "value": value, "caption": caption} for label, value, caption in metrics),
+        unsafe_allow_html=True,
+    )
 
 
 def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id: str) -> None:
@@ -917,17 +906,22 @@ def ingest_message(uploaded_file) -> str:
 
 # CSS injetado no iframe do kanban (o tema da página não alcança lá dentro).
 KANBAN_STYLE = """
-.sortable-component { display: flex; gap: 10px; align-items: flex-start;
+.sortable-component { display: flex; gap: 12px; align-items: flex-start;
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
-.sortable-container { flex: 1 1 0; background: #f4f6f8; border: 1px solid #e3e8ee;
-    border-radius: 10px; padding: 6px; min-height: 140px; }
-.sortable-container-header { font-weight: 700; font-size: 13px; color: #1a1f2b;
-    padding: 8px 8px 4px; letter-spacing: -0.01em; }
-.sortable-container-body { display: flex; flex-direction: column; gap: 6px; padding: 4px; min-height: 90px; }
-.sortable-item { background: #ffffff; border: 1px solid #e3e8ee; border-left: 3px solid #2f6fe4;
-    border-radius: 8px; padding: 10px 12px; font-size: 12.5px; font-weight: 600;
-    color: #1a1f2b; cursor: grab; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06); }
-.sortable-item:hover { border-color: #2f6fe4; box-shadow: 0 3px 8px rgba(47, 111, 228, 0.15); }
+.sortable-container { flex: 1 1 0; background: #ebe9de; border: 0; border-top: 4px solid #9aa39c;
+    border-radius: 14px; padding: 8px; min-height: 160px; }
+.sortable-container:nth-child(1) { border-top-color: #7a8a80; }
+.sortable-container:nth-child(2) { border-top-color: #175cd3; }
+.sortable-container:nth-child(3) { border-top-color: #c9a227; }
+.sortable-container:nth-child(4) { border-top-color: #0b9b4a; }
+.sortable-container:nth-child(5) { border-top-color: #d92d20; }
+.sortable-container-header { font-weight: 750; font-size: 12.5px; color: #14201a;
+    padding: 8px 8px 6px; letter-spacing: -0.01em; }
+.sortable-container-body { display: flex; flex-direction: column; gap: 8px; padding: 4px; min-height: 100px; }
+.sortable-item { background: #ffffff; border: 1px solid #e4e2d6; border-radius: 12px; padding: 11px 12px;
+    font-size: 12.5px; font-weight: 600; line-height: 1.35; color: #14201a; cursor: grab;
+    box-shadow: 0 1px 2px rgba(20, 32, 26, 0.05); transition: transform .12s, box-shadow .12s; }
+.sortable-item:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px rgba(20, 32, 26, 0.35); }
 """
 
 
@@ -955,11 +949,13 @@ def render_page_header(section: str) -> None:
         "Automações": "Regras que criam tarefas sozinhas a partir do que está parado.",
         "Importar Dados": "Traga sua base de clientes de outro sistema por planilha.",
     }
-    st.markdown(
-        f'<div class="page-head"><h2>{nome_exibido(section)}</h2>'
-        f'<p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
-        unsafe_allow_html=True,
-    )
+    subtitle = hints.get(section, "Visão consolidada do módulo.")
+    title, eyebrow = nome_exibido(section), "Trust CRM"
+    if section == "Meu Dia":
+        nome = ui.primeiro_nome((st.session_state.get("crm_user") or {}).get("full_name"))
+        title = f"{ui.saudacao()}, {nome}" if nome else ui.saudacao()
+        eyebrow = "Meu Dia"
+    st.markdown(ui.page_header(title, subtitle, eyebrow=eyebrow), unsafe_allow_html=True)
 
 
 def render_empty_state(message: str) -> None:
