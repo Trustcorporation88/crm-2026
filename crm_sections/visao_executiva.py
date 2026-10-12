@@ -14,6 +14,8 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_components as ui
+
     # Imports do projeto resolvidos a cada renderização, como acontecia no
     # script principal (o Streamlit o reexecuta a cada clique). Assim um
     # módulo recarregado ou substituído em teste vale aqui também.
@@ -63,7 +65,7 @@ def render(ctx: dict[str, Any]) -> None:
 
     left, right = st.columns([1.2, 0.8])
     with left, st.container(border=True):
-        st.markdown('<div class="section-title">Panorama operacional</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("Panorama operacional", "dashboard"), unsafe_allow_html=True)
         summary = pd.DataFrame(
             [
                 {"KPI": label, "Valor": compute(), "Leitura": caption}
@@ -84,11 +86,25 @@ def render(ctx: dict[str, Any]) -> None:
             st.bar_chart(
                 owner_load.set_index(_group_field),
                 horizontal=True,
-                color="#2f6fe4",
+                color="#2563eb",
                 height=max(160, 56 * len(owner_load)),
             )
     with right, st.container(border=True):
-        st.markdown('<div class="section-title">Proximas acoes</div>', unsafe_allow_html=True)
-        for item in tasks_df.sort_values("due_date").head(6).to_dict("records"):
-            st.markdown(f"**{item['task']}**  \nResponsavel: {item['owner']}  \nPrazo: {item['due_date']}  \nVinculo: {item['entity']}")
-            st.markdown("---")
+        st.markdown(ui.card_title("Proximas acoes", "event"), unsafe_allow_html=True)
+        _prox = tasks_df.sort_values("due_date").head(6).to_dict("records")
+        st.markdown(
+            ui.list_block(
+                [
+                    ui.agenda_row(
+                        item["task"],
+                        f"{item['owner']} · {item['entity']}",
+                        ui.priority_tone(item.get("priority")),
+                        ui.pill(str(item["due_date"]), "neutral"),
+                        ico="event",
+                    )
+                    for item in _prox
+                ],
+                "Nenhuma ação agendada.",
+            ),
+            unsafe_allow_html=True,
+        )

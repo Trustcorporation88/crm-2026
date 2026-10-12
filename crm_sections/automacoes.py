@@ -14,6 +14,8 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_components as ui
+
     # Imports do projeto resolvidos a cada renderização, como acontecia no
     # script principal (o Streamlit o reexecuta a cada clique). Assim um
     # módulo recarregado ou substituído em teste vale aqui também.
@@ -33,8 +35,11 @@ def render(ctx: dict[str, Any]) -> None:
     _pode_automatizar = has_permission(user["role"], "automation.run")
     _ultima_atividade = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
 
-    with st.container(border=True):
-        st.markdown('<div class="section-title">Regras ativas</div>', unsafe_allow_html=True)
+    _kpi_slot = st.empty()
+    col_regras, col_previa = st.columns([1, 1.45], gap="medium")
+
+    with col_regras, st.container(border=True):
+        st.markdown(ui.card_title("Regras ativas", "rule", f"{len(RULES_CATALOG)} regras"), unsafe_allow_html=True)
         st.caption(
             "Estas regras varrem a operação e criam tarefas para quem é responsável. "
             "Rodar de novo **não duplica**: cada tarefa tem nome único por registro."
@@ -65,9 +70,19 @@ def render(ctx: dict[str, Any]) -> None:
     _existentes = [p for p in _todas if p.task in _ja_criadas]
     _nomes_regras = {r["id"]: r["name"] for r in RULES_CATALOG}
 
-    st.markdown(" ")
-    with st.container(border=True):
-        st.markdown('<div class="section-title">Prévia — o que será criado agora</div>', unsafe_allow_html=True)
+    _kpi_slot.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Regras ligadas", "value": len(_escolhidas), "caption": f"de {len(RULES_CATALOG)} disponíveis.", "icon": "rule", "tone": "info"},
+                {"label": "Tarefas a criar", "value": len(_propostas), "caption": "Aparecem na prévia.", "icon": "add_task", "tone": "warn" if _propostas else "ok"},
+                {"label": "Já em andamento", "value": len(_existentes), "caption": "Não serão duplicadas.", "icon": "autorenew", "tone": "gold"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+    with col_previa, st.container(border=True):
+        st.markdown(ui.card_title("Prévia — o que será criado agora", "preview"), unsafe_allow_html=True)
         if _existentes:
             st.caption(
                 f"↻ {len(_existentes)} situação(ões) já tem tarefa aberta — não serão duplicadas."

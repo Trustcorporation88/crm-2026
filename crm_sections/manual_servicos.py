@@ -14,6 +14,8 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_components as ui
+
     allowed_sections = ctx["allowed_sections"]
     navigate_to_section = ctx["navigate_to_section"]
 
@@ -27,7 +29,7 @@ def render(ctx: dict[str, Any]) -> None:
     )
 
     with st.container(border=True):
-        st.markdown('<div class="section-title">Resumo rápido — 17 serviços e suas entregas</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("Resumo rápido — 17 serviços e suas entregas", "summarize"), unsafe_allow_html=True)
         _resumo = pd.DataFrame(
             [
                 {
@@ -47,13 +49,10 @@ def render(ctx: dict[str, Any]) -> None:
             help="Versão em texto para compartilhar com a equipe",
         )
 
-    for _categoria in services_manual_sections():
-        st.markdown(" ")
-        with st.container(border=True):
-            st.markdown(
-                f'<div class="section-title">{_categoria["icon"]} {_categoria["title"]}</div>',
-                unsafe_allow_html=True,
-            )
+    _cats = services_manual_sections()
+    _abas = st.tabs([f"{_c['title']}" for _c in _cats])
+    for _aba, _categoria in zip(_abas, _cats):
+        with _aba:
             st.caption(_categoria["tagline"])
             for _guia in _categoria["services"]:
                 with st.expander(f'{_guia["title"]} — {_guia.get("resultado_esperado", "")}'):

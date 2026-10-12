@@ -28,6 +28,7 @@ from crm_views import (
     save_view,
 )
 import crm_backend as crm_backend_module
+import crm_components as ui
 import crm_db
 from crm_ux import (
     LOGIN_ENDPOINT,
@@ -212,7 +213,7 @@ components.html(
     themeColor.name = "theme-color";
     head.appendChild(themeColor);
   }
-  themeColor.content = "#08a742";
+  themeColor.content = "#2563eb";
 
   let appleCapable = head.querySelector('meta[name="apple-mobile-web-app-capable"]');
   if (!appleCapable) {
@@ -329,33 +330,18 @@ def go_back() -> None:
 
 
 def render_top_bar(active_section: str) -> None:
-    # Barra superior no padrão dos líderes: breadcrumb como elemento principal,
-    # ações discretas (tertiary, só ícone) — nada de botões-caixa antes do conteúdo.
-    col_back, col_crumb, col_home = st.columns([0.5, 6.2, 0.5], vertical_alignment="center")
+    # Faixa mínima: voltar / início à esquerda e o recorte de filtros ativo à
+    # direita. O título e a descrição vivem no cabeçalho da página.
+    col_back, col_home, col_filters = st.columns([0.45, 0.45, 9], vertical_alignment="center")
     with col_back:
-        can_back = active_section != "Serviços"
         if st.button(
             ":material/arrow_back:",
             key="nav-top-back",
             type="tertiary",
-            disabled=not can_back,
+            disabled=active_section == "Serviços",
             help="Voltar à tela anterior",
         ):
             go_back()
-    with col_crumb:
-        filter_bits = []
-        if st.session_state.get("filter_country", "Todos") != "Todos":
-            filter_bits.append(f"Mercado: {st.session_state['filter_country']}")
-        if st.session_state.get("filter_owner", "Todos") != "Todos":
-            filter_bits.append(f"Responsável: {esc(st.session_state['filter_owner'])}")
-        filters_html = (
-            f' <span class="top-nav-pill">{" · ".join(filter_bits)}</span>' if filter_bits else ""
-        )
-        st.markdown(
-            f'<div class="section-crumb"><span class="crumb-root">Trust CRM</span>'
-            f'<span class="crumb-sep">›</span><strong>{nome_exibido(active_section)}</strong>{filters_html}</div>',
-            unsafe_allow_html=True,
-        )
     with col_home:
         if st.button(
             ":material/home:",
@@ -364,23 +350,26 @@ def render_top_bar(active_section: str) -> None:
             help="Ir ao catálogo de serviços",
         ):
             navigate_to_section("Serviços")
-    st.markdown('<div class="top-rule"></div>', unsafe_allow_html=True)
+    with col_filters:
+        bits = []
+        if st.session_state.get("filter_country", "Todos") != "Todos":
+            bits.append(f"Mercado: {st.session_state['filter_country']}")
+        if st.session_state.get("filter_owner", "Todos") != "Todos":
+            bits.append(f"Responsável: {st.session_state['filter_owner']}")
+        if bits:
+            st.markdown(
+                '<div class="filter-strip">'
+                + "".join(f'<span class="chip chip--filter">{ui.icon("filter_alt")}{esc(b)}</span>' for b in bits)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
 
 def render_metric_cards(metrics: list[tuple[str, str, str]]) -> None:
-    cols = st.columns(len(metrics))
-    for col, (label, value, caption) in zip(cols, metrics):
-        with col:
-            st.markdown(
-                f"""
-<div class="mini-card">
-    <div class="mini-label">{label}</div>
-    <div class="mini-value">{value}</div>
-    <div class="mini-caption">{caption}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        ui.kpi_grid({"label": label, "value": value, "caption": caption} for label, value, caption in metrics),
+        unsafe_allow_html=True,
+    )
 
 
 def render_timeline(timeline: dict[str, list[tuple[str, str, str]]], customer_id: str) -> None:
@@ -917,17 +906,22 @@ def ingest_message(uploaded_file) -> str:
 
 # CSS injetado no iframe do kanban (o tema da página não alcança lá dentro).
 KANBAN_STYLE = """
-.sortable-component { display: flex; gap: 10px; align-items: flex-start;
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
-.sortable-container { flex: 1 1 0; background: #f4f6f8; border: 1px solid #e3e8ee;
-    border-radius: 10px; padding: 6px; min-height: 140px; }
-.sortable-container-header { font-weight: 700; font-size: 13px; color: #1a1f2b;
-    padding: 8px 8px 4px; letter-spacing: -0.01em; }
-.sortable-container-body { display: flex; flex-direction: column; gap: 6px; padding: 4px; min-height: 90px; }
-.sortable-item { background: #ffffff; border: 1px solid #e3e8ee; border-left: 3px solid #2f6fe4;
-    border-radius: 8px; padding: 10px 12px; font-size: 12.5px; font-weight: 600;
-    color: #1a1f2b; cursor: grab; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06); }
-.sortable-item:hover { border-color: #2f6fe4; box-shadow: 0 3px 8px rgba(47, 111, 228, 0.15); }
+.sortable-component { display: flex; gap: 12px; align-items: flex-start;
+    font-family: ui-sans-serif, -apple-system, 'Segoe UI', Inter, system-ui, sans-serif; }
+.sortable-container { flex: 1 1 0; background: #f3f4f6; border: 1px solid #e5e7eb; border-top: 3px solid #9ca3af;
+    border-radius: 12px; padding: 6px; min-height: 160px; }
+.sortable-container:nth-child(1) { border-top-color: #9ca3af; }
+.sortable-container:nth-child(2) { border-top-color: #2563eb; }
+.sortable-container:nth-child(3) { border-top-color: #d97706; }
+.sortable-container:nth-child(4) { border-top-color: #16a34a; }
+.sortable-container:nth-child(5) { border-top-color: #dc2626; }
+.sortable-container-header { font-weight: 650; font-size: 12px; color: #374151;
+    padding: 8px 8px 6px; letter-spacing: -0.005em; }
+.sortable-container-body { display: flex; flex-direction: column; gap: 8px; padding: 4px; min-height: 100px; }
+.sortable-item { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px;
+    font-size: 12.5px; font-weight: 600; line-height: 1.35; color: #111827; cursor: grab;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05); transition: box-shadow .12s, border-color .12s; }
+.sortable-item:hover { border-color: #93b4f5; box-shadow: 0 6px 16px -8px rgba(37, 99, 235, 0.4); }
 """
 
 
@@ -955,11 +949,13 @@ def render_page_header(section: str) -> None:
         "Automações": "Regras que criam tarefas sozinhas a partir do que está parado.",
         "Importar Dados": "Traga sua base de clientes de outro sistema por planilha.",
     }
-    st.markdown(
-        f'<div class="page-head"><h2>{nome_exibido(section)}</h2>'
-        f'<p>{hints.get(section, "Visão consolidada do módulo.")}</p></div>',
-        unsafe_allow_html=True,
-    )
+    subtitle = hints.get(section, "Visão consolidada do módulo.")
+    title, eyebrow = nome_exibido(section), "Trust CRM"
+    if section == "Meu Dia":
+        nome = ui.primeiro_nome((st.session_state.get("crm_user") or {}).get("full_name"))
+        title = f"{ui.saudacao()}, {nome}" if nome else ui.saudacao()
+        eyebrow = "Meu Dia"
+    st.markdown(ui.page_header(title, subtitle, eyebrow=eyebrow), unsafe_allow_html=True)
 
 
 def render_empty_state(message: str) -> None:
@@ -1130,7 +1126,25 @@ def render_benchmark_comparison(compact: bool = False) -> None:
 
     _placar = capability_score()
 
-    with st.container(border=True):
+    def _tabela_concorrentes(lista) -> None:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Concorrente": c["name"],
+                        "Origem": c["origin"],
+                        "Preço de entrada": c["price"],
+                        "Nosso diferencial": c["trust_diff"],
+                    }
+                    for c in lista
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+            height=min(38 + 35 * len(lista), 300),
+        )
+
+    def _painel() -> None:
         st.markdown(
             '<div class="section-title">Comparativo Benchmark — o mercado brasileiro</div>',
             unsafe_allow_html=True,
@@ -1139,76 +1153,79 @@ def render_benchmark_comparison(compact: bool = False) -> None:
             f"Preços consultados nas páginas oficiais em {PRICE_CHECKED_AT}. "
             "Valores em dólar estão marcados. Software muda de preço — confira antes de decidir."
         )
-        _p = st.columns(3)
-        _p[0].metric("Capacidades à frente", _placar["vantagem"])
-        _p[1].metric("Equivalentes", _placar["empate"] + _placar["parcial"])
-        _p[2].metric("Atrás", _placar["atras"], help="E-mail, ecossistema de integrações e multiempresa.")
-
-        for _titulo, _lista in (
-            ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
-            ("🌐 Globais que competem no Brasil", global_competitors()),
-        ):
-            st.markdown(f"**{_titulo}**")
+        st.markdown(
+            ui.kpi_grid(
+                [
+                    {"label": "Capacidades à frente", "value": _placar["vantagem"], "icon": "emoji_events", "tone": "ok"},
+                    {"label": "Equivalentes", "value": _placar["empate"] + _placar["parcial"], "icon": "balance", "tone": "info"},
+                    {"label": "Atrás", "value": _placar["atras"], "caption": "E-mail, ecossistema de integrações e multiempresa.", "icon": "flag", "tone": "warn"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+        _abas = ["Concorrentes", "Capacidade a capacidade", "Onde ganhamos e onde estamos atrás"]
+        if not compact:
+            _abas.append("Detalhe por concorrente")
+        _tabs = st.tabs(_abas)
+        with _tabs[0]:
+            _col_br, _col_gl = st.columns(2)
+            with _col_br:
+                st.markdown("**🇧🇷 CRMs brasileiros**")
+                _tabela_concorrentes(brazilian_competitors())
+            with _col_gl:
+                st.markdown("**🌐 Globais que competem no Brasil**")
+                _tabela_concorrentes(global_competitors())
+        with _tabs[1]:
             st.dataframe(
                 pd.DataFrame(
                     [
-                        {
-                            "Concorrente": c["name"],
-                            "Origem": c["origin"],
-                            "Preço de entrada": c["price"],
-                            "Nosso diferencial": c["trust_diff"],
-                        }
-                        for c in _lista
+                        {"Capacidade": m["capability"], "Trust CRM": m["trust"], "Mercado": m["market"]}
+                        for m in CAPABILITY_MATRIX
                     ]
                 ),
                 width="stretch",
                 hide_index=True,
+                height=min(38 + 35 * len(CAPABILITY_MATRIX), 460),
             )
-
+        with _tabs[2]:
+            _pos = st.columns(2)
+            with _pos[0], st.container(border=True):
+                st.markdown(ui.card_title("Onde ganhamos", "emoji_events"), unsafe_allow_html=True)
+                for _item in TRUST_POSITION["ganhamos"]:
+                    st.markdown(f"- {_item}")
+            with _pos[1], st.container(border=True):
+                st.markdown(ui.card_title("Onde estamos atrás", "flag"), unsafe_allow_html=True)
+                for _item in TRUST_POSITION["atras"]:
+                    st.markdown(f"- {_item}")
+                st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
         if not compact:
-            for _titulo, _lista in (
-                ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
-                ("🌐 Globais", global_competitors()),
-            ):
-                st.markdown(f"**Detalhe — {_titulo}**")
-                for _c in _lista:
-                    with st.expander(f"{_c['name']} · {_c['origin']}"):
-                        st.markdown(f"**Público-alvo:** {_c['audience']}")
-                        st.markdown(f"**Preço:** {_c['price']}  \n*Fonte: {_c['price_source']}*")
-                        st.markdown("**Pontos fortes:**")
-                        for _f in _c["strengths"]:
-                            st.markdown(f"- {_f}")
-                        st.markdown("**Limitações conhecidas:**")
-                        for _l in _c["limitations"]:
-                            st.markdown(f"- {_l}")
-                        st.markdown(f"**Adequação ao Brasil:** {_c['brasil']}")
-                        st.info(f"**Nosso diferencial:** {_c['trust_diff']}")
+            with _tabs[3]:
+                _col_br, _col_gl = st.columns(2)
+                for _col, _titulo, _lista in (
+                    (_col_br, "🇧🇷 CRMs brasileiros", brazilian_competitors()),
+                    (_col_gl, "🌐 Globais", global_competitors()),
+                ):
+                    with _col:
+                        st.markdown(f"**Detalhe — {_titulo}**")
+                        for _c in _lista:
+                            with st.expander(f"{_c['name']} · {_c['origin']}"):
+                                st.markdown(f"**Público-alvo:** {_c['audience']}")
+                                st.markdown(f"**Preço:** {_c['price']}  \n*Fonte: {_c['price_source']}*")
+                                st.markdown("**Pontos fortes:**")
+                                for _f in _c["strengths"]:
+                                    st.markdown(f"- {_f}")
+                                st.markdown("**Limitações conhecidas:**")
+                                for _l in _c["limitations"]:
+                                    st.markdown(f"- {_l}")
+                                st.markdown(f"**Adequação ao Brasil:** {_c['brasil']}")
+                                st.info(f"**Nosso diferencial:** {_c['trust_diff']}")
 
-    st.markdown(" ")
-    with st.container(border=True):
-        st.markdown('<div class="section-title">Capacidade a capacidade</div>', unsafe_allow_html=True)
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {"Capacidade": m["capability"], "Trust CRM": m["trust"], "Mercado": m["market"]}
-                    for m in CAPABILITY_MATRIX
-                ]
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-
-    st.markdown(" ")
-    _pos = st.columns(2)
-    with _pos[0], st.container(border=True):
-        st.markdown('<div class="section-title">✅ Onde ganhamos</div>', unsafe_allow_html=True)
-        for _item in TRUST_POSITION["ganhamos"]:
-            st.markdown(f"- {_item}")
-    with _pos[1], st.container(border=True):
-        st.markdown('<div class="section-title">⚠️ Onde estamos atrás</div>', unsafe_allow_html=True)
-        for _item in TRUST_POSITION["atras"]:
-            st.markdown(f"- {_item}")
-        st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
+    if compact:
+        # No catálogo de Serviços o comparativo fica recolhido: quem quer, abre.
+        with st.expander("📊 Comparativo Benchmark — como a Trust se posiciona contra o mercado", expanded=False):
+            _painel()
+    else:
+        _painel()
 
 
 def render_services_catalog() -> None:
@@ -1236,9 +1253,12 @@ def render_services_catalog() -> None:
                           "Visão de cima, IA e controle de acesso."),
     }
 
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-title">Início — o que você quer fazer?</div>',
+        ui.page_header(
+            "O que você quer fazer?",
+            "Escolha pelo objetivo. Cada cartão mostra quando usar e um número ao vivo da sua operação.",
+            eyebrow="Início",
+        ),
         unsafe_allow_html=True,
     )
     st.caption(
@@ -1284,47 +1304,38 @@ def render_services_catalog() -> None:
                 for col, service in zip(cols, chunk):
                     with col:
                         _render_service_card(service, allowed_sections, live_stats, key_prefix="search")
-        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown(" ")
         render_benchmark_comparison(compact=True)
         return
 
-    # 3b) Sem busca: serviços agrupados por objetivo, em grade responsiva
-    total_shown = 0
+    # 3b) Sem busca: uma aba por objetivo, cartões em grade
+    _grupos = []
     for category in CATEGORIES:
         services = get_services_by_category(str(category["id"]))
-        if not services:
-            continue
-        total_shown += len(services)
+        if services:
+            titulo, subtitulo = OBJETIVOS.get(
+                str(category["id"]),
+                (str(category["title"]), str(category.get("tagline", ""))),
+            )
+            _grupos.append((titulo, subtitulo, services))
 
-        titulo, subtitulo = OBJETIVOS.get(
-            str(category["id"]),
-            (str(category["title"]), str(category.get("tagline", ""))),
-        )
-        cat_icon, cat_tone = CATEGORY_HEAD_META.get(str(category["id"]), ("widgets", "#334155"))
-        st.markdown(
-            f'<div class="cat-head"><span class="cat-icon" translate="no" aria-hidden="true" style="color:{cat_tone};'
-            f'background:{cat_tone}1a;--ico:\'{cat_icon}\';"></span><span class="cat-title">{titulo}</span></div>',
-            unsafe_allow_html=True,
-        )
-        st.caption(subtitulo)
-
-        for chunk_start in range(0, len(services), 3):
-            chunk = services[chunk_start: chunk_start + 3]
-            cols = st.columns(len(chunk))
-            for col, service in zip(cols, chunk):
-                with col:
-                    _render_service_card(service, allowed_sections, live_stats, key_prefix="svc")
-
-    if total_shown == 0:
+    if not _grupos:
         st.info("Nenhum serviço disponível para o seu perfil.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        _abas = st.tabs([f"{titulo} · {len(servs)}" for titulo, _, servs in _grupos])
+        for _aba, (titulo, subtitulo, services) in zip(_abas, _grupos):
+            with _aba:
+                st.caption(subtitulo)
+                for chunk_start in range(0, len(services), 3):
+                    chunk = services[chunk_start: chunk_start + 3]
+                    cols = st.columns(3)
+                    for col, service in zip(cols, chunk):
+                        with col:
+                            _render_service_card(service, allowed_sections, live_stats, key_prefix="svc")
 
     # Comparativo Benchmark fecha o catálogo: depois de ver o que entregamos,
     # o leitor vê como isso se posiciona contra o mercado.
     st.markdown(" ")
-    st.divider()
     render_benchmark_comparison(compact=True)
 
 
@@ -1508,6 +1519,10 @@ with st.sidebar:
     else:
         section = str(st.session_state["nav_primary"])
     st.session_state["nav_section"] = section
+    if section in secondary_sections:
+        # Módulo fora do trilho principal: o CSS apaga o destaque do último item
+        # principal e acende o ícone de «mais módulos».
+        st.markdown('<span class="rail-secondary-active"></span>', unsafe_allow_html=True)
 
     st.markdown('<div class="side-label">Ferramentas</div>', unsafe_allow_html=True)
     _filters_active = (
@@ -1738,19 +1753,7 @@ if user.get("role") == "admin":
 aviso_de_visibilidade()
 
 if section == "Visão Executiva":
-    st.markdown(
-        """
-<div class="hero">
-    <div class="hero-grid">
-        <div>
-            <h1>Visão executiva</h1>
-            <p>Indicadores da operação no recorte de mercado e responsável selecionados na barra lateral.</p>
-        </div>
-    </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    render_page_header(section)
     _exec_report_config = get_exec_report_config(user["username"])
     _exec_selected_kpis = [
         kpi_id for kpi_id in _exec_report_config["kpis"] if kpi_id in EXEC_KPI_CATALOG
@@ -1786,45 +1789,37 @@ elif section == "Funil Comercial":
     funil.render(globals())
 
 elif section == "Cadências":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    _cad_last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
-    render_cadences(user, customers_df, deals_df, _cad_last_activity)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        _cad_last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
+        render_cadences(user, customers_df, deals_df, _cad_last_activity)
 
 elif section == "Saúde da Conta":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_health(user, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_health(user, can_manage(user["role"], "admin"))
 
 elif section == "Modelos de Mensagem":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_templates(user, customers_df, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_templates(user, customers_df, can_manage(user["role"], "admin"))
 
 elif section == "Previsão de Receita":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_forecast(selected_owner)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_forecast(selected_owner)
 
 elif section == "Produtividade":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_productivity()
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_productivity()
 
 elif section == "Qualificação de Leads":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_lead_scoring(user, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_lead_scoring(user, can_manage(user["role"], "admin"))
 
 elif section == "Segmentação":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
 
 elif section == "Insights com IA":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
 
 elif section == "Marketing":
     marketing.render(globals())
