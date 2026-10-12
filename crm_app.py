@@ -213,7 +213,7 @@ components.html(
     themeColor.name = "theme-color";
     head.appendChild(themeColor);
   }
-  themeColor.content = "#08a742";
+  themeColor.content = "#2563eb";
 
   let appleCapable = head.querySelector('meta[name="apple-mobile-web-app-capable"]');
   if (!appleCapable) {
@@ -907,21 +907,21 @@ def ingest_message(uploaded_file) -> str:
 # CSS injetado no iframe do kanban (o tema da página não alcança lá dentro).
 KANBAN_STYLE = """
 .sortable-component { display: flex; gap: 12px; align-items: flex-start;
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
-.sortable-container { flex: 1 1 0; background: #ebe9de; border: 0; border-top: 4px solid #9aa39c;
-    border-radius: 14px; padding: 8px; min-height: 160px; }
-.sortable-container:nth-child(1) { border-top-color: #7a8a80; }
-.sortable-container:nth-child(2) { border-top-color: #175cd3; }
-.sortable-container:nth-child(3) { border-top-color: #c9a227; }
-.sortable-container:nth-child(4) { border-top-color: #0b9b4a; }
-.sortable-container:nth-child(5) { border-top-color: #d92d20; }
-.sortable-container-header { font-weight: 750; font-size: 12.5px; color: #14201a;
-    padding: 8px 8px 6px; letter-spacing: -0.01em; }
+    font-family: ui-sans-serif, -apple-system, 'Segoe UI', Inter, system-ui, sans-serif; }
+.sortable-container { flex: 1 1 0; background: #f3f4f6; border: 1px solid #e5e7eb; border-top: 3px solid #9ca3af;
+    border-radius: 12px; padding: 6px; min-height: 160px; }
+.sortable-container:nth-child(1) { border-top-color: #9ca3af; }
+.sortable-container:nth-child(2) { border-top-color: #2563eb; }
+.sortable-container:nth-child(3) { border-top-color: #d97706; }
+.sortable-container:nth-child(4) { border-top-color: #16a34a; }
+.sortable-container:nth-child(5) { border-top-color: #dc2626; }
+.sortable-container-header { font-weight: 650; font-size: 12px; color: #374151;
+    padding: 8px 8px 6px; letter-spacing: -0.005em; }
 .sortable-container-body { display: flex; flex-direction: column; gap: 8px; padding: 4px; min-height: 100px; }
-.sortable-item { background: #ffffff; border: 1px solid #e4e2d6; border-radius: 12px; padding: 11px 12px;
-    font-size: 12.5px; font-weight: 600; line-height: 1.35; color: #14201a; cursor: grab;
-    box-shadow: 0 1px 2px rgba(20, 32, 26, 0.05); transition: transform .12s, box-shadow .12s; }
-.sortable-item:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px rgba(20, 32, 26, 0.35); }
+.sortable-item { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px;
+    font-size: 12.5px; font-weight: 600; line-height: 1.35; color: #111827; cursor: grab;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05); transition: box-shadow .12s, border-color .12s; }
+.sortable-item:hover { border-color: #93b4f5; box-shadow: 0 6px 16px -8px rgba(37, 99, 235, 0.4); }
 """
 
 
@@ -1126,7 +1126,25 @@ def render_benchmark_comparison(compact: bool = False) -> None:
 
     _placar = capability_score()
 
-    with st.container(border=True):
+    def _tabela_concorrentes(lista) -> None:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Concorrente": c["name"],
+                        "Origem": c["origin"],
+                        "Preço de entrada": c["price"],
+                        "Nosso diferencial": c["trust_diff"],
+                    }
+                    for c in lista
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+            height=min(38 + 35 * len(lista), 300),
+        )
+
+    def _painel() -> None:
         st.markdown(
             '<div class="section-title">Comparativo Benchmark — o mercado brasileiro</div>',
             unsafe_allow_html=True,
@@ -1135,76 +1153,79 @@ def render_benchmark_comparison(compact: bool = False) -> None:
             f"Preços consultados nas páginas oficiais em {PRICE_CHECKED_AT}. "
             "Valores em dólar estão marcados. Software muda de preço — confira antes de decidir."
         )
-        _p = st.columns(3)
-        _p[0].metric("Capacidades à frente", _placar["vantagem"])
-        _p[1].metric("Equivalentes", _placar["empate"] + _placar["parcial"])
-        _p[2].metric("Atrás", _placar["atras"], help="E-mail, ecossistema de integrações e multiempresa.")
-
-        for _titulo, _lista in (
-            ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
-            ("🌐 Globais que competem no Brasil", global_competitors()),
-        ):
-            st.markdown(f"**{_titulo}**")
+        st.markdown(
+            ui.kpi_grid(
+                [
+                    {"label": "Capacidades à frente", "value": _placar["vantagem"], "icon": "emoji_events", "tone": "ok"},
+                    {"label": "Equivalentes", "value": _placar["empate"] + _placar["parcial"], "icon": "balance", "tone": "info"},
+                    {"label": "Atrás", "value": _placar["atras"], "caption": "E-mail, ecossistema de integrações e multiempresa.", "icon": "flag", "tone": "warn"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+        _abas = ["Concorrentes", "Capacidade a capacidade", "Onde ganhamos e onde estamos atrás"]
+        if not compact:
+            _abas.append("Detalhe por concorrente")
+        _tabs = st.tabs(_abas)
+        with _tabs[0]:
+            _col_br, _col_gl = st.columns(2)
+            with _col_br:
+                st.markdown("**🇧🇷 CRMs brasileiros**")
+                _tabela_concorrentes(brazilian_competitors())
+            with _col_gl:
+                st.markdown("**🌐 Globais que competem no Brasil**")
+                _tabela_concorrentes(global_competitors())
+        with _tabs[1]:
             st.dataframe(
                 pd.DataFrame(
                     [
-                        {
-                            "Concorrente": c["name"],
-                            "Origem": c["origin"],
-                            "Preço de entrada": c["price"],
-                            "Nosso diferencial": c["trust_diff"],
-                        }
-                        for c in _lista
+                        {"Capacidade": m["capability"], "Trust CRM": m["trust"], "Mercado": m["market"]}
+                        for m in CAPABILITY_MATRIX
                     ]
                 ),
                 width="stretch",
                 hide_index=True,
+                height=min(38 + 35 * len(CAPABILITY_MATRIX), 460),
             )
-
+        with _tabs[2]:
+            _pos = st.columns(2)
+            with _pos[0], st.container(border=True):
+                st.markdown(ui.card_title("Onde ganhamos", "emoji_events"), unsafe_allow_html=True)
+                for _item in TRUST_POSITION["ganhamos"]:
+                    st.markdown(f"- {_item}")
+            with _pos[1], st.container(border=True):
+                st.markdown(ui.card_title("Onde estamos atrás", "flag"), unsafe_allow_html=True)
+                for _item in TRUST_POSITION["atras"]:
+                    st.markdown(f"- {_item}")
+                st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
         if not compact:
-            for _titulo, _lista in (
-                ("🇧🇷 CRMs brasileiros", brazilian_competitors()),
-                ("🌐 Globais", global_competitors()),
-            ):
-                st.markdown(f"**Detalhe — {_titulo}**")
-                for _c in _lista:
-                    with st.expander(f"{_c['name']} · {_c['origin']}"):
-                        st.markdown(f"**Público-alvo:** {_c['audience']}")
-                        st.markdown(f"**Preço:** {_c['price']}  \n*Fonte: {_c['price_source']}*")
-                        st.markdown("**Pontos fortes:**")
-                        for _f in _c["strengths"]:
-                            st.markdown(f"- {_f}")
-                        st.markdown("**Limitações conhecidas:**")
-                        for _l in _c["limitations"]:
-                            st.markdown(f"- {_l}")
-                        st.markdown(f"**Adequação ao Brasil:** {_c['brasil']}")
-                        st.info(f"**Nosso diferencial:** {_c['trust_diff']}")
+            with _tabs[3]:
+                _col_br, _col_gl = st.columns(2)
+                for _col, _titulo, _lista in (
+                    (_col_br, "🇧🇷 CRMs brasileiros", brazilian_competitors()),
+                    (_col_gl, "🌐 Globais", global_competitors()),
+                ):
+                    with _col:
+                        st.markdown(f"**Detalhe — {_titulo}**")
+                        for _c in _lista:
+                            with st.expander(f"{_c['name']} · {_c['origin']}"):
+                                st.markdown(f"**Público-alvo:** {_c['audience']}")
+                                st.markdown(f"**Preço:** {_c['price']}  \n*Fonte: {_c['price_source']}*")
+                                st.markdown("**Pontos fortes:**")
+                                for _f in _c["strengths"]:
+                                    st.markdown(f"- {_f}")
+                                st.markdown("**Limitações conhecidas:**")
+                                for _l in _c["limitations"]:
+                                    st.markdown(f"- {_l}")
+                                st.markdown(f"**Adequação ao Brasil:** {_c['brasil']}")
+                                st.info(f"**Nosso diferencial:** {_c['trust_diff']}")
 
-    st.markdown(" ")
-    with st.container(border=True):
-        st.markdown(ui.card_title("Capacidade a capacidade", "checklist"), unsafe_allow_html=True)
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {"Capacidade": m["capability"], "Trust CRM": m["trust"], "Mercado": m["market"]}
-                    for m in CAPABILITY_MATRIX
-                ]
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-
-    st.markdown(" ")
-    _pos = st.columns(2)
-    with _pos[0], st.container(border=True):
-        st.markdown(ui.card_title("Onde ganhamos", "emoji_events"), unsafe_allow_html=True)
-        for _item in TRUST_POSITION["ganhamos"]:
-            st.markdown(f"- {_item}")
-    with _pos[1], st.container(border=True):
-        st.markdown(ui.card_title("Onde estamos atrás", "flag"), unsafe_allow_html=True)
-        for _item in TRUST_POSITION["atras"]:
-            st.markdown(f"- {_item}")
-        st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
+    if compact:
+        # No catálogo de Serviços o comparativo fica recolhido: quem quer, abre.
+        with st.expander("📊 Comparativo Benchmark — como a Trust se posiciona contra o mercado", expanded=False):
+            _painel()
+    else:
+        _painel()
 
 
 def render_services_catalog() -> None:
@@ -1498,6 +1519,10 @@ with st.sidebar:
     else:
         section = str(st.session_state["nav_primary"])
     st.session_state["nav_section"] = section
+    if section in secondary_sections:
+        # Módulo fora do trilho principal: o CSS apaga o destaque do último item
+        # principal e acende o ícone de «mais módulos».
+        st.markdown('<span class="rail-secondary-active"></span>', unsafe_allow_html=True)
 
     st.markdown('<div class="side-label">Ferramentas</div>', unsafe_allow_html=True)
     _filters_active = (
@@ -1728,19 +1753,7 @@ if user.get("role") == "admin":
 aviso_de_visibilidade()
 
 if section == "Visão Executiva":
-    st.markdown(
-        """
-<div class="hero">
-    <div class="hero-grid">
-        <div>
-            <h1>Visão executiva</h1>
-            <p>Indicadores da operação no recorte de mercado e responsável selecionados na barra lateral.</p>
-        </div>
-    </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    render_page_header(section)
     _exec_report_config = get_exec_report_config(user["username"])
     _exec_selected_kpis = [
         kpi_id for kpi_id in _exec_report_config["kpis"] if kpi_id in EXEC_KPI_CATALOG

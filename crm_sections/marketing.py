@@ -80,7 +80,7 @@ def render(ctx: dict[str, Any]) -> None:
             st.bar_chart(
                 channel_conversion,
                 horizontal=True,
-                color="#08a742",
+                color="#2563eb",
                 height=max(160, 56 * len(channel_conversion)),
             )
     with right:

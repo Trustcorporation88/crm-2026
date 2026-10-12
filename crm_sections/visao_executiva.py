@@ -86,7 +86,7 @@ def render(ctx: dict[str, Any]) -> None:
             st.bar_chart(
                 owner_load.set_index(_group_field),
                 horizontal=True,
-                color="#0b9b4a",
+                color="#2563eb",
                 height=max(160, 56 * len(owner_load)),
             )
     with right, st.container(border=True):

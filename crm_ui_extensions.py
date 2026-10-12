@@ -52,8 +52,9 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
             "O sistema detecta sozinho quem deveria entrar em cada cadência, em vez de "
             "alguém precisar lembrar de inscrever um por um. Revise a prévia antes de aplicar."
         )
-        with st.container(border=True):
-            st.markdown(ui.card_title("Gatilhos ativos"), unsafe_allow_html=True)
+        _col_gat, _col_prev = st.columns([1, 1.45], gap="medium")
+        with _col_gat, st.container(border=True):
+            st.markdown(ui.card_title("Gatilhos ativos", "bolt"), unsafe_allow_html=True)
             _escolhidas_nurture = []
             for _regra in NURTURE_RULES:
                 _ligada = st.checkbox(
@@ -77,9 +78,8 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
             enabled=set(_escolhidas_nurture),
         )
 
-        st.markdown(" ")
-        with st.container(border=True):
-            st.markdown(ui.card_title("Prévia — quem entra agora"), unsafe_allow_html=True)
+        with _col_prev, st.container(border=True):
+            st.markdown(ui.card_title("Prévia — quem entra agora", "preview"), unsafe_allow_html=True)
             if not _propostas_nurture:
                 st.success("Nada novo: ninguém precisa entrar em uma cadência agora. 🎉")
             else:
@@ -103,6 +103,7 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
                     ),
                     width="stretch",
                     hide_index=True,
+                    height=min(38 + 35 * len(_propostas_nurture), 250),
                 )
 
                 if st.button(f"🌱 Iniciar jornadas ({len(_propostas_nurture)})", key="run_nurture", type="primary"):
@@ -121,12 +122,13 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
         st.caption("Escolha o cliente, a sequencia e quem fica responsavel pelos toques.")
         if not customers_df.empty and cadlist and owner_options:
             with st.form("cad-enroll"):
-                sc = st.selectbox("Cliente", customers_df["name"].tolist(),
+                _f1, _f2, _f3 = st.columns(3)
+                sc = _f1.selectbox("Cliente", customers_df["name"].tolist(),
                                   help="Cliente que recebera a sequencia de mensagens.")
-                sk = st.selectbox("Cadencia", [c["key"] for c in cadlist],
+                sk = _f2.selectbox("Cadencia", [c["key"] for c in cadlist],
                                   format_func=lambda k: next((c["title"] for c in cadlist if c["key"] == k), k),
                                   help="Modelo de sequencia. Cada um tem N toques em datas e canais especificos.")
-                so = st.selectbox("Owner", owner_options,
+                so = _f3.selectbox("Owner", owner_options,
                                   help="Vendedor ou SDR que vai executar os toques.")
                 if st.form_submit_button("Inscrever", type="primary"):
                     try:
@@ -161,34 +163,41 @@ def render_templates(user, customers_df, can_admin):
     from message_templates import list_templates, render_template, save_template
     st.markdown(ui.card_title("Modelos de mensagem"), unsafe_allow_html=True)
     st.caption("Modelos prontos para WhatsApp, email e SMS com variaveis dinamicas.")
-    c1, c2 = st.columns(2)
-    with c1: fch = st.selectbox("Canal", ["Todos", "WhatsApp", "Email", "SMS"],
-                                help="Filtra os templates pelo canal de envio.")
-    with c2: fct = st.selectbox("Categoria", ["Todas", "Onboarding", "Follow-up", "Atendimento", "Retencao", "Pesquisa", "Reativacao"],
-                                help="Tipo de comunicacao. Onboarding = boas-vindas, Retencao = evitar churn.")
-    tpl = list_templates(channel=None if fch == "Todos" else fch, category=None if fct == "Todas" else fct)
-    if tpl:
-        st.dataframe(pd.DataFrame(tpl)[["key", "channel", "category", "title", "is_active"]], width="stretch", hide_index=True)
-        st.markdown("**Preview com dados reais**")
-        sk = st.selectbox("Template", [t["key"] for t in tpl],
-                          format_func=lambda k: next((t["title"] for t in tpl if t["key"] == k), k),
-                          help="Escolha o template para ver como fica com dados de um cliente real.")
-        if not customers_df.empty:
-            sc = st.selectbox("Cliente para variaveis", customers_df["name"].tolist(), key="tpl_cust",
-                              help="Os dados desse cliente vao preencher {{customer_name}} e similares.")
-            cust = customers_df[customers_df["name"] == sc].iloc[0].to_dict()
-            r = render_template(sk, {"customer_name": cust["name"], "owner": cust.get("owner", ""), "ticket_id": "EX-001"})
-            st.text_area("Mensagem renderizada", r, height=180)
-    else:
-        st.info("Nenhum template para os filtros.")
+    _col_lista, _col_prev = st.columns([1.3, 1], gap="medium")
+    with _col_lista, st.container(border=True):
+        c1, c2 = st.columns(2)
+        with c1: fch = st.selectbox("Canal", ["Todos", "WhatsApp", "Email", "SMS"],
+                                    help="Filtra os templates pelo canal de envio.")
+        with c2: fct = st.selectbox("Categoria", ["Todas", "Onboarding", "Follow-up", "Atendimento", "Retencao", "Pesquisa", "Reativacao"],
+                                    help="Tipo de comunicacao. Onboarding = boas-vindas, Retencao = evitar churn.")
+        tpl = list_templates(channel=None if fch == "Todos" else fch, category=None if fct == "Todas" else fct)
+        if tpl:
+            st.dataframe(pd.DataFrame(tpl)[["key", "channel", "category", "title", "is_active"]], width="stretch", hide_index=True, height=330)
+        else:
+            st.info("Nenhum template para os filtros.")
+    with _col_prev, st.container(border=True):
+        st.markdown(ui.card_title("Preview com dados reais", "visibility"), unsafe_allow_html=True)
+        if tpl:
+            sk = st.selectbox("Template", [t["key"] for t in tpl],
+                              format_func=lambda k: next((t["title"] for t in tpl if t["key"] == k), k),
+                              help="Escolha o template para ver como fica com dados de um cliente real.")
+            if not customers_df.empty:
+                sc = st.selectbox("Cliente para variaveis", customers_df["name"].tolist(), key="tpl_cust",
+                                  help="Os dados desse cliente vao preencher {{customer_name}} e similares.")
+                cust = customers_df[customers_df["name"] == sc].iloc[0].to_dict()
+                r = render_template(sk, {"customer_name": cust["name"], "owner": cust.get("owner", ""), "ticket_id": "EX-001"})
+                st.text_area("Mensagem renderizada", r, height=150)
+        else:
+            st.caption("Escolha filtros com templates para ver o preview.")
     if can_admin:
       with st.expander("Criar ou editar template", expanded=False):
         with st.form("tpl_form"):
-            tk = st.text_input("Key (identificador unico)", value="custom_template",
+            _t1, _t2, _t3 = st.columns(3)
+            tk = _t1.text_input("Key (identificador unico)", value="custom_template",
                                help="Use snake_case. Ex: welcome_email_v2. Nao pode ter espaco.")
-            ch = st.selectbox("Canal", ["WhatsApp", "Email", "SMS"], key="tpl_ch",
+            ch = _t2.selectbox("Canal", ["WhatsApp", "Email", "SMS"], key="tpl_ch",
                               help="Onde a mensagem sera enviada.")
-            ct = st.selectbox("Categoria", ["Onboarding", "Follow-up", "Atendimento", "Retencao", "Pesquisa", "Reativacao"], key="tpl_cat",
+            ct = _t3.selectbox("Categoria", ["Onboarding", "Follow-up", "Atendimento", "Retencao", "Pesquisa", "Reativacao"], key="tpl_cat",
                               help="Categoriza para facilitar busca e relatorios.")
             tt = st.text_input("Titulo (visivel para o time)",
                                help="Nome amigavel. Ex: Email de boas-vindas - SaaS.")
