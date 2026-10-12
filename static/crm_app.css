@@ -966,7 +966,7 @@
     [data-testid="stMain"] [data-testid="stColumn"] .kpi-grid .kpi-value { overflow-wrap: anywhere; line-height: 1.15; font-size: 1.3rem; margin-top: 0.55rem; }
 
     /* ---- Etapas (importação) ---- */
-    .stepper { list-style: none; display: flex; gap: 0.5rem; padding: 0; margin: 0 0 1.2rem; }
+    [data-testid="stMain"] ol.stepper { list-style: none !important; display: flex !important; width: 100% !important; gap: 0.5rem; padding: 0 !important; margin: 0 0 1.2rem !important; }
     .step { flex: 1; display: flex; align-items: center; gap: 0.65rem; padding: 0.7rem 0.9rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); position: relative; }
     .step-n { display: grid; place-items: center; flex: none; width: 1.8rem; height: 1.8rem; border-radius: 50%; font-size: 0.82rem; font-weight: 750; background: var(--tone-neutral-bg); color: var(--tone-neutral); }
     .step-l { font-size: 0.88rem; font-weight: 650; color: var(--muted); }
@@ -975,7 +975,7 @@
     .step--now .step-l { color: var(--ink); }
     .step--done .step-n { background: var(--tone-ok-bg); color: var(--tone-ok); }
     .step--done .step-l { color: var(--tone-ok); }
-    @media (max-width: 760px) { .stepper { flex-direction: column; } }
+    @media (max-width: 760px) { [data-testid="stMain"] ol.stepper { flex-direction: column; } }
 
     /* ---- Cabeçalho de ficha (cliente) ---- */
     .pf { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.2rem; margin: 0.4rem 0 1rem; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-card); flex-wrap: wrap; }
