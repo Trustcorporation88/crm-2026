@@ -4,6 +4,8 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+import crm_components as ui
+
 
 def _currency(v):
     try:
@@ -20,10 +22,21 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
                                evaluate_rules as evaluate_nurture_rules,
                                summarize_proposals as summarize_nurture_proposals)
     owner_options = sorted([o for o in customers_df["owner"].dropna().unique().tolist() if o])
-    st.subheader("Cadências de follow-up automático")
     st.caption("Sequencias programadas de toques (mensagens, ligacoes, emails) para nao deixar lead esfriar.")
 
     cadlist = list_cadences()
+    _n_pend = len(list_pending_actions(limit=500))
+    _n_enr = len(list_active_enrollments())
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Sequências", "value": len(cadlist or []), "caption": "Modelos de cadência.", "icon": "route", "tone": "info"},
+                {"label": "Ações pendentes", "value": _n_pend, "caption": "Hoje ou atrasadas.", "icon": "pending_actions", "tone": "warn" if _n_pend else "ok"},
+                {"label": "Inscrições ativas", "value": _n_enr, "caption": "Clientes em jornada.", "icon": "groups", "tone": "gold"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
     if cadlist:
         cols = st.columns(min(len(cadlist), 4))
         for i, cd in enumerate(cadlist):
@@ -33,123 +46,120 @@ def render_cadences(user, customers_df, deals_df=None, last_activity=None):
                     st.markdown("**" + cd["title"] + "**")
                     st.caption(str(cd["step_count"]) + " toques")
 
-    st.divider()
-    st.subheader("🌱 Jornadas automáticas")
-    st.caption(
-        "O sistema detecta sozinho quem deveria entrar em cada cadência, em vez de "
-        "alguém precisar lembrar de inscrever um por um. Revise a prévia antes de aplicar."
-    )
-    with st.container(border=True):
-        st.markdown('<div class="section-title">Gatilhos ativos</div>', unsafe_allow_html=True)
-        _escolhidas_nurture = []
-        for _regra in NURTURE_RULES:
-            _ligada = st.checkbox(
-                f"**{_regra['name']}**",
-                value=True,
-                key=f"nurture-{_regra['id']}",
-                help=_regra["description"],
-            )
-            st.caption(_regra["description"])
-            if _ligada:
-                _escolhidas_nurture.append(_regra["id"])
+    _tabs = st.tabs(["Jornadas automáticas", "Inscrever cliente em uma cadencia", "Acoes pendentes", "Inscricoes ativas"])
+    with _tabs[0]:
+        st.caption(
+            "O sistema detecta sozinho quem deveria entrar em cada cadência, em vez de "
+            "alguém precisar lembrar de inscrever um por um. Revise a prévia antes de aplicar."
+        )
+        with st.container(border=True):
+            st.markdown(ui.card_title("Gatilhos ativos"), unsafe_allow_html=True)
+            _escolhidas_nurture = []
+            for _regra in NURTURE_RULES:
+                _ligada = st.checkbox(
+                    f"**{_regra['name']}**",
+                    value=True,
+                    key=f"nurture-{_regra['id']}",
+                    help=_regra["description"],
+                )
+                st.caption(_regra["description"])
+                if _ligada:
+                    _escolhidas_nurture.append(_regra["id"])
 
-    _active_keys = get_active_enrollment_keys()
-    _titles = get_cadence_titles()
-    _propostas_nurture = evaluate_nurture_rules(
-        customers=customers_df,
-        deals=deals_df,
-        last_activity=last_activity or {},
-        active_enrollments=_active_keys,
-        cadence_titles=_titles,
-        enabled=set(_escolhidas_nurture),
-    )
+        _active_keys = get_active_enrollment_keys()
+        _titles = get_cadence_titles()
+        _propostas_nurture = evaluate_nurture_rules(
+            customers=customers_df,
+            deals=deals_df,
+            last_activity=last_activity or {},
+            active_enrollments=_active_keys,
+            cadence_titles=_titles,
+            enabled=set(_escolhidas_nurture),
+        )
 
-    st.markdown(" ")
-    with st.container(border=True):
-        st.markdown('<div class="section-title">Prévia — quem entra agora</div>', unsafe_allow_html=True)
-        if not _propostas_nurture:
-            st.success("Nada novo: ninguém precisa entrar em uma cadência agora. 🎉")
+        st.markdown(" ")
+        with st.container(border=True):
+            st.markdown(ui.card_title("Prévia — quem entra agora"), unsafe_allow_html=True)
+            if not _propostas_nurture:
+                st.success("Nada novo: ninguém precisa entrar em uma cadência agora. 🎉")
+            else:
+                _resumo_nurture = summarize_nurture_proposals(_propostas_nurture)
+                _nomes_nurture = {r["id"]: r["name"] for r in NURTURE_RULES}
+                _cols_n = st.columns(len(_resumo_nurture) or 1)
+                for _col, (_rid, _qtd) in zip(_cols_n, _resumo_nurture.items()):
+                    _col.metric(_nomes_nurture.get(_rid, _rid).split("→")[0].strip(), _qtd)
+
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Cliente": p.customer_name,
+                                "Cadência": p.cadence_title,
+                                "Responsável": p.owner or "Sem owner",
+                                "Por quê": p.reason,
+                            }
+                            for p in _propostas_nurture
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                if st.button(f"🌱 Iniciar jornadas ({len(_propostas_nurture)})", key="run_nurture", type="primary"):
+                    resultado = enroll_proposals(_propostas_nurture, actor=user)
+                    criadas, puladas = len(resultado["created"]), len(resultado["skipped"])
+                    if criadas:
+                        st.success(
+                            f"{criadas} cliente(s) inscrito(s) em jornada."
+                            + (f" {puladas} já estavam." if puladas else "")
+                        )
+                    else:
+                        st.info("Tudo já estava inscrito — nada duplicado.")
+                    st.rerun()
+
+    with _tabs[1]:
+        st.caption("Escolha o cliente, a sequencia e quem fica responsavel pelos toques.")
+        if not customers_df.empty and cadlist and owner_options:
+            with st.form("cad-enroll"):
+                sc = st.selectbox("Cliente", customers_df["name"].tolist(),
+                                  help="Cliente que recebera a sequencia de mensagens.")
+                sk = st.selectbox("Cadencia", [c["key"] for c in cadlist],
+                                  format_func=lambda k: next((c["title"] for c in cadlist if c["key"] == k), k),
+                                  help="Modelo de sequencia. Cada um tem N toques em datas e canais especificos.")
+                so = st.selectbox("Owner", owner_options,
+                                  help="Vendedor ou SDR que vai executar os toques.")
+                if st.form_submit_button("Inscrever", type="primary"):
+                    try:
+                        cid = customers_df.loc[customers_df["name"] == sc, "customer_id"].iloc[0]
+                        eid = enroll(sk, cid, so, actor=user); st.success("Inscrito #" + str(eid)); st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+
+    with _tabs[2]:
+        st.caption("Toques agendados para hoje ou atrasados. Marque como feita apos executar.")
+        pend = list_pending_actions(limit=50)
+        if pend:
+            st.dataframe(pd.DataFrame(pend)[["id", "customer_name", "channel", "template_key", "scheduled_at", "owner"]],
+                         width="stretch", hide_index=True)
+            aid = st.number_input("ID da acao para marcar feita", min_value=0, step=1, key="cad_aid",
+                                  help="Copie o ID da coluna `id` da tabela acima.")
+            if st.button("Marcar feita") and aid > 0:
+                mark_action_done(int(aid), actor=user); st.success("OK"); st.rerun()
         else:
-            _resumo_nurture = summarize_nurture_proposals(_propostas_nurture)
-            _nomes_nurture = {r["id"]: r["name"] for r in NURTURE_RULES}
-            _cols_n = st.columns(len(_resumo_nurture) or 1)
-            for _col, (_rid, _qtd) in zip(_cols_n, _resumo_nurture.items()):
-                _col.metric(_nomes_nurture.get(_rid, _rid).split("→")[0].strip(), _qtd)
+            st.info("Nenhuma acao pendente.")
 
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            "Cliente": p.customer_name,
-                            "Cadência": p.cadence_title,
-                            "Responsável": p.owner or "Sem owner",
-                            "Por quê": p.reason,
-                        }
-                        for p in _propostas_nurture
-                    ]
-                ),
-                width="stretch",
-                hide_index=True,
-            )
-
-            if st.button(f"🌱 Iniciar jornadas ({len(_propostas_nurture)})", key="run_nurture", type="primary"):
-                resultado = enroll_proposals(_propostas_nurture, actor=user)
-                criadas, puladas = len(resultado["created"]), len(resultado["skipped"])
-                if criadas:
-                    st.success(
-                        f"{criadas} cliente(s) inscrito(s) em jornada."
-                        + (f" {puladas} já estavam." if puladas else "")
-                    )
-                else:
-                    st.info("Tudo já estava inscrito — nada duplicado.")
-                st.rerun()
-
-    st.divider()
-    st.subheader("Inscrever cliente em uma cadencia")
-    st.caption("Escolha o cliente, a sequencia e quem fica responsavel pelos toques.")
-    if not customers_df.empty and cadlist and owner_options:
-        with st.form("cad-enroll"):
-            sc = st.selectbox("Cliente", customers_df["name"].tolist(),
-                              help="Cliente que recebera a sequencia de mensagens.")
-            sk = st.selectbox("Cadencia", [c["key"] for c in cadlist],
-                              format_func=lambda k: next((c["title"] for c in cadlist if c["key"] == k), k),
-                              help="Modelo de sequencia. Cada um tem N toques em datas e canais especificos.")
-            so = st.selectbox("Owner", owner_options,
-                              help="Vendedor ou SDR que vai executar os toques.")
-            if st.form_submit_button("Inscrever", type="primary"):
-                try:
-                    cid = customers_df.loc[customers_df["name"] == sc, "customer_id"].iloc[0]
-                    eid = enroll(sk, cid, so, actor=user); st.success("Inscrito #" + str(eid)); st.rerun()
-                except Exception as exc:
-                    st.error(str(exc))
-
-    st.divider()
-    st.subheader("Acoes pendentes")
-    st.caption("Toques agendados para hoje ou atrasados. Marque como feita apos executar.")
-    pend = list_pending_actions(limit=50)
-    if pend:
-        st.dataframe(pd.DataFrame(pend)[["id", "customer_name", "channel", "template_key", "scheduled_at", "owner"]],
-                     width="stretch", hide_index=True)
-        aid = st.number_input("ID da acao para marcar feita", min_value=0, step=1, key="cad_aid",
-                              help="Copie o ID da coluna `id` da tabela acima.")
-        if st.button("Marcar feita") and aid > 0:
-            mark_action_done(int(aid), actor=user); st.success("OK"); st.rerun()
-    else:
-        st.info("Nenhuma acao pendente.")
-
-    st.divider()
-    st.subheader("Inscricoes ativas")
-    enr = list_active_enrollments()
-    if enr:
-        st.dataframe(pd.DataFrame(enr)[["id", "customer_name", "cadence_title", "current_step", "total_steps", "owner", "paused"]],
-                     width="stretch", hide_index=True)
-    else:
-        st.info("Nenhuma inscricao ativa.")
+    with _tabs[3]:
+        enr = list_active_enrollments()
+        if enr:
+            st.dataframe(pd.DataFrame(enr)[["id", "customer_name", "cadence_title", "current_step", "total_steps", "owner", "paused"]],
+                         width="stretch", hide_index=True)
+        else:
+            st.info("Nenhuma inscricao ativa.")
 
 
 def render_templates(user, customers_df, can_admin):
     from message_templates import list_templates, render_template, save_template
-    st.subheader("Modelos de mensagem")
+    st.markdown(ui.card_title("Modelos de mensagem"), unsafe_allow_html=True)
     st.caption("Modelos prontos para WhatsApp, email e SMS com variaveis dinamicas.")
     c1, c2 = st.columns(2)
     with c1: fch = st.selectbox("Canal", ["Todos", "WhatsApp", "Email", "SMS"],
@@ -172,8 +182,7 @@ def render_templates(user, customers_df, can_admin):
     else:
         st.info("Nenhum template para os filtros.")
     if can_admin:
-        st.divider()
-        st.subheader("Criar ou editar template")
+      with st.expander("Criar ou editar template", expanded=False):
         with st.form("tpl_form"):
             tk = st.text_input("Key (identificador unico)", value="custom_template",
                                help="Use snake_case. Ex: welcome_email_v2. Nao pode ter espaco.")
@@ -198,7 +207,7 @@ def render_templates(user, customers_df, can_admin):
 def render_health(user=None, can_admin=False):
     from health_score import (recalculate_all_health, get_at_risk_customers, get_health_overview,
                               apply_learned_weights, reset_learned_weights, _load_learned_weights)
-    st.subheader("Saúde da conta e risco de cancelamento")
+    st.markdown(ui.card_title("Saúde da conta e risco de cancelamento"), unsafe_allow_html=True)
     st.caption("Score 0-100 por cliente baseado em uso, suporte, NPS e tempo de relacionamento.")
     c1, c2 = st.columns(2)
     with c1:
@@ -235,26 +244,34 @@ def render_health(user=None, can_admin=False):
             st.rerun()
     overview = get_health_overview()
     if overview:
-        cols = st.columns(4)
-        for col, level in zip(cols, ["Critico", "Alto", "Medio", "Baixo"]):
+        _tons = {"Critico": ("Crítico", "crisis_alert", "danger"), "Alto": ("Alto", "warning", "warn"),
+                 "Medio": ("Médio", "visibility", "gold"), "Baixo": ("Baixo", "verified", "ok")}
+        _cards = []
+        for level, (rotulo, ic, tone) in _tons.items():
             d = overview.get(level, {"total": 0, "avg_score": 0})
-            with col:
-                with st.container(border=True):
-                    st.caption("Risco " + level)
-                    st.metric("Contas", d["total"])
-                    st.caption("Score medio: " + str(d["avg_score"]))
-    st.divider()
-    st.subheader("Contas em risco")
+            _cards.append({"label": f"Risco {rotulo}", "value": d["total"], "caption": f"Score médio: {d['avg_score']}", "icon": ic, "tone": tone})
+        st.markdown(ui.kpi_grid(_cards), unsafe_allow_html=True)
+    st.markdown(ui.card_title("Contas em risco", "monitor_heart"), unsafe_allow_html=True)
     sev = st.selectbox("Severidade minima", ["Alto", "Critico", "Medio", "Baixo"],
                        help="Critico = churn iminente. Alto = atencao em 30 dias. Medio = monitorar.")
     risk = get_at_risk_customers(min_severity=sev)
     if risk:
-        for it in risk[:30]:
-            with st.container(border=True):
-                st.markdown("**" + it["name"] + "** - Risco " + it["churn_risk"] + " - Score " + str(it["health_score"]) + "/100")
-                st.caption(it["segment"] + " - " + it["country"] + " - Owner: " + str(it["owner"]))
-                st.write("**Proxima acao:** " + it["next_best_action"])
-                st.caption("LTV: " + _currency(it["lifetime_value"]) + " - Canal: " + str(it["channel"]))
+        _tone_risk = {"Critico": "danger", "Alto": "warn", "Medio": "gold", "Baixo": "ok"}
+        st.markdown(
+            ui.list_block(
+                [
+                    ui.agenda_row(
+                        it["name"],
+                        f"{it['segment']} · {it['country']} · {it['owner']} · LTV {_currency(it['lifetime_value'])} — Próxima ação: {it['next_best_action']}",
+                        _tone_risk.get(it["churn_risk"], "neutral"),
+                        ui.pill(f"{it['churn_risk']} · {it['health_score']}/100", _tone_risk.get(it["churn_risk"], "neutral")),
+                        progress=float(it["health_score"]) / 100,
+                    )
+                    for it in risk[:30]
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
     else:
         st.info("Nenhuma conta nesse nivel.")
 
@@ -262,7 +279,6 @@ def render_health(user=None, can_admin=False):
 def render_lead_scoring(user, can_admin):
     from lead_scoring import (recalculate_all_scores, get_lead_scores, get_active_rules,
                               update_rule, apply_learned_weights)
-    st.subheader("Qualificação de leads")
     st.caption("Pontuacao 0-100 que prioriza onde o time deve focar. Tier A = quente, D = frio.")
     c1, c2 = st.columns(2)
     with c1:
@@ -293,39 +309,63 @@ def render_lead_scoring(user, can_admin):
                     "nenhum sinal tinha amostra suficiente (mínimo 5 dos dois lados), "
                     "os pesos continuam como estavam."
                 )
-    st.divider()
-    st.subheader("Carteira priorizada")
-    tier = st.selectbox("Filtrar tier", ["Todos", "A", "B", "C", "D"],
-                        help="A = abordar agora. B = aquecer. C = nutrir. D = passivo.")
-    scores = get_lead_scores(limit=200, tier_filter=None if tier == "Todos" else tier)
-    if scores:
-        for it in scores[:50]:
-            with st.container(border=True):
-                st.markdown("**Tier " + it["tier"] + "** - **" + it["name"] + "** - Score " + str(it["score"]) + "/100")
-                st.caption(it["segment"] + " - " + it["country"] + " - Owner: " + str(it["owner"]) + " - Canal: " + str(it["channel"]))
-    else:
-        st.info("Sem score. Recalcular acima.")
+    _scores_all = get_lead_scores(limit=500, tier_filter=None) or []
+    _por_tier = {t: sum(1 for x in _scores_all if x["tier"] == t) for t in "ABCD"}
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Tier A · quentes", "value": _por_tier["A"], "caption": "Abordar agora.", "icon": "local_fire_department", "tone": "danger"},
+                {"label": "Tier B · mornos", "value": _por_tier["B"], "caption": "Aquecer.", "icon": "trending_up", "tone": "warn"},
+                {"label": "Tier C · frios", "value": _por_tier["C"], "caption": "Nutrir.", "icon": "ac_unit", "tone": "info"},
+                {"label": "Tier D · passivos", "value": _por_tier["D"], "caption": "Sem ação.", "icon": "pause_circle", "tone": "neutral"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+    _nomes_abas = ["Carteira priorizada"] + (["Regras de pontuação"] if can_admin else [])
+    _tabs = st.tabs(_nomes_abas)
+    _tier_tone = {"A": "danger", "B": "warn", "C": "info", "D": "neutral"}
+    with _tabs[0]:
+        tier = st.selectbox("Filtrar tier", ["Todos", "A", "B", "C", "D"],
+                            help="A = abordar agora. B = aquecer. C = nutrir. D = passivo.")
+        scores = get_lead_scores(limit=200, tier_filter=None if tier == "Todos" else tier)
+        if scores:
+            st.markdown(
+                ui.list_block(
+                    [
+                        ui.agenda_row(
+                            it["name"],
+                            f"{it['segment']} · {it['country']} · {it['owner']} · {it['channel']}",
+                            _tier_tone.get(it["tier"], "neutral"),
+                            ui.pill(f"Tier {it['tier']} · {it['score']}/100", _tier_tone.get(it["tier"], "neutral")),
+                            progress=float(it["score"]) / 100,
+                        )
+                        for it in scores[:50]
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Sem score. Recalcular acima.")
     if can_admin:
-        st.divider()
-        st.subheader("Regras de pontuacao")
-        st.caption("Cada regra atribui pontos. A soma vira o score do lead.")
-        rules = get_active_rules()
-        df = pd.DataFrame([{"regra": k, "pontos": v} for k, v in rules.items()]).sort_values("pontos", ascending=False)
-        st.dataframe(df, width="stretch", hide_index=True)
-        with st.form("rule_form"):
-            rk = st.selectbox("Regra", list(rules.keys()),
-                              help="Selecione qual regra editar.")
-            rp = st.number_input("Pontos atribuidos", 0, 100, rules.get(rk, 0),
-                                 help="Quanto vale o atendimento dessa regra (0 a 100).")
-            ra = st.checkbox("Ativa", value=True,
-                             help="Desative para parar de aplicar essa regra sem deletar.")
-            if st.form_submit_button("Salvar", type="primary"):
-                update_rule(rk, int(rp), ra, actor=user); st.success("Atualizada."); st.rerun()
+        with _tabs[1]:
+            st.caption("Cada regra atribui pontos. A soma vira o score do lead.")
+            rules = get_active_rules()
+            df = pd.DataFrame([{"regra": k, "pontos": v} for k, v in rules.items()]).sort_values("pontos", ascending=False)
+            st.dataframe(df, width="stretch", hide_index=True)
+            with st.form("rule_form"):
+                rk = st.selectbox("Regra", list(rules.keys()),
+                                  help="Selecione qual regra editar.")
+                rp = st.number_input("Pontos atribuidos", 0, 100, rules.get(rk, 0),
+                                     help="Quanto vale o atendimento dessa regra (0 a 100).")
+                ra = st.checkbox("Ativa", value=True,
+                                 help="Desative para parar de aplicar essa regra sem deletar.")
+                if st.form_submit_button("Salvar", type="primary"):
+                    update_rule(rk, int(rp), ra, actor=user); st.success("Atualizada."); st.rerun()
 
 
 def render_forecast(selected_owner="Todos"):
     from forecast import get_pipeline_forecast, get_forecast_by_owner, get_velocity_metrics
-    st.subheader("Previsão de receita")
     st.caption("Projecao de receita ponderada pela probabilidade de cada deal fechar.")
     f1, f2 = st.columns(2)
     with f1: ps = st.date_input("Inicio do periodo", value=date.today().replace(day=1),
@@ -334,87 +374,101 @@ def render_forecast(selected_owner="Todos"):
                                 help="Data final. Use fim do trimestre para forecast Q.")
     fc = get_pipeline_forecast(period_start=ps.isoformat(), period_end=pe.isoformat(),
                                owner=None if selected_owner == "Todos" else selected_owner)
-    cols = st.columns(4)
-    metrics = [("Funil bruto", fc["raw_pipeline_value"], str(fc["deal_count"]) + " negócios"),
-               ("Previsão ponderada", fc["weighted_forecast"], "valor × probabilidade"),
-               ("Commit (>=80%)", fc["commit_value"], "alta certeza de fechar"),
-               ("Best case (50-79%)", fc["best_case_value"], "upside se tudo der certo")]
-    for col, (lab, val, cap) in zip(cols, metrics):
-        with col:
-            with st.container(border=True):
-                st.caption(lab); st.markdown("### " + _currency(val)); st.caption(cap)
-    st.divider()
-    st.subheader("Por vendedor")
-    bo = get_forecast_by_owner(ps.isoformat(), pe.isoformat())
-    if bo:
-        df = pd.DataFrame(bo)
-        df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v or 0))
-        df["fcst"] = df["weighted_forecast"].apply(lambda v: _currency(v or 0))
-        df["won"] = df["won_value"].apply(lambda v: _currency(v or 0))
-        st.dataframe(df[["owner", "deal_count", "pipe", "fcst", "won"]], width="stretch", hide_index=True)
-    else:
-        st.info("Sem dados.")
-    st.divider()
-    st.subheader("Velocity")
-    v = get_velocity_metrics()
-    vc = st.columns(4)
-    with vc[0]: st.metric("Win rate", str(v["win_rate_pct"]) + "%", help="% de deals ganhos vs total fechado.")
-    with vc[1]: st.metric("Ticket medio", _currency(v["avg_deal_size"]), help="Valor medio dos deals fechados.")
-    with vc[2]: st.metric("Ganhos", v["won_count"], help="Quantos deals foram fechados ganhando.")
-    with vc[3]: st.metric("Funil aberto", _currency(v["open_value"]), help="Valor total das oportunidades em aberto.")
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Funil bruto", "value": _currency(fc["raw_pipeline_value"]), "caption": str(fc["deal_count"]) + " negócios", "icon": "account_balance", "tone": "neutral"},
+                {"label": "Previsão ponderada", "value": _currency(fc["weighted_forecast"]), "caption": "valor × probabilidade", "icon": "query_stats", "tone": "ok"},
+                {"label": "Commit (≥80%)", "value": _currency(fc["commit_value"]), "caption": "alta certeza de fechar", "icon": "verified", "tone": "info"},
+                {"label": "Best case (50-79%)", "value": _currency(fc["best_case_value"]), "caption": "upside se tudo der certo", "icon": "rocket_launch", "tone": "gold"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+    _tabs = st.tabs(["Por vendedor", "Velocity"])
+    with _tabs[0]:
+        bo = get_forecast_by_owner(ps.isoformat(), pe.isoformat())
+        if bo:
+            df = pd.DataFrame(bo)
+            df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v or 0))
+            df["fcst"] = df["weighted_forecast"].apply(lambda v: _currency(v or 0))
+            df["won"] = df["won_value"].apply(lambda v: _currency(v or 0))
+            st.dataframe(df[["owner", "deal_count", "pipe", "fcst", "won"]], width="stretch", hide_index=True)
+        else:
+            st.info("Sem dados.")
+
+    with _tabs[1]:
+        v = get_velocity_metrics()
+        st.markdown(
+            ui.kpi_grid(
+                [
+                    {"label": "Win rate", "value": str(v["win_rate_pct"]) + "%", "caption": "% de deals ganhos vs total fechado.", "icon": "emoji_events", "tone": "ok"},
+                    {"label": "Ticket médio", "value": _currency(v["avg_deal_size"]), "caption": "Valor médio dos deals fechados.", "icon": "payments", "tone": "info"},
+                    {"label": "Ganhos", "value": v["won_count"], "caption": "Deals fechados ganhando.", "icon": "check_circle", "tone": "ok"},
+                    {"label": "Funil aberto", "value": _currency(v["open_value"]), "caption": "Oportunidades em aberto.", "icon": "filter_alt", "tone": "gold"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
 
 
 def render_productivity():
     from productivity import get_owner_productivity, get_team_summary, get_channel_breakdown
-    st.subheader("Produtividade do time")
     st.caption("Metricas por vendedor e por canal de atendimento.")
     period = st.selectbox("Periodo (dias)", [7, 14, 30, 60, 90], index=2,
                           help="Janela de analise. 30d = mes, 90d = trimestre.")
     summ = get_team_summary(period_days=period)
-    cs = st.columns(4)
-    with cs[0]: st.metric("Owners ativos", summ["active_owners"])
-    with cs[1]: st.metric("Resolvidos", str(summ["total_resolved"]) + "/" + str(summ["total_tickets"]),
-                          str(summ.get("resolution_rate_pct", 0)) + "%")
-    with cs[2]: st.metric("Receita", _currency(summ["total_revenue"]))
-    with cs[3]: st.metric("CSAT medio", str(summ["avg_csat"]) + "/5")
-    st.divider()
-    st.subheader("Performance individual")
-    od = get_owner_productivity(period_days=period)
-    if od:
-        df = pd.DataFrame(od)
-        df["receita"] = df["revenue_won"].apply(lambda v: _currency(v))
-        df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v))
-        st.dataframe(df[["owner", "tickets_total", "tickets_resolved", "avg_csat", "deals_won",
-                         "win_rate_pct", "receita", "pipe", "interactions_total"]],
-                     width="stretch", hide_index=True)
-    else:
-        st.info("Sem atividade no periodo.")
-    st.divider()
-    st.subheader("Tickets por canal")
-    chb = get_channel_breakdown(period_days=period)
-    if chb:
-        st.dataframe(pd.DataFrame(chb), width="stretch", hide_index=True)
-    else:
-        st.info("Sem tickets.")
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Owners ativos", "value": summ["active_owners"], "caption": "Com atividade no período.", "icon": "groups", "tone": "gold"},
+                {"label": "Resolvidos", "value": str(summ["total_resolved"]) + "/" + str(summ["total_tickets"]), "caption": str(summ.get("resolution_rate_pct", 0)) + "% de resolução", "icon": "task_alt", "tone": "ok"},
+                {"label": "Receita", "value": _currency(summ["total_revenue"]), "caption": "Negócios ganhos.", "icon": "payments", "tone": "info"},
+                {"label": "CSAT médio", "value": str(summ["avg_csat"]) + "/5", "caption": "Satisfação do atendimento.", "icon": "favorite", "tone": "warn"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+    _tabs = st.tabs(["Performance individual", "Tickets por canal"])
+    with _tabs[0]:
+        od = get_owner_productivity(period_days=period)
+        if od:
+            df = pd.DataFrame(od)
+            df["receita"] = df["revenue_won"].apply(lambda v: _currency(v))
+            df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v))
+            st.dataframe(df[["owner", "tickets_total", "tickets_resolved", "avg_csat", "deals_won",
+                             "win_rate_pct", "receita", "pipe", "interactions_total"]],
+                         width="stretch", hide_index=True)
+        else:
+            st.info("Sem atividade no periodo.")
+
+    with _tabs[1]:
+        chb = get_channel_breakdown(period_days=period)
+        if chb:
+            st.dataframe(pd.DataFrame(chb), width="stretch", hide_index=True)
+        else:
+            st.info("Sem tickets.")
 
 
 def render_segmentation(customers_df):
-    st.subheader("Segmentação inteligente")
+    st.markdown(ui.card_title("Segmentação inteligente"), unsafe_allow_html=True)
     st.caption("Filtre a base por multiplos criterios e exporte para campanhas dirigidas.")
-    g1 = st.columns(3)
-    with g1[0]: sco = st.multiselect("Mercado", customers_df["country"].unique().tolist(),
-                                     help="Pais ou regiao do cliente.")
-    with g1[1]: sst = st.multiselect("Status", customers_df["status"].unique().tolist(),
-                                     help="Estado atual: ativo, churn, prospect, etc.")
-    with g1[2]: sow = st.multiselect("Owner", customers_df["owner"].dropna().unique().tolist(),
-                                     help="Vendedor responsavel.")
-    g2 = st.columns(3)
-    with g2[0]: sch = st.multiselect("Canal preferido", customers_df["channel"].unique().tolist(),
-                                     help="Canal mais usado pelo cliente para falar com voce.")
-    with g2[1]: sl = st.number_input("LTV minimo (R$)", 0, value=0, step=10000,
-                                     help="Lifetime value: receita total acumulada com o cliente.")
-    with g2[2]: sh = st.number_input("Health score minimo", 0, 100, 0,
-                                     help="0-100. Quanto maior, mais saudavel a conta.")
+    with st.container(border=True):
+      st.markdown(ui.card_title("Critérios", "tune"), unsafe_allow_html=True)
+      g1 = st.columns(3)
+      with g1[0]: sco = st.multiselect("Mercado", customers_df["country"].unique().tolist(),
+                                       help="Pais ou regiao do cliente.")
+      with g1[1]: sst = st.multiselect("Status", customers_df["status"].unique().tolist(),
+                                       help="Estado atual: ativo, churn, prospect, etc.")
+      with g1[2]: sow = st.multiselect("Owner", customers_df["owner"].dropna().unique().tolist(),
+                                       help="Vendedor responsavel.")
+      g2 = st.columns(3)
+      with g2[0]: sch = st.multiselect("Canal preferido", customers_df["channel"].unique().tolist(),
+                                       help="Canal mais usado pelo cliente para falar com voce.")
+      with g2[1]: sl = st.number_input("LTV minimo (R$)", 0, value=0, step=10000,
+                                       help="Lifetime value: receita total acumulada com o cliente.")
+      with g2[2]: sh = st.number_input("Health score minimo", 0, 100, 0,
+                                       help="0-100. Quanto maior, mais saudavel a conta.")
     seg = customers_df.copy()
     if sco: seg = seg[seg["country"].isin(sco)]
     if sst: seg = seg[seg["status"].isin(sst)]
@@ -422,7 +476,18 @@ def render_segmentation(customers_df):
     if sch: seg = seg[seg["channel"].isin(sch)]
     if sl > 0: seg = seg[seg["lifetime_value"] >= sl]
     if sh > 0 and "health_score" in seg.columns: seg = seg[seg["health_score"] >= sh]
-    st.markdown("**" + str(len(seg)) + " contas no segmento**")
+    _ltv = float(seg["lifetime_value"].sum()) if "lifetime_value" in seg.columns and not seg.empty else 0.0
+    _saude = round(float(seg["health_score"].mean()), 1) if "health_score" in seg.columns and not seg.empty else 0
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Contas no segmento", "value": len(seg), "caption": f"de {len(customers_df)} na base.", "icon": "groups", "tone": "gold"},
+                {"label": "LTV somado", "value": _currency(_ltv), "caption": "Receita acumulada.", "icon": "payments", "tone": "ok"},
+                {"label": "Saúde média", "value": f"{_saude}/100", "caption": "Carteira do recorte.", "icon": "favorite", "tone": "info"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
     if not seg.empty:
         cols = ["customer_id", "name", "segment", "country", "owner", "status", "channel", "lifetime_value"]
         if "health_score" in seg.columns: cols.append("health_score")
@@ -437,7 +502,6 @@ def render_segmentation(customers_df):
 def render_ai_insights(customers_df):
     from ai_insights import (summarize_customer_timeline, suggest_next_action,
                              classify_ticket, detect_anomalies)
-    st.subheader("Insights automaticos")
     st.caption("Resumos, recomendacoes e deteccao de anomalias com regras inteligentes.")
     anomalies = detect_anomalies(period_days=7)
     if anomalies:
@@ -448,39 +512,39 @@ def render_ai_insights(customers_df):
                 st.write(a["description"])
     else:
         st.success("Nenhuma anomalia. Operacao saudavel.")
-    st.divider()
-    st.subheader("Resumo do cliente e proxima acao")
-    if not customers_df.empty:
-        ac = st.selectbox("Cliente", customers_df["name"].tolist(), key="ai_cust",
-                          help="Escolha um cliente para ver resumo automatico do historico.")
-        cid = customers_df.loc[customers_df["name"] == ac, "customer_id"].iloc[0]
-        with st.container(border=True):
-            st.markdown("**Resumo automatico**")
-            st.write(summarize_customer_timeline(cid))
-        action = suggest_next_action(cid)
-        with st.container(border=True):
-            st.markdown("**[" + action["priority"] + "] Proxima acao recomendada**")
-            st.write("**" + action["action"] + "**")
-            st.caption(action["reason"])
-            st.caption("Canal: " + str(action.get("channel_suggestion", "-"))
-                       + " | Template: " + str(action.get("template_suggestion", "-")))
-    st.divider()
-    st.subheader("Classificar ticket automaticamente")
-    st.caption("Cole um ticket novo e veja categoria, prioridade e SLA sugeridos.")
-    cs = st.text_input("Assunto",
-                       help="Titulo curto do ticket. Ex: Erro ao gerar relatorio mensal.")
-    cb = st.text_area("Descricao", height=100,
-                      help="Detalhes do problema relatado pelo cliente.")
-    if st.button("Classificar"):
-        if cs:
-            r = classify_ticket(cs, cb)
-            rc = st.columns(3)
-            with rc[0]: st.metric("Categoria", r["suggested_category"])
-            with rc[1]: st.metric("Prioridade", r["suggested_priority"])
-            with rc[2]: st.metric("SLA", str(r["suggested_sla_hours"]) + "h")
-            st.caption("Confianca: " + r["confidence"])
-        else:
-            st.warning("Preencha o assunto.")
+    _tabs = st.tabs(["Resumo do cliente e proxima acao", "Classificar ticket automaticamente"])
+    with _tabs[0]:
+        if not customers_df.empty:
+            ac = st.selectbox("Cliente", customers_df["name"].tolist(), key="ai_cust",
+                              help="Escolha um cliente para ver resumo automatico do historico.")
+            cid = customers_df.loc[customers_df["name"] == ac, "customer_id"].iloc[0]
+            with st.container(border=True):
+                st.markdown("**Resumo automatico**")
+                st.write(summarize_customer_timeline(cid))
+            action = suggest_next_action(cid)
+            with st.container(border=True):
+                st.markdown("**[" + action["priority"] + "] Proxima acao recomendada**")
+                st.write("**" + action["action"] + "**")
+                st.caption(action["reason"])
+                st.caption("Canal: " + str(action.get("channel_suggestion", "-"))
+                           + " | Template: " + str(action.get("template_suggestion", "-")))
+
+    with _tabs[1]:
+        st.caption("Cole um ticket novo e veja categoria, prioridade e SLA sugeridos.")
+        cs = st.text_input("Assunto",
+                           help="Titulo curto do ticket. Ex: Erro ao gerar relatorio mensal.")
+        cb = st.text_area("Descricao", height=100,
+                          help="Detalhes do problema relatado pelo cliente.")
+        if st.button("Classificar"):
+            if cs:
+                r = classify_ticket(cs, cb)
+                rc = st.columns(3)
+                with rc[0]: st.metric("Categoria", r["suggested_category"])
+                with rc[1]: st.metric("Prioridade", r["suggested_priority"])
+                with rc[2]: st.metric("SLA", str(r["suggested_sla_hours"]) + "h")
+                st.caption("Confianca: " + r["confidence"])
+            else:
+                st.warning("Preencha o assunto.")
 
 
 def render_services_catalog_tabs(navigate_fn, resolve_fn):
@@ -516,7 +580,6 @@ def _show_guide_dialog(service, navigate_fn, resolve_fn):
         if related:
             st.markdown("**Servicos relacionados**")
             st.markdown(", ".join(related))
-    st.divider()
     b1, b2 = st.columns(2)
     with b1:
         if st.button("Abrir modulo agora", key="dlg-mo-" + service["id"], type="primary", width="stretch"):

@@ -1182,7 +1182,7 @@ def render_benchmark_comparison(compact: bool = False) -> None:
 
     st.markdown(" ")
     with st.container(border=True):
-        st.markdown('<div class="section-title">Capacidade a capacidade</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("Capacidade a capacidade", "checklist"), unsafe_allow_html=True)
         st.dataframe(
             pd.DataFrame(
                 [
@@ -1197,11 +1197,11 @@ def render_benchmark_comparison(compact: bool = False) -> None:
     st.markdown(" ")
     _pos = st.columns(2)
     with _pos[0], st.container(border=True):
-        st.markdown('<div class="section-title">✅ Onde ganhamos</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("Onde ganhamos", "emoji_events"), unsafe_allow_html=True)
         for _item in TRUST_POSITION["ganhamos"]:
             st.markdown(f"- {_item}")
     with _pos[1], st.container(border=True):
-        st.markdown('<div class="section-title">⚠️ Onde estamos atrás</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("Onde estamos atrás", "flag"), unsafe_allow_html=True)
         for _item in TRUST_POSITION["atras"]:
             st.markdown(f"- {_item}")
         st.caption("Reconhecer a lacuna é o que permite fechá-la — estas são as próximas frentes.")
@@ -1232,9 +1232,12 @@ def render_services_catalog() -> None:
                           "Visão de cima, IA e controle de acesso."),
     }
 
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-title">Início — o que você quer fazer?</div>',
+        ui.page_header(
+            "O que você quer fazer?",
+            "Escolha pelo objetivo. Cada cartão mostra quando usar e um número ao vivo da sua operação.",
+            eyebrow="Início",
+        ),
         unsafe_allow_html=True,
     )
     st.caption(
@@ -1280,47 +1283,38 @@ def render_services_catalog() -> None:
                 for col, service in zip(cols, chunk):
                     with col:
                         _render_service_card(service, allowed_sections, live_stats, key_prefix="search")
-        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown(" ")
         render_benchmark_comparison(compact=True)
         return
 
-    # 3b) Sem busca: serviços agrupados por objetivo, em grade responsiva
-    total_shown = 0
+    # 3b) Sem busca: uma aba por objetivo, cartões em grade
+    _grupos = []
     for category in CATEGORIES:
         services = get_services_by_category(str(category["id"]))
-        if not services:
-            continue
-        total_shown += len(services)
+        if services:
+            titulo, subtitulo = OBJETIVOS.get(
+                str(category["id"]),
+                (str(category["title"]), str(category.get("tagline", ""))),
+            )
+            _grupos.append((titulo, subtitulo, services))
 
-        titulo, subtitulo = OBJETIVOS.get(
-            str(category["id"]),
-            (str(category["title"]), str(category.get("tagline", ""))),
-        )
-        cat_icon, cat_tone = CATEGORY_HEAD_META.get(str(category["id"]), ("widgets", "#334155"))
-        st.markdown(
-            f'<div class="cat-head"><span class="cat-icon" translate="no" aria-hidden="true" style="color:{cat_tone};'
-            f'background:{cat_tone}1a;--ico:\'{cat_icon}\';"></span><span class="cat-title">{titulo}</span></div>',
-            unsafe_allow_html=True,
-        )
-        st.caption(subtitulo)
-
-        for chunk_start in range(0, len(services), 3):
-            chunk = services[chunk_start: chunk_start + 3]
-            cols = st.columns(len(chunk))
-            for col, service in zip(cols, chunk):
-                with col:
-                    _render_service_card(service, allowed_sections, live_stats, key_prefix="svc")
-
-    if total_shown == 0:
+    if not _grupos:
         st.info("Nenhum serviço disponível para o seu perfil.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        _abas = st.tabs([f"{titulo} · {len(servs)}" for titulo, _, servs in _grupos])
+        for _aba, (titulo, subtitulo, services) in zip(_abas, _grupos):
+            with _aba:
+                st.caption(subtitulo)
+                for chunk_start in range(0, len(services), 3):
+                    chunk = services[chunk_start: chunk_start + 3]
+                    cols = st.columns(3)
+                    for col, service in zip(cols, chunk):
+                        with col:
+                            _render_service_card(service, allowed_sections, live_stats, key_prefix="svc")
 
     # Comparativo Benchmark fecha o catálogo: depois de ver o que entregamos,
     # o leitor vê como isso se posiciona contra o mercado.
     st.markdown(" ")
-    st.divider()
     render_benchmark_comparison(compact=True)
 
 
@@ -1782,45 +1776,37 @@ elif section == "Funil Comercial":
     funil.render(globals())
 
 elif section == "Cadências":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    _cad_last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
-    render_cadences(user, customers_df, deals_df, _cad_last_activity)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        _cad_last_activity = last_activity_by_customer(data.get("interactions", pd.DataFrame()))
+        render_cadences(user, customers_df, deals_df, _cad_last_activity)
 
 elif section == "Saúde da Conta":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_health(user, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_health(user, can_manage(user["role"], "admin"))
 
 elif section == "Modelos de Mensagem":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_templates(user, customers_df, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_templates(user, customers_df, can_manage(user["role"], "admin"))
 
 elif section == "Previsão de Receita":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_forecast(selected_owner)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_forecast(selected_owner)
 
 elif section == "Produtividade":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_productivity()
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_productivity()
 
 elif section == "Qualificação de Leads":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_lead_scoring(user, can_manage(user["role"], "admin"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_lead_scoring(user, can_manage(user["role"], "admin"))
 
 elif section == "Segmentação":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_segmentation(filtered_customers if not filtered_customers.empty else customers_df)
 
 elif section == "Insights com IA":
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_ai_insights(filtered_customers if not filtered_customers.empty else customers_df)
 
 elif section == "Marketing":
     marketing.render(globals())

@@ -957,4 +957,43 @@
     }
     /* Linhas com cartões lado a lado: cada cartão tem a altura do próprio conteúdo */
     [data-testid="stMain"] [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stVerticalBlockBorderWrapper"]) { align-items: flex-start; }
+
+    /* ---- Detalhe de ticket ---- */
+    .ticket-title { font-size: 1.15rem; font-weight: 720; letter-spacing: -0.02em; color: var(--ink); margin: 0.2rem 0 0.1rem; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.6rem 0 0.9rem; }
+    [data-testid="stMain"] [data-testid="stColumn"] .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+    [data-testid="stMain"] [data-testid="stColumn"] .kpi-grid .kpi { padding: 0.8rem 0.9rem; box-shadow: none; background: var(--surface-soft); }
+    [data-testid="stMain"] [data-testid="stColumn"] .kpi-grid .kpi-value { overflow-wrap: anywhere; line-height: 1.15; font-size: 1.3rem; margin-top: 0.55rem; }
+
+    /* ---- Etapas (importação) ---- */
+    .stepper { list-style: none; display: flex; gap: 0.5rem; padding: 0; margin: 0 0 1.2rem; }
+    .step { flex: 1; display: flex; align-items: center; gap: 0.65rem; padding: 0.7rem 0.9rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); position: relative; }
+    .step-n { display: grid; place-items: center; flex: none; width: 1.8rem; height: 1.8rem; border-radius: 50%; font-size: 0.82rem; font-weight: 750; background: var(--tone-neutral-bg); color: var(--tone-neutral); }
+    .step-l { font-size: 0.88rem; font-weight: 650; color: var(--muted); }
+    .step--now { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+    .step--now .step-n { background: var(--green); color: #fff; }
+    .step--now .step-l { color: var(--ink); }
+    .step--done .step-n { background: var(--tone-ok-bg); color: var(--tone-ok); }
+    .step--done .step-l { color: var(--tone-ok); }
+    @media (max-width: 760px) { .stepper { flex-direction: column; } }
+
+    /* ---- Cabeçalho de ficha (cliente) ---- */
+    .pf { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.2rem; margin: 0.4rem 0 1rem; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-card); flex-wrap: wrap; }
+    .pf-avatar { display: grid; place-items: center; flex: none; width: 3.2rem; height: 3.2rem; border-radius: 16px; font-weight: 800; font-size: 1.15rem; letter-spacing: 0.02em; color: #1d2410; background: linear-gradient(135deg, var(--gold), #ead27a); }
+    .pf-body { flex: 1; min-width: 12rem; }
+    .pf-name { font-size: 1.3rem; font-weight: 750; letter-spacing: -0.025em; color: var(--ink); }
+    .pf-sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.15rem; }
+    .pf-pills { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+    /* ---- Catálogo de serviços e cartões legados na nova paleta ---- */
+    .svc-title { font-weight: 700 !important; letter-spacing: -0.01em; }
+    .svc-stat-num { color: var(--green-dark) !important; font-weight: 780 !important; }
+    .cat-title { letter-spacing: -0.01em; }
+    [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(.svc-head) { transition: transform 0.16s ease, box-shadow 0.16s ease; }
+    [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(.svc-head):hover { transform: translateY(-2px); box-shadow: 0 12px 28px -14px rgba(20, 32, 26, 0.28); }
+
+    /* ---- Abas: fundo do conteúdo e espaçamento ---- */
+    [data-testid="stMain"] [data-baseweb="tab-panel"] { padding-top: 1rem; }
+    [data-testid="stMain"] > div > div > div > [data-testid="stTabs"] > [data-baseweb="tab-list"] { background: var(--surface); padding: 0.3rem 0.4rem 0; border-radius: 14px 14px 0 0; border: 1px solid var(--line); border-bottom: 0; }
+    [data-testid="stMain"] .stCaption, [data-testid="stCaptionContainer"] { color: var(--muted) !important; }
 </style>

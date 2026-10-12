@@ -14,6 +14,8 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_components as ui
+
     # Imports do projeto resolvidos a cada renderização, como acontecia no
     # script principal (o Streamlit o reexecuta a cada clique). Assim um
     # módulo recarregado ou substituído em teste vale aqui também.
@@ -28,8 +30,11 @@ def render(ctx: dict[str, Any]) -> None:
 
     _pode_importar = has_permission(user["role"], "customer.create")
 
+    _etapa = 0 if st.session_state.get("import_csv") is None else 2
+    st.markdown(ui.stepper(["Enviar planilha", "Mapear colunas", "Conferir e importar"], _etapa), unsafe_allow_html=True)
+
     with st.container(border=True):
-        st.markdown('<div class="section-title">1. Enviar planilha de clientes</div>', unsafe_allow_html=True)
+        st.markdown(ui.card_title("1. Enviar planilha de clientes", "upload_file"), unsafe_allow_html=True)
         st.caption(
             "Arquivo .csv com uma linha por cliente. A primeira linha deve ser o cabeçalho "
             "com os nomes das colunas — o sistema reconhece nomes comuns automaticamente."
@@ -56,10 +61,7 @@ def render(ctx: dict[str, Any]) -> None:
         if not _bruto.empty:
             st.markdown(" ")
             with st.container(border=True):
-                st.markdown(
-                    '<div class="section-title">2. Conferir o mapeamento das colunas</div>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown(ui.card_title("2. Conferir o mapeamento das colunas", "compare_arrows"), unsafe_allow_html=True)
                 st.caption(f"{len(_bruto)} linha(s) lida(s). Ajuste se alguma coluna foi para o campo errado.")
                 _sugerido = guess_mapping(list(_bruto.columns))
                 _opcoes = [IGNORE, *list(_bruto.columns)]
@@ -94,7 +96,7 @@ def render(ctx: dict[str, Any]) -> None:
 
             st.markdown(" ")
             with st.container(border=True):
-                st.markdown('<div class="section-title">3. Prévia da importação</div>', unsafe_allow_html=True)
+                st.markdown(ui.card_title("3. Prévia da importação", "preview"), unsafe_allow_html=True)
                 _m = st.columns(4)
                 _m[0].metric("Linhas", _sumario["total"])
                 _m[1].metric("Prontas para importar", _sumario["validos"])

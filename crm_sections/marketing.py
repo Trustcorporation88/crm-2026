@@ -13,6 +13,8 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_components as ui
+
     # Imports do projeto resolvidos a cada renderização, como acontecia no
     # script principal (o Streamlit o reexecuta a cada clique). Assim um
     # módulo recarregado ou substituído em teste vale aqui também.
@@ -50,39 +52,53 @@ def render(ctx: dict[str, Any]) -> None:
                 queue_toast(f"Campanha «{campaign}» salva.")
                 st.rerun()
 
+    _leads = int(campaigns_df["leads"].sum()) if not campaigns_df.empty else 0
+    _qual = int(campaigns_df["qualified"].sum()) if not campaigns_df.empty else 0
+    _rev = float(campaigns_df["revenue"].sum()) if not campaigns_df.empty else 0.0
+    _conv = float(campaigns_df["conversion_rate"].mean()) if not campaigns_df.empty else 0.0
+    st.markdown(
+        ui.kpi_grid(
+            [
+                {"label": "Campanhas", "value": len(campaigns_df), "caption": "Ativas na base.", "icon": "campaign", "tone": "info"},
+                {"label": "Leads gerados", "value": f"{_leads:,}".replace(",", "."), "caption": f"{_qual} qualificados.", "icon": "person_add", "tone": "gold"},
+                {"label": "Conversão média", "value": f"{_conv:.1f}%", "caption": "Entre as campanhas.", "icon": "swap_vert", "tone": "ok"},
+                {"label": "Receita atribuída", "value": currency(_rev), "caption": "Contribuição das campanhas.", "icon": "payments", "tone": "ok"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
     left, right = st.columns([1.05, 0.95])
     with left:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Campanhas e contribuicao de receita</div>', unsafe_allow_html=True)
-        st.dataframe(campaigns_df.astype(str), width="stretch", hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(ui.card_title("Campanhas e contribuicao de receita", "campaign"), unsafe_allow_html=True)
+            st.dataframe(campaigns_df.astype(str), width="stretch", hide_index=True)
         st.markdown(" ")
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Conversao por canal</div>', unsafe_allow_html=True)
-        channel_conversion = campaigns_df[["channel", "conversion_rate"]].groupby("channel").mean()
-        st.bar_chart(
-            channel_conversion,
-            horizontal=True,
-            color="#08a742",
-            height=max(160, 56 * len(channel_conversion)),
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(ui.card_title("Conversao por canal", "swap_vert"), unsafe_allow_html=True)
+            channel_conversion = campaigns_df[["channel", "conversion_rate"]].groupby("channel").mean()
+            st.bar_chart(
+                channel_conversion,
+                horizontal=True,
+                color="#08a742",
+                height=max(160, 56 * len(channel_conversion)),
+            )
     with right:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Segmentos recomendados</div>', unsafe_allow_html=True)
-        segments = [
-            "Clientes em risco com ticket aberto nos ultimos 7 dias",
-            "Contas ativas com health score acima de 80 e potencial de upsell",
-            "Novos clientes de campanha com onboarding ainda em aberto",
-            "Base Brasil com preferencia por WhatsApp e LTV acima de R$ 100 mil",
-        ]
-        for segment in segments:
-            st.markdown(f"- {segment}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(ui.card_title("Segmentos recomendados", "category"), unsafe_allow_html=True)
+            segments = [
+                "Clientes em risco com ticket aberto nos ultimos 7 dias",
+                "Contas ativas com health score acima de 80 e potencial de upsell",
+                "Novos clientes de campanha com onboarding ainda em aberto",
+                "Base Brasil com preferencia por WhatsApp e LTV acima de R$ 100 mil",
+            ]
+            st.markdown(
+                ui.list_block([ui.agenda_row(seg, "", "gold", ico="group_work") for seg in segments]),
+                unsafe_allow_html=True,
+            )
         st.markdown(" ")
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Leitura de negocio</div>', unsafe_allow_html=True)
-        best = campaigns_df.sort_values("conversion_rate", ascending=False).iloc[0]
-        st.success(f"Melhor campanha atual: {best['campaign']} com {best['conversion_rate']}% de conversao e {currency(best['revenue'])} em receita atribuida.")
-        st.warning("Proximo passo recomendado: conectar campanhas de reativacao aos tickets de churn e abrir handoff automatico para atendimento e vendas.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(ui.card_title("Leitura de negocio", "insights"), unsafe_allow_html=True)
+            best = campaigns_df.sort_values("conversion_rate", ascending=False).iloc[0]
+            st.success(f"Melhor campanha atual: {best['campaign']} com {best['conversion_rate']}% de conversao e {currency(best['revenue'])} em receita atribuida.")
+            st.warning("Proximo passo recomendado: conectar campanhas de reativacao aos tickets de churn e abrir handoff automatico para atendimento e vendas.")

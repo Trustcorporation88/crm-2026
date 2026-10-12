@@ -141,3 +141,26 @@ def card_title(text: str, ico: str = "", aside: str = "") -> str:
     lead = f'<span class="ct-ico">{icon(ico)}</span>' if ico else ""
     aside_html = f'<span class="ct-aside">{_e(aside)}</span>' if aside else ""
     return f'<div class="ct">{lead}<span class="ct-text">{_e(text)}</span>{aside_html}</div>'
+
+
+def stepper(steps: Sequence[str], current: int) -> str:
+    """Indicador de etapas: concluídas em verde, atual em destaque."""
+    items = []
+    for i, label in enumerate(steps):
+        state = "done" if i < current else "now" if i == current else "todo"
+        mark = icon("check") if state == "done" else str(i + 1)
+        items.append(f'<li class="step step--{state}"><span class="step-n">{mark}</span><span class="step-l">{_e(label)}</span></li>')
+    return f'<ol class="stepper">{"".join(items)}</ol>'
+
+
+def profile_header(name: Any, subtitle: str = "", pills: Sequence[tuple[str, str]] = ()) -> str:
+    """Cabeçalho de ficha: avatar com iniciais, nome, linha de contexto e selos."""
+    partes = [p for p in str(name or "").split() if p]
+    iniciais = (partes[0][0] + (partes[-1][0] if len(partes) > 1 else "")).upper() if partes else "?"
+    pills_html = "".join(pill(text, tone) for text, tone in pills if text)
+    sub = f'<div class="pf-sub">{_e(subtitle)}</div>' if subtitle else ""
+    return (
+        f'<div class="pf"><div class="pf-avatar">{_e(iniciais)}</div>'
+        f'<div class="pf-body"><div class="pf-name">{_e(name)}</div>{sub}</div>'
+        f'<div class="pf-pills">{pills_html}</div></div>'
+    )
