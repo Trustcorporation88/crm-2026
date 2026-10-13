@@ -93,7 +93,7 @@
         [data-testid="stSidebarContent"]::-webkit-scrollbar { display: none; }
         section[data-testid="stSidebar"]:hover [data-testid="stSidebarContent"],
         section[data-testid="stSidebar"]:has(input[type="text"]:focus) [data-testid="stSidebarContent"],
-        section[data-testid="stSidebar"]:has([data-baseweb="select"] input[aria-expanded="true"]) [data-testid="stSidebarContent"] {
+        section[data-testid="stSidebar"]:has(.st-key-nav_more_select [aria-expanded="true"]) [data-testid="stSidebarContent"] {
             width: var(--rail-open) !important; box-shadow: var(--shadow-pop);
         }
         /* o conteúdo tem largura fixa: o recorte do trilho mostra só o primeiro ícone */
@@ -103,8 +103,9 @@
     [data-testid="stSidebarContent"] { background: var(--surface) !important; }
     [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.35rem; }
 
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) :is(.side-brand-name, .side-user-meta) { opacity: 0; }
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) :is(.side-brand-name, .side-user-meta) { opacity: 0; }
     [data-testid="stSidebarUserContent"] > [data-testid="stVerticalBlock"] { width: calc(var(--rail-open) - 1rem) !important; }
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) [role="radiogroup"] p { font-size: 0 !important; }
     /* marca */
     .side-brand { display: flex; align-items: center; gap: 1.3rem; height: 44px; padding: 0 0.75rem; margin-bottom: 0.4rem; }
     .side-brand-logo { width: 32px; height: 32px; flex: 0 0 32px; object-fit: contain; }
@@ -116,7 +117,7 @@
         font-size: 0.64rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
         color: var(--faint) !important; margin: 0.9rem 0 0.15rem 0.8rem; white-space: nowrap; height: 1rem; overflow: hidden;
     }
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .side-label {
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .side-label {
         font-size: 0; height: 0; margin: 0.45rem 1.1rem; border-top: 1px solid var(--line); width: 2.1rem;
     }
 
@@ -126,50 +127,53 @@
         background: var(--surface-soft) !important; border: 1px solid var(--line) !important; border-radius: 10px !important; min-height: 40px;
     }
     [data-testid="stSidebar"] .st-key-global_search_term input { font-size: 0.88rem; color: var(--ink) !important; }
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .st-key-global_search_term [data-testid="stTextInputRootElement"] {
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .st-key-global_search_term [data-testid="stTextInputRootElement"] {
         opacity: 0; pointer-events: none; }
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .st-key-global_search_term::before {
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .st-key-global_search_term::before {
         content: "\e8b6"; font-family: "Material Symbols Rounded"; position: absolute; left: 1.0rem; top: 0.55rem;
         font-size: 1.35rem; color: var(--muted); }
     /* "mais módulos": no trilho vira o ícone de grade */
     [data-testid="stSidebar"] .st-key-nav_more_select { position: relative; }
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .st-key-nav_more_select [data-baseweb="select"] { opacity: 0; pointer-events: none; }
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .st-key-nav_more_select::before {
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .st-key-nav_more_select :is([data-testid="stSelectbox"], [data-baseweb="select"]) { opacity: 0; pointer-events: none; }
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .st-key-nav_more_select::before {
         content: "\e5d3"; font-family: "Material Symbols Rounded"; position: absolute; left: 1.0rem; top: 0.45rem;
         font-size: 1.35rem; color: var(--muted); }
-    [data-testid="stSidebar"]:has(.rail-secondary-active) label[data-baseweb="radio"]:has(input:checked) { background: transparent; }
-    [data-testid="stSidebar"]:has(.rail-secondary-active) label[data-baseweb="radio"]:has(input:checked) p { color: var(--ink-2) !important; font-weight: 500; }
-    [data-testid="stSidebar"]:has(.rail-secondary-active) label[data-baseweb="radio"]:has(input:checked) p span[role="img"] { color: var(--muted); }
+    [data-testid="stSidebar"]:has(.rail-secondary-active) :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) { background: transparent; }
+    [data-testid="stSidebar"]:has(.rail-secondary-active) :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) p { color: var(--ink-2) !important; font-weight: 500; }
+    [data-testid="stSidebar"]:has(.rail-secondary-active) :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) p span[role="img"] { color: var(--muted); }
     [data-testid="stSidebar"]:has(.rail-secondary-active) .st-key-nav_more_select::after {
         content: ""; position: absolute; left: 0.55rem; top: 0.3rem; width: 2.9rem; height: 2.4rem; border-radius: 10px;
         background: var(--accent-soft); z-index: -1; }
     [data-testid="stSidebar"]:has(.rail-secondary-active) .st-key-nav_more_select::before { color: var(--accent); }
     [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(.rail-secondary-active) { position: absolute; height: 0; overflow: hidden; }
     /* ferramentas e sair: só quando expandido */
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) [data-testid="stExpander"],
-    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has([data-baseweb="select"] input[aria-expanded="true"])) .st-key-sidebar-logout {
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) [data-testid="stExpander"],
+    section[data-testid="stSidebar"]:not(:hover):not(:has(input[type="text"]:focus)):not(:has(.st-key-nav_more_select [aria-expanded="true"])) .st-key-sidebar-logout {
         max-height: 0; overflow: hidden; opacity: 0; margin: 0; pointer-events: none; }
 
     /* itens do menu */
     [data-testid="stSidebar"] [role="radiogroup"] { gap: 2px; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] {
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label) {
         padding: 0 0.75rem; min-height: 42px; border-radius: 10px; width: 100%; align-items: center; margin: 0;
         transition: background 0.12s ease; cursor: pointer;
     }
-    [data-testid="stSidebar"] label[data-baseweb="radio"]:hover { background: var(--neutral-soft); }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child { display: none !important; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] > input { position: absolute; opacity: 0; pointer-events: none; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] [data-testid="stMarkdownContainer"] { width: 100%; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] p {
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label):hover { background: var(--neutral-soft); }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [role="radiogroup"] > label) > div:first-child { display: none !important; }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div > div:first-child:not([data-testid="stMarkdownContainer"]) { display: none !important; }
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child:not([data-testid="stMarkdownContainer"]) { display: none !important; }
+    [data-testid="stSidebar"] [data-testid="stRadioGroup"] > div { width: 100%; }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label) input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label) [data-testid="stMarkdownContainer"] { width: 100%; }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label) p {
         display: flex; align-items: center; gap: 1.3rem; margin: 0; font-size: 0.9rem; font-weight: 500;
         color: var(--ink-2) !important; white-space: nowrap; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"] p span[role="img"] { color: var(--muted); width: 2rem; text-align: center; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) { background: var(--accent-soft); }
-    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) p { color: var(--accent-dark) !important; font-weight: 650; }
-    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) p span[role="img"] { color: var(--accent); }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"], [data-testid="stRadioOption"], [role="radiogroup"] > label) p span[role="img"] { color: var(--muted); width: 2rem; text-align: center; }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) { background: var(--accent-soft); }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) p { color: var(--accent-dark) !important; font-weight: 650; }
+    [data-testid="stSidebar"] :is(label[data-baseweb="radio"]:has(input:checked), [role="radiogroup"] > label:has(input:checked), [data-testid="stRadioOption"]:has(input:checked), [data-testid="stRadioOption"][data-selected="true"]) p span[role="img"] { color: var(--accent); }
     /* ícones do menu: o Streamlit entrega o NOME da ligadura como texto; zeramos e
        injetamos o glifo pelo codepoint, então nenhum nome vaza antes da fonte chegar. */
-    [data-testid="stSidebar"] span[role="img"][aria-label$=" icon"] { font-size: 0 !important; }
+    [data-testid="stSidebar"] span[role="img"][aria-label$=" icon"] { font-size: 0 !important; color: var(--muted); }
     [data-testid="stSidebar"] span[role="img"][aria-label$=" icon"]::before { font-size: 1.4rem; font-family: "Material Symbols Rounded"; }
     [data-testid="stSidebar"] span[role="img"][aria-label="today icon"]::before { content: "\e8df"; }
     [data-testid="stSidebar"] span[role="img"][aria-label="apps icon"]::before { content: "\e5c3"; }
