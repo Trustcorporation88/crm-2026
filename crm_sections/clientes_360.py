@@ -222,19 +222,33 @@ def render(ctx: dict[str, Any]) -> None:
                         "Valor de vida": _lista["lifetime_value"].map(currency),
                         "Próxima ação": _lista["next_action"],
                     })
-                    st.dataframe(
-                        _tabela.sort_values("Saúde"),
+                    _tabela_ord = _tabela.sort_values("Saúde").reset_index(drop=True)
+                    _evento = st.dataframe(
+                        _tabela_ord,
                         width="stretch",
                         hide_index=True,
+                        on_select="rerun",
+                        selection_mode="single-row",
+                        key="clientes_tabela",
+                        column_config={
+                            "Saúde": st.column_config.ProgressColumn("Saúde", format="%d", min_value=0, max_value=100),
+                        },
                     )
+                    _linhas_sel = list(_evento.selection.rows) if _evento is not None else []
+                    if _linhas_sel:
+                        _nome_sel = str(_tabela_ord.iloc[_linhas_sel[0]]["Cliente"])
+                        st.session_state["ficha_conta"] = _nome_sel
+                        st.success(f"**{_nome_sel}** selecionada. Abra a aba «Ficha da conta» para ver a ficha completa.")
                     st.caption(
                         "Ordenada pela saúde da conta — quem está em risco aparece primeiro. "
-                        "Clique no título de uma coluna para reordenar."
+                        "Clique numa linha para pré-carregar a ficha; clique no título de uma coluna para reordenar."
                     )
 
 
         with aba_ficha:
-            customer_name = st.selectbox("Selecionar conta", filtered_customers["name"].tolist())
+            if st.session_state.get("ficha_conta") not in filtered_customers["name"].tolist():
+                st.session_state.pop("ficha_conta", None)
+            customer_name = st.selectbox("Selecionar conta", filtered_customers["name"].tolist(), key="ficha_conta")
             customer = filtered_customers[filtered_customers["name"] == customer_name].iloc[0].to_dict()
             account_id = customer["customer_id"]
             account_tickets = filtered_tickets[filtered_tickets["customer_id"] == account_id]

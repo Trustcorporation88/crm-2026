@@ -13,6 +13,7 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_charts as charts
     import crm_components as ui
 
     # Imports do projeto resolvidos a cada renderização, como acontecia no
@@ -72,16 +73,37 @@ def render(ctx: dict[str, Any]) -> None:
     with left:
         with st.container(border=True):
             st.markdown(ui.card_title("Campanhas e contribuicao de receita", "campaign"), unsafe_allow_html=True)
-            st.dataframe(campaigns_df.astype(str), width="stretch", hide_index=True)
+            st.dataframe(
+                campaigns_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "campaign": st.column_config.TextColumn("Campanha"),
+                    "channel": st.column_config.TextColumn("Canal"),
+                    "leads": st.column_config.NumberColumn("Leads", format="%d"),
+                    "qualified": st.column_config.NumberColumn("Qualificados", format="%d"),
+                    "conversion_rate": st.column_config.ProgressColumn("Conversão", format="%.1f%%", min_value=0, max_value=100),
+                    "revenue": st.column_config.NumberColumn("Receita", format="R$ %.0f"),
+                },
+            )
         st.markdown(" ")
         with st.container(border=True):
             st.markdown(ui.card_title("Conversao por canal", "swap_vert"), unsafe_allow_html=True)
-            channel_conversion = campaigns_df[["channel", "conversion_rate"]].groupby("channel").mean()
-            st.bar_chart(
-                channel_conversion,
-                horizontal=True,
-                color="#2563eb",
-                height=max(160, 56 * len(channel_conversion)),
+            _medida = st.segmented_control(
+                "Ver por", ["Conversão", "Receita", "Leads"], default="Conversão", key="mkt_medida", label_visibility="collapsed"
+            ) or "Conversão"
+            if _medida == "Conversão":
+                _por_canal = campaigns_df.groupby("channel", as_index=False).agg(v=("conversion_rate", "mean"))
+                _por_canal["rotulo"] = _por_canal["v"].map(lambda x: f"{x:.1f}%")
+            elif _medida == "Receita":
+                _por_canal = campaigns_df.groupby("channel", as_index=False).agg(v=("revenue", "sum"))
+                _por_canal["rotulo"] = _por_canal["v"].map(currency)
+            else:
+                _por_canal = campaigns_df.groupby("channel", as_index=False).agg(v=("leads", "sum"))
+                _por_canal["rotulo"] = _por_canal["v"].astype(int).astype(str)
+            _por_canal = _por_canal.rename(columns={"channel": "Canal"})
+            charts.show(
+                charts.bar_h(_por_canal, "Canal", "v", label="Canal", label_col="rotulo", height=max(130, 48 * len(_por_canal) + 16))
             )
     with right:
         with st.container(border=True):
