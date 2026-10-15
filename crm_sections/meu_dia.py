@@ -143,6 +143,19 @@ def render(ctx: dict[str, Any]) -> None:
     _fila = build_task_queue(agenda)
 
     with col_side, st.container(border=True):
+        _abertas = len(agenda.overdue_tasks) + len(agenda.today_tasks)
+        _atrasadas = len(agenda.overdue_tasks)
+        _em_dia = 1.0 if _abertas == 0 else 1 - (_atrasadas / _abertas)
+        st.markdown(
+            ui.ring(
+                _em_dia,
+                "Seu dia em dia" if _atrasadas == 0 else "Tarefas em dia",
+                "Nada atrasado. Bom trabalho!" if _atrasadas == 0 else f"{_atrasadas} de {_abertas} já passaram do prazo.",
+                tone="ok" if _em_dia >= 0.8 else ("warn" if _em_dia >= 0.5 else "danger"),
+            ),
+            unsafe_allow_html=True,
+        )
+    with col_side, st.container(border=True):
         st.markdown(ui.card_title("Fila de execução", "bolt", f"{len(_fila)} na fila"), unsafe_allow_html=True)
 
         if not _fila:

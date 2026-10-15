@@ -15,6 +15,7 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_charts as charts
     import crm_components as ui
 
     # Imports do projeto resolvidos a cada renderização, como acontecia no
@@ -323,11 +324,16 @@ def render(ctx: dict[str, Any]) -> None:
                 if _perdas["by_reason"]:
                     st.caption("Por que perdemos — motivo × quantidade (o custo de cada motivo ao lado)")
                     _mot_df = pd.DataFrame(_perdas["by_reason"]).set_index("reason")
-                    st.bar_chart(
-                        _mot_df[["count"]].rename(columns={"count": "negócios"}),
-                        horizontal=True,
-                        color="#dc2626",
-                        height=max(140, 52 * len(_mot_df)),
+                    _mot = _mot_df[["count"]].rename(columns={"count": "negócios"}).reset_index().rename(columns={"reason": "Motivo"})
+                    charts.show(
+                        charts.bar_h(
+                            _mot,
+                            "Motivo",
+                            "negócios",
+                            label="Motivo",
+                            color=charts.RED,
+                            height=max(130, 48 * len(_mot) + 16),
+                        )
                     )
                     st.dataframe(
                         pd.DataFrame(

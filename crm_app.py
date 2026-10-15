@@ -332,7 +332,7 @@ def go_back() -> None:
 def render_top_bar(active_section: str) -> None:
     # Faixa mínima: voltar / início à esquerda e o recorte de filtros ativo à
     # direita. O título e a descrição vivem no cabeçalho da página.
-    col_back, col_home, col_filters = st.columns([0.45, 0.45, 9], vertical_alignment="center")
+    col_back, col_home, col_new, col_filters = st.columns([0.45, 0.45, 1.3, 8], vertical_alignment="center")
     with col_back:
         if st.button(
             ":material/arrow_back:",
@@ -350,6 +350,10 @@ def render_top_bar(active_section: str) -> None:
             help="Ir ao catálogo de serviços",
         ):
             navigate_to_section("Serviços")
+    with col_new:
+        import crm_quick_actions
+
+        crm_quick_actions.render(globals())
     with col_filters:
         bits = []
         if st.session_state.get("filter_country", "Todos") != "Todos":
