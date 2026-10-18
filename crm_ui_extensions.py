@@ -4,6 +4,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+import crm_charts as charts
 import crm_components as ui
 
 
@@ -353,27 +354,37 @@ def render_lead_scoring(user, can_admin):
     _tabs = st.tabs(_nomes_abas)
     _tier_tone = {"A": "danger", "B": "warn", "C": "info", "D": "neutral"}
     with _tabs[0]:
-        tier = st.selectbox("Filtrar tier", ["Todos", "A", "B", "C", "D"],
-                            help="A = abordar agora. B = aquecer. C = nutrir. D = passivo.")
-        scores = get_lead_scores(limit=200, tier_filter=None if tier == "Todos" else tier)
-        if scores:
-            st.markdown(
-                ui.list_block(
-                    [
-                        ui.agenda_row(
-                            it["name"],
-                            f"{it['segment']} · {it['country']} · {it['owner']} · {it['channel']}",
-                            _tier_tone.get(it["tier"], "neutral"),
-                            ui.pill(f"Tier {it['tier']} · {it['score']}/100", _tier_tone.get(it["tier"], "neutral")),
-                            progress=float(it["score"]) / 100,
-                        )
-                        for it in scores[:50]
-                    ]
-                ),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Sem score. Recalcular acima.")
+        _col_tier, _col_lista = st.columns([1, 1.8], gap="medium")
+        with _col_tier, st.container(border=True):
+            st.markdown(ui.card_title("Carteira por tier", "donut_large"), unsafe_allow_html=True)
+            _cores_tier = {"Tier A": charts.RED, "Tier B": charts.AMBER, "Tier C": charts.BLUE, "Tier D": charts.SLATE}
+            _df_tier = pd.DataFrame([{"Tier": f"Tier {t}", "Contas": n} for t, n in _por_tier.items() if n > 0])
+            if _df_tier.empty:
+                st.caption("Sem score ainda. Recalcule os scores.")
+            else:
+                charts.show(charts.donut(_df_tier, "Tier", "Contas", colors=_cores_tier, center_label="contas"))
+        with _col_lista, st.container(border=True):
+            tier = st.selectbox("Filtrar tier", ["Todos", "A", "B", "C", "D"],
+                                help="A = abordar agora. B = aquecer. C = nutrir. D = passivo.")
+            scores = get_lead_scores(limit=200, tier_filter=None if tier == "Todos" else tier)
+            if scores:
+                st.markdown(
+                    ui.list_block(
+                        [
+                            ui.agenda_row(
+                                it["name"],
+                                f"{it['segment']} · {it['country']} · {it['owner']} · {it['channel']}",
+                                _tier_tone.get(it["tier"], "neutral"),
+                                ui.pill(f"Tier {it['tier']} · {it['score']}/100", _tier_tone.get(it["tier"], "neutral")),
+                                progress=float(it["score"]) / 100,
+                            )
+                            for it in scores[:50]
+                        ]
+                    ),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("Sem score. Recalcular acima.")
     if can_admin:
         with _tabs[1]:
             st.caption("Cada regra atribui pontos. A soma vira o score do lead.")
@@ -417,10 +428,33 @@ def render_forecast(selected_owner="Todos"):
         bo = get_forecast_by_owner(ps.isoformat(), pe.isoformat())
         if bo:
             df = pd.DataFrame(bo)
-            df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v or 0))
-            df["fcst"] = df["weighted_forecast"].apply(lambda v: _currency(v or 0))
-            df["won"] = df["won_value"].apply(lambda v: _currency(v or 0))
-            st.dataframe(df[["owner", "deal_count", "pipe", "fcst", "won"]], width="stretch", hide_index=True)
+            for _col in ("pipeline_value", "weighted_forecast", "won_value"):
+                df[_col] = pd.to_numeric(df[_col], errors="coerce").fillna(0.0)
+            _col_graf, _col_tab = st.columns([1.1, 1], gap="medium")
+            with _col_graf, st.container(border=True):
+                st.markdown(ui.card_title("Receita por vendedor", "bar_chart"), unsafe_allow_html=True)
+                _med = st.segmented_control(
+                    "Medir por", ["Previsão ponderada", "Funil bruto", "Já ganho"], default="Previsão ponderada",
+                    key="fc_medida", label_visibility="collapsed",
+                ) or "Previsão ponderada"
+                _campo = {"Previsão ponderada": "weighted_forecast", "Funil bruto": "pipeline_value", "Já ganho": "won_value"}[_med]
+                _g = df[["owner", _campo]].rename(columns={"owner": "Vendedor"})
+                _g["rotulo"] = _g[_campo].map(_currency)
+                charts.show(charts.bar_h(_g, "Vendedor", _campo, label="Vendedor", label_col="rotulo", height=max(130, 48 * len(_g) + 16)))
+            with _col_tab, st.container(border=True):
+                st.markdown(ui.card_title("Detalhe", "table_rows"), unsafe_allow_html=True)
+                df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v or 0))
+                df["fcst"] = df["weighted_forecast"].apply(lambda v: _currency(v or 0))
+                df["won"] = df["won_value"].apply(lambda v: _currency(v or 0))
+                st.dataframe(
+                    df[["owner", "deal_count", "pipe", "fcst", "won"]],
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "owner": "Vendedor", "deal_count": "Negócios", "pipe": "Funil",
+                        "fcst": "Previsão", "won": "Ganho",
+                    },
+                )
         else:
             st.info("Sem dados.")
 
@@ -461,18 +495,45 @@ def render_productivity():
         od = get_owner_productivity(period_days=period)
         if od:
             df = pd.DataFrame(od)
-            df["receita"] = df["revenue_won"].apply(lambda v: _currency(v))
-            df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v))
-            st.dataframe(df[["owner", "tickets_total", "tickets_resolved", "avg_csat", "deals_won",
-                             "win_rate_pct", "receita", "pipe", "interactions_total"]],
-                         width="stretch", hide_index=True)
+            _col_graf, _col_tab = st.columns([1, 1.25], gap="medium")
+            with _col_graf, st.container(border=True):
+                st.markdown(ui.card_title("Resultado por vendedor", "leaderboard"), unsafe_allow_html=True)
+                _opcoes = {
+                    "Receita": ("revenue_won", _currency),
+                    "Chamados resolvidos": ("tickets_resolved", lambda v: str(int(v))),
+                    "Win rate": ("win_rate_pct", lambda v: f"{float(v):.0f}%"),
+                    "CSAT": ("avg_csat", lambda v: f"{float(v):.1f}"),
+                }
+                _med = st.segmented_control(
+                    "Medir por", list(_opcoes), default="Receita", key="prod_medida", label_visibility="collapsed",
+                ) or "Receita"
+                _campo, _fmt = _opcoes[_med]
+                _g = df[["owner", _campo]].copy()
+                _g[_campo] = pd.to_numeric(_g[_campo], errors="coerce").fillna(0.0)
+                _g = _g.rename(columns={"owner": "Vendedor"})
+                _g["rotulo"] = _g[_campo].map(_fmt)
+                charts.show(charts.bar_h(_g, "Vendedor", _campo, label="Vendedor", label_col="rotulo", height=max(130, 48 * len(_g) + 16)))
+            with _col_tab, st.container(border=True):
+                st.markdown(ui.card_title("Detalhe", "table_rows"), unsafe_allow_html=True)
+                df["receita"] = df["revenue_won"].apply(lambda v: _currency(v))
+                df["pipe"] = df["pipeline_value"].apply(lambda v: _currency(v))
+                st.dataframe(df[["owner", "tickets_total", "tickets_resolved", "avg_csat", "deals_won",
+                                 "win_rate_pct", "receita", "pipe", "interactions_total"]],
+                             width="stretch", hide_index=True)
         else:
             st.info("Sem atividade no periodo.")
 
     with _tabs[1]:
         chb = get_channel_breakdown(period_days=period)
         if chb:
-            st.dataframe(pd.DataFrame(chb), width="stretch", hide_index=True)
+            _dfc = pd.DataFrame(chb)
+            _col_graf, _col_tab = st.columns([1, 1.25], gap="medium")
+            with _col_graf, st.container(border=True):
+                st.markdown(ui.card_title("Chamados por canal", "donut_large"), unsafe_allow_html=True)
+                charts.show(charts.donut(_dfc.rename(columns={"channel": "Canal"}), "Canal", "total", center_label="chamados"))
+            with _col_tab, st.container(border=True):
+                st.markdown(ui.card_title("Detalhe", "table_rows"), unsafe_allow_html=True)
+                st.dataframe(_dfc, width="stretch", hide_index=True)
         else:
             st.info("Sem tickets.")
 
