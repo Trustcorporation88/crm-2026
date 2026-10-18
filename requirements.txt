@@ -4,7 +4,7 @@
 # conhecidas reportadas por pip-audit. As transitivas estão declaradas
 # explicitamente porque, sem isso, o resolvedor aceitaria a versão vulnerável
 # que o streamlit tolera.
-streamlit>=1.54.0  # PYSEC-2026-2285
+streamlit>=1.54.0,<1.66  # PYSEC-2026-2285 (piso). Teto: o menu lateral em trilho e os gráficos foram verificados até a 1.65; suba o teto só depois de rever o visual.
 pandas>=2.0.0
 phonenumbers>=8.13.0
 dnspython>=2.4.0
