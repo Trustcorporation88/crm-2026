@@ -103,6 +103,28 @@ def render(ctx: dict[str, Any]) -> None:
             by=["_risco", "priority"],
             key=lambda c: c.map(lambda v: _prio_ordem.get(str(v).lower(), 9)) if c.name == "priority" else ~c,
         )
+        _nao_resolvido = _fila["status"].astype(str).str.lower() != "resolvido"
+        _contagem = {
+            "todos": len(_fila),
+            "risco": int(_fila["_risco"].sum()),
+            "abertos": int(_nao_resolvido.sum()),
+            "resolvidos": int((~_nao_resolvido).sum()),
+        }
+        _rotulos = {"todos": "Todos", "risco": "SLA em risco", "abertos": "Abertos", "resolvidos": "Resolvidos"}
+        _visao = st.segmented_control(
+            "Filtrar a fila",
+            list(_rotulos),
+            default="todos",
+            format_func=lambda k: f"{_rotulos[k]} · {_contagem[k]}",
+            key="fila_visao",
+            label_visibility="collapsed",
+        ) or "todos"
+        if _visao == "risco":
+            _fila = _fila[_fila["_risco"]]
+        elif _visao == "abertos":
+            _fila = _fila[_nao_resolvido]
+        elif _visao == "resolvidos":
+            _fila = _fila[~_nao_resolvido]
         _linhas = []
         for _, _r in _fila.iterrows():
             _tom = ui.priority_tone(_r["priority"])
@@ -116,7 +138,7 @@ def render(ctx: dict[str, Any]) -> None:
                     progress=min(1.0, float(_r["age_hours"]) / max(float(_r["sla_hours"]), 1.0)),
                 )
             )
-        st.markdown(ui.list_block(_linhas), unsafe_allow_html=True)
+        st.markdown(ui.list_block(_linhas, "Nenhum ticket neste filtro."), unsafe_allow_html=True)
 
     # --- Coluna do detalhe ---
     with col_det, st.container(border=True):

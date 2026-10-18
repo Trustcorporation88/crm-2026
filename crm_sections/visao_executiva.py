@@ -14,7 +14,9 @@ import streamlit as st
 
 
 def render(ctx: dict[str, Any]) -> None:
+    import crm_charts as charts
     import crm_components as ui
+    from crm_ux import format_compact_brl
 
     # Imports do projeto resolvidos a cada renderização, como acontecia no
     # script principal (o Streamlit o reexecuta a cada clique). Assim um
@@ -25,6 +27,7 @@ def render(ctx: dict[str, Any]) -> None:
     EXEC_KPI_CATALOG = ctx["EXEC_KPI_CATALOG"]
     _exec_report_config = ctx["_exec_report_config"]
     _exec_selected_kpis = ctx["_exec_selected_kpis"]
+    filtered_deals = ctx["filtered_deals"]
     filtered_tickets = ctx["filtered_tickets"]
     queue_toast = ctx["queue_toast"]
     tasks_df = ctx["tasks_df"]
@@ -63,32 +66,85 @@ def render(ctx: dict[str, Any]) -> None:
             queue_toast("Preferências da Visão Executiva salvas.", icon="⚙️")
             st.rerun()
 
+    # ------------------------------------------------------------------
+    # Painéis interativos: passe o mouse nas barras/fatias; o seletor acima de
+    # cada gráfico troca a medida sem recarregar a tela inteira.
+    # ------------------------------------------------------------------
+    _etapas = ["Descoberta", "Proposta", "Negociacao", "Fechado ganho", "Fechado perdido"]
+    top_l, top_r = st.columns([1.15, 1], gap="medium")
+    with top_l, st.container(border=True):
+        st.markdown(ui.card_title("Funil por etapa", "filter_alt"), unsafe_allow_html=True)
+        _medida = st.segmented_control(
+            "Medir funil por", ["Valor", "Quantidade"], default="Valor", key="exec_funil_medida", label_visibility="collapsed"
+        ) or "Valor"
+        if filtered_deals.empty:
+            st.markdown(ui.list_block([], "Nenhuma oportunidade no recorte atual."), unsafe_allow_html=True)
+        else:
+            _g = filtered_deals.groupby("stage").agg(qtd=("deal_id", "count"), valor=("value", "sum")).reset_index()
+            _g = _g[_g["stage"].isin(_etapas)]
+            _g["Etapa"] = _g["stage"]
+            _g["Valor (R$)"] = _g["valor"].map(format_compact_brl)
+            _g["Quantidade"] = _g["qtd"]
+            _campo = "valor" if _medida == "Valor" else "qtd"
+            _g["rotulo"] = _g["Valor (R$)"] if _medida == "Valor" else _g["qtd"].astype(str)
+            charts.show(
+                charts.bar_h(
+                    _g,
+                    "Etapa",
+                    _campo,
+                    label="Etapa",
+                    colors=charts.STAGE_COLORS,
+                    order=[e for e in _etapas if e in set(_g["Etapa"])],
+                    fmt=",.0f",
+                    tooltip_extra=["Valor (R$)", "Quantidade"],
+                    label_col="rotulo",
+                    height=max(150, 46 * len(_g) + 16),
+                )
+            )
+    with top_r, st.container(border=True):
+        st.markdown(ui.card_title("Chamados", "support_agent"), unsafe_allow_html=True)
+        _dim_rotulos = {"Status": "status", "Prioridade": "priority", "Canal": "channel"}
+        _dim = st.segmented_control(
+            "Agrupar chamados por", list(_dim_rotulos), default="Status", key="exec_chamados_dim", label_visibility="collapsed"
+        ) or "Status"
+        if filtered_tickets.empty:
+            st.markdown(ui.list_block([], "Nenhum chamado no recorte atual."), unsafe_allow_html=True)
+        else:
+            _campo_t = _dim_rotulos[_dim]
+            _t = filtered_tickets.groupby(_campo_t).size().reset_index(name="qtd")
+            _cores = {"status": charts.STATUS_COLORS, "priority": charts.PRIORITY_COLORS}.get(_campo_t)
+            charts.show(charts.donut(_t, _campo_t, "qtd", colors=_cores, center_label="chamados"))
+
     left, right = st.columns([1.2, 0.8])
     with left, st.container(border=True):
         st.markdown(ui.card_title("Panorama operacional", "dashboard"), unsafe_allow_html=True)
-        summary = pd.DataFrame(
-            [
-                {"KPI": label, "Valor": compute(), "Leitura": caption}
-                for label, compute, caption in EXEC_KPI_CATALOG.values()
-            ]
-        )
-        st.dataframe(summary, width="stretch", hide_index=True)
         _group_label, _group_field = EXEC_GROUP_BY_OPTIONS.get(
             _exec_report_config["group_by"], EXEC_GROUP_BY_OPTIONS["owner"]
         )
-        st.caption(f"Carga de tickets por {_group_label.lower()}")
+        st.caption(f"Carga de chamados por {_group_label.lower()}")
         owner_load = (
             filtered_tickets.groupby(_group_field).size().reset_index(name="tickets")
             if not filtered_tickets.empty and _group_field in filtered_tickets.columns
             else pd.DataFrame(columns=[_group_field, "tickets"])
         )
         if not owner_load.empty:
-            st.bar_chart(
-                owner_load.set_index(_group_field),
-                horizontal=True,
-                color="#2563eb",
-                height=max(160, 56 * len(owner_load)),
+            charts.show(
+                charts.bar_h(
+                    owner_load,
+                    _group_field,
+                    "tickets",
+                    label=_group_label,
+                    height=max(130, 44 * len(owner_load) + 16),
+                )
             )
+        with st.expander("Ver tabela de indicadores", expanded=False):
+            summary = pd.DataFrame(
+                [
+                    {"KPI": label, "Valor": compute(), "Leitura": caption}
+                    for label, compute, caption in EXEC_KPI_CATALOG.values()
+                ]
+            )
+            st.dataframe(summary, width="stretch", hide_index=True)
     with right, st.container(border=True):
         st.markdown(ui.card_title("Proximas acoes", "event"), unsafe_allow_html=True)
         _prox = tasks_df.sort_values("due_date").head(6).to_dict("records")

@@ -260,29 +260,47 @@ def render_health(user=None, can_admin=False):
             d = overview.get(level, {"total": 0, "avg_score": 0})
             _cards.append({"label": f"Risco {rotulo}", "value": d["total"], "caption": f"Score médio: {d['avg_score']}", "icon": ic, "tone": tone})
         st.markdown(ui.kpi_grid(_cards), unsafe_allow_html=True)
-    st.markdown(ui.card_title("Contas em risco", "monitor_heart"), unsafe_allow_html=True)
-    sev = st.selectbox("Severidade minima", ["Alto", "Critico", "Medio", "Baixo"],
-                       help="Critico = churn iminente. Alto = atencao em 30 dias. Medio = monitorar.")
-    risk = get_at_risk_customers(min_severity=sev)
-    if risk:
-        _tone_risk = {"Critico": "danger", "Alto": "warn", "Medio": "gold", "Baixo": "ok"}
-        st.markdown(
-            ui.list_block(
-                [
-                    ui.agenda_row(
-                        it["name"],
-                        f"{it['segment']} · {it['country']} · {it['owner']} · LTV {_currency(it['lifetime_value'])} — Próxima ação: {it['next_best_action']}",
-                        _tone_risk.get(it["churn_risk"], "neutral"),
-                        ui.pill(f"{it['churn_risk']} · {it['health_score']}/100", _tone_risk.get(it["churn_risk"], "neutral")),
-                        progress=float(it["health_score"]) / 100,
-                    )
-                    for it in risk[:30]
-                ]
-            ),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.info("Nenhuma conta nesse nivel.")
+    _col_dist, _col_risco = st.columns([1, 1.8], gap="medium")
+    with _col_dist, st.container(border=True):
+        import crm_charts as charts
+
+        st.markdown(ui.card_title("Distribuição de risco", "donut_large"), unsafe_allow_html=True)
+        if overview:
+            _niveis = [("Critico", "Crítico", charts.RED), ("Alto", "Alto", charts.AMBER), ("Medio", "Médio", "#eab308"), ("Baixo", "Baixo", charts.GREEN)]
+            _dist = pd.DataFrame(
+                [{"Risco": rot, "Contas": int(overview.get(lvl, {"total": 0})["total"])} for lvl, rot, _ in _niveis]
+            )
+            _dist = _dist[_dist["Contas"] > 0]
+            if _dist.empty:
+                st.caption("Sem contas avaliadas ainda. Recalcule os scores.")
+            else:
+                charts.show(charts.donut(_dist, "Risco", "Contas", colors={rot: cor for _, rot, cor in _niveis}, center_label="contas"))
+        else:
+            st.caption("Sem contas avaliadas ainda. Recalcule os scores.")
+    with _col_risco, st.container(border=True):
+        st.markdown(ui.card_title("Contas em risco", "monitor_heart"), unsafe_allow_html=True)
+        sev = st.selectbox("Severidade minima", ["Alto", "Critico", "Medio", "Baixo"],
+                           help="Critico = churn iminente. Alto = atencao em 30 dias. Medio = monitorar.")
+        risk = get_at_risk_customers(min_severity=sev)
+        if risk:
+            _tone_risk = {"Critico": "danger", "Alto": "warn", "Medio": "gold", "Baixo": "ok"}
+            st.markdown(
+                ui.list_block(
+                    [
+                        ui.agenda_row(
+                            it["name"],
+                            f"{it['segment']} · {it['country']} · {it['owner']} · LTV {_currency(it['lifetime_value'])} — Próxima ação: {it['next_best_action']}",
+                            _tone_risk.get(it["churn_risk"], "neutral"),
+                            ui.pill(f"{it['churn_risk']} · {it['health_score']}/100", _tone_risk.get(it["churn_risk"], "neutral")),
+                            progress=float(it["health_score"]) / 100,
+                        )
+                        for it in risk[:30]
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Nenhuma conta nesse nivel.")
 
 
 def render_lead_scoring(user, can_admin):

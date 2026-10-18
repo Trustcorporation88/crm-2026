@@ -164,3 +164,23 @@ def profile_header(name: Any, subtitle: str = "", pills: Sequence[tuple[str, str
         f'<div class="pf-body"><div class="pf-name">{_e(name)}</div>{sub}</div>'
         f'<div class="pf-pills">{pills_html}</div></div>'
     )
+
+
+def ring(value: float, title: str, sub: str = "", tone: str = "ok", size: int = 92) -> str:
+    """Anel de progresso (SVG) com o percentual no centro e título/legenda ao lado.
+
+    ``value`` vai de 0 a 1. O traço anima ao entrar na tela.
+    """
+    pct = max(0.0, min(1.0, float(value)))
+    raio = 38
+    circ = 2 * 3.14159265 * raio
+    cor = {"ok": "#22c55e", "warn": "#f59e0b", "danger": "#ef4444", "info": "#2563eb"}.get(tone, "#2563eb")
+    sub_html = f'<div class="ring-sub">{_e(sub)}</div>' if sub else ""
+    return (
+        f'<div class="ring"><svg width="{size}" height="{size}" viewBox="0 0 100 100" role="img" aria-label="{_e(title)}: {int(round(pct * 100))}%">'
+        f'<circle cx="50" cy="50" r="{raio}" fill="none" stroke="#eef0f3" stroke-width="10"/>'
+        f'<circle class="ring-arc" cx="50" cy="50" r="{raio}" fill="none" stroke="{cor}" stroke-width="10" stroke-linecap="round" '
+        f'stroke-dasharray="{circ:.1f}" stroke-dashoffset="{circ * (1 - pct):.1f}" transform="rotate(-90 50 50)" style="--ring-len:{circ:.1f}"/>'
+        f'<text x="50" y="56" text-anchor="middle" class="ring-pct">{int(round(pct * 100))}%</text></svg>'
+        f'<div class="ring-body"><div class="ring-title">{_e(title)}</div>{sub_html}</div></div>'
+    )
